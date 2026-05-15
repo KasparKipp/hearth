@@ -67,9 +67,10 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
     ## Pipeline status
 
       * Available now — source recognition (URL / file / registry),
-        registry lookup, file-existence validation, install gating.
-      * Coming soon — YAML/JSON decode, on-disk cache, HTTP fetcher,
-        code generation.
+        registry lookup, file-existence validation, install gating,
+        YAML/JSON decode (for file sources).
+      * Coming soon — on-disk cache, HTTP fetcher (for URL / registry
+        sources), code generation.
 
     If your project is not yet set up (no `:hearth` in `.formatter.exs`
     or no `:hearth_domains` in `config/config.exs`), `hearth.gen` will
@@ -88,6 +89,7 @@ if Code.ensure_loaded?(Igniter) do
 
     use Igniter.Mix.Task
 
+    alias Hearth.Spec.Loader
     alias Hearth.Spec.Source
 
     @impl Igniter.Mix.Task
@@ -148,35 +150,34 @@ if Code.ensure_loaded?(Igniter) do
           igniter
 
         source ->
-          case Source.resolve(source) do
-            {:registry, name_with_version} ->
-              base = name_with_version |> String.split("@", parts: 2) |> hd()
-
-              case Hearth.Registry.versions(base) do
-                nil ->
-                  Igniter.add_issue(igniter, registry_unknown_name_message(base))
-
-                versions ->
-                  Mix.shell().info(format_versions(base, versions))
-                  igniter
-              end
-
-            _ ->
-              Igniter.add_issue(
-                igniter,
-                "hearth.gen: --list with a source only works for registry " <>
-                  "shortcuts (got #{inspect(source)}). Run `mix hearth.gen " <>
-                  "--list` without a source to see available shortcuts."
-              )
-          end
+          list_for_source(igniter, source, Source.resolve(source))
       end
     end
 
+    defp list_for_source(igniter, _source, {:registry, name_with_version}) do
+      base = name_with_version |> String.split("@", parts: 2) |> hd()
+
+      case Hearth.Registry.versions(base) do
+        nil ->
+          Igniter.add_issue(igniter, registry_unknown_name_message(base))
+
+        versions ->
+          Mix.shell().info(format_versions(base, versions))
+          igniter
+      end
+    end
+
+    defp list_for_source(igniter, source, _other) do
+      Igniter.add_issue(
+        igniter,
+        "hearth.gen: --list with a source only works for registry " <>
+          "shortcuts (got #{inspect(source)}). Run `mix hearth.gen " <>
+          "--list` without a source to see available shortcuts."
+      )
+    end
+
     defp format_shortcuts do
-      shortcuts =
-        Hearth.Registry.list()
-        |> Enum.map(&"  * #{&1}")
-        |> Enum.join("\n")
+      shortcuts = Enum.map_join(Hearth.Registry.list(), "\n", &"  * #{&1}")
 
       """
       Hearth shortcuts:
@@ -189,7 +190,7 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     defp format_versions(name, versions) do
-      list = versions |> Enum.map(&"  * #{&1}") |> Enum.join("\n")
+      list = Enum.map_join(versions, "\n", &"  * #{&1}")
 
       """
       #{name} versions:
@@ -268,15 +269,7 @@ if Code.ensure_loaded?(Igniter) do
           Igniter.add_notice(igniter, url_notice(url))
 
         {:file, path} ->
-          if Igniter.exists?(igniter, path) do
-            Igniter.add_notice(igniter, file_notice(path))
-          else
-            Igniter.add_issue(
-              igniter,
-              "hearth.gen: file not found at #{inspect(path)}. " <>
-                "Check the path is correct and relative to the project root."
-            )
-          end
+          handle_file_source(igniter, path)
 
         {:registry, name} ->
           case Hearth.Registry.lookup(name) do
@@ -310,17 +303,111 @@ if Code.ensure_loaded?(Igniter) do
       """
     end
 
-    defp file_notice(path) do
+    # File-source flow:
+    #
+    #   1. Sniff the format from the extension. Unsupported → halt.
+    #   2. Existence check via Igniter (works against both real disk and
+    #      `test_project(files: %{...})` virtual fs).
+    #   3. Pull bytes through Igniter's Rewrite layer so test fixtures and
+    #      real files take the same path.
+    #   4. Decode via Hearth.Spec.Loader. Decode failures halt with the
+    #      parser's message attached.
+    #   5. Summarize: title, info.version, OpenAPI spec version, path
+    #      count, operation count (sum of HTTP-method keys per path-item).
+    defp handle_file_source(igniter, path) do
+      case Loader.sniff(path) do
+        :unknown ->
+          Igniter.add_issue(igniter, unsupported_format_message(path))
+
+        format when format in [:yaml, :json] ->
+          if Igniter.exists?(igniter, path) do
+            load_local_spec(igniter, path, format)
+          else
+            Igniter.add_issue(igniter, file_not_found_message(path))
+          end
+      end
+    end
+
+    defp load_local_spec(igniter, path, format) do
+      igniter = Igniter.include_existing_file(igniter, path)
+
+      with {:ok, bytes} <- read_rewrite_content(igniter, path),
+           {:ok, spec} <- Loader.decode(bytes, format) do
+        Igniter.add_notice(igniter, file_loaded_notice(path, summarize(spec)))
+      else
+        {:error, reason} ->
+          Igniter.add_issue(igniter, decode_failed_message(path, reason))
+      end
+    end
+
+    defp read_rewrite_content(igniter, path) do
+      case Rewrite.source(igniter.rewrite, path) do
+        {:ok, source} -> {:ok, Rewrite.Source.get(source, :content)}
+        :error -> {:error, :file_not_in_rewrite}
+      end
+    end
+
+    @http_methods ~w(get put post delete options head patch trace)
+
+    defp summarize(spec) when is_map(spec) do
+      paths = Map.get(spec, "paths", %{})
+
+      %{
+        title: get_in(spec, ["info", "title"]) || "<untitled>",
+        info_version: get_in(spec, ["info", "version"]) || "<unversioned>",
+        openapi: Map.get(spec, "openapi", "<unknown>"),
+        paths: map_size(paths),
+        operations: count_operations(paths)
+      }
+    end
+
+    defp summarize(_),
+      do: %{title: "<not a map>", info_version: "?", openapi: "?", paths: 0, operations: 0}
+
+    defp count_operations(paths) when is_map(paths) do
+      paths
+      |> Map.values()
+      |> Enum.map(fn
+        path_item when is_map(path_item) ->
+          path_item |> Map.take(@http_methods) |> map_size()
+
+        _ ->
+          0
+      end)
+      |> Enum.sum()
+    end
+
+    defp count_operations(_), do: 0
+
+    defp file_loaded_notice(path, summary) do
       """
-      Source recognized: file.
+      Spec loaded from #{path}.
 
-          #{path}
+          #{summary.title} (info.version #{summary.info_version}, OpenAPI #{summary.openapi})
+          #{summary.paths} paths, #{summary.operations} operations
 
-      Next pipeline stage: YAML/JSON decode. Not yet wired — when ready,
-      this command will read and decode the spec before generating an
-      integration.
+      Next pipeline stage: code generation. Not yet wired — when ready,
+      this command will render Layer 1/2/3, patch your config, and
+      scaffold test files.
       """
     end
+
+    defp file_not_found_message(path) do
+      "hearth.gen: file not found at #{inspect(path)}. " <>
+        "Check the path is correct and relative to the project root."
+    end
+
+    defp unsupported_format_message(path) do
+      "hearth.gen: unsupported spec format for #{inspect(path)}. " <>
+        "Supported extensions: .yaml, .yml, .json."
+    end
+
+    defp decode_failed_message(path, reason) do
+      "hearth.gen: failed to parse spec at #{path}.\n\n" <> format_reason(reason)
+    end
+
+    defp format_reason(%{__exception__: true} = ex), do: Exception.message(ex)
+    defp format_reason(reason), do: inspect(reason)
 
     defp registry_hit_notice(entry) do
       %{
@@ -354,7 +441,7 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     defp registry_unknown_name_message(name) do
-      available = Hearth.Registry.list() |> Enum.map(&"  * #{&1}") |> Enum.join("\n")
+      available = Enum.map_join(Hearth.Registry.list(), "\n", &"  * #{&1}")
 
       """
       hearth.gen: no registry entry for `#{name}`.
@@ -369,7 +456,7 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     defp registry_unknown_version_message(name, version, available) do
-      versions_block = available |> Enum.map(&"  * #{name}@#{&1}") |> Enum.join("\n")
+      versions_block = Enum.map_join(available, "\n", &"  * #{name}@#{&1}")
 
       """
       hearth.gen: registry shortcut `#{name}` has no version `#{version}`.

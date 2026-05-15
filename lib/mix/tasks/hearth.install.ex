@@ -119,10 +119,7 @@ if Code.ensure_loaded?(Igniter) do
     defp first_install_notice(otp_app, changed_files) do
       app_module = Macro.camelize(to_string(otp_app))
 
-      modified_block =
-        changed_files
-        |> Enum.map(&"  • #{&1}")
-        |> Enum.join("\n")
+      modified_block = Enum.map_join(changed_files, "\n", &"  • #{&1}")
 
       """
       === Hearth v#{hearth_version()} installed ===

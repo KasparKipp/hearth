@@ -7,9 +7,10 @@ defmodule Hearth.MixProject do
     [
       app: :hearth,
       version: @version,
-      elixir: "~> 1.15",
+      elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      aliases: aliases(),
       package: package(),
       deps: deps()
     ]
@@ -47,7 +48,15 @@ defmodule Hearth.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:igniter, "~> 0.5", optional: true}
+      {:igniter, "~> 0.5", optional: true},
+      {:yaml_elixir, "~> 2.0"},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+    ]
+  end
+
+  defp aliases do
+    [
+      credo: "credo --strict"
     ]
   end
 end

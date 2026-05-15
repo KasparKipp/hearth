@@ -4,6 +4,13 @@ defmodule Mix.Tasks.Hearth.GenTest do
   import ExUnit.CaptureIO
   import Igniter.Test
 
+  # Fixtures are read at compile time and threaded through Igniter's virtual
+  # fs via `test_project(files: %{...})` — in test mode `Igniter.exists?/2`
+  # only consults the virtual fs, never real disk.
+  @petstore_3_0_yaml File.read!("test/fixtures/specs/petstore-3.0.yaml")
+  @petstore_3_0_json File.read!("test/fixtures/specs/petstore-3.0.json")
+  @tictactoe_3_1_yaml File.read!("test/fixtures/specs/tictactoe-3.1.yaml")
+
   defp notice_text(igniter), do: Enum.join(igniter.notices, "\n\n")
 
   describe "source recognition" do
@@ -18,15 +25,38 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert notice =~ "HTTP fetch"
     end
 
-    test "file source emits a file-specific notice when the file exists" do
+    test "YAML file source decodes and summarizes the spec" do
       igniter =
-        test_project(files: %{"priv/specs/petstore.yaml" => "openapi: 3.0.0\n"})
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
         |> Igniter.compose_task("hearth.gen", ["priv/specs/petstore.yaml"])
 
       notice = notice_text(igniter)
-      assert notice =~ "Source recognized: file"
-      assert notice =~ "priv/specs/petstore.yaml"
-      assert notice =~ "YAML/JSON decode"
+      assert notice =~ "Spec loaded from priv/specs/petstore.yaml"
+      assert notice =~ "Swagger Petstore"
+      assert notice =~ "OpenAPI 3.0.0"
+      assert notice =~ ~r/\d+ paths/
+      assert notice =~ ~r/\d+ operations/
+      assert notice =~ "code generation"
+    end
+
+    test "JSON file source decodes and summarizes the spec" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.json" => @petstore_3_0_json})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/petstore.json"])
+
+      notice = notice_text(igniter)
+      assert notice =~ "Spec loaded"
+      assert notice =~ "Swagger Petstore"
+    end
+
+    test "OAS 3.1 file source decodes correctly" do
+      igniter =
+        test_project(files: %{"priv/specs/tictactoe.yaml" => @tictactoe_3_1_yaml})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/tictactoe.yaml"])
+
+      notice = notice_text(igniter)
+      assert notice =~ "Tic Tac Toe"
+      assert notice =~ "OpenAPI 3.1.0"
     end
 
     test "file source halts with an issue when the file is missing" do
@@ -39,7 +69,30 @@ defmodule Mix.Tasks.Hearth.GenTest do
                &String.contains?(&1, "file not found at \"priv/specs/does-not-exist.yaml\"")
              )
 
-      refute notice_text(igniter) =~ "Source recognized: file"
+      refute notice_text(igniter) =~ "Spec loaded"
+    end
+
+    test "file source with unsupported extension halts with a clear issue" do
+      igniter =
+        test_project(files: %{"priv/specs/foo.xml" => "<oas/>"})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/foo.xml"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "unsupported spec format") and
+                 String.contains?(issue, "foo.xml") and
+                 String.contains?(issue, ".yaml")
+             end)
+    end
+
+    test "file source with malformed YAML halts with a parse-error issue" do
+      igniter =
+        test_project(files: %{"priv/specs/broken.yaml" => "[this: is: not: yaml"})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/broken.yaml"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "failed to parse spec") and
+                 String.contains?(issue, "broken.yaml")
+             end)
     end
 
     test "bare shortcut resolves to @latest" do

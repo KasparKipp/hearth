@@ -434,6 +434,36 @@ at `~/.claude/plans/um-what-s-gitkeep-compiled-hennessy.md`.
   `Mix.shell().info/1`, not notices, so it appears immediately rather
   than under a `Notices:` header.
 
+- **Step 4c — Spec loader for YAML and JSON.** `Hearth.Spec.Loader`
+  with two functions: `sniff/1` (extension → `:yaml | :json | :unknown`,
+  strips URL query strings) and `decode/2` (bytes + format →
+  `{:ok, map} | {:error, term}`). YAML via `YamlElixir.read_from_string/1`;
+  JSON via the stdlib `JSON.decode/1` (Erlang 27's `:json` wrapped in
+  Elixir 1.18+ — no Jason dep). The mix.exs elixir constraint was
+  bumped from `~> 1.15` to `~> 1.18` to access `JSON`.
+
+  Wired into the gen task's `:file` branch. The flow: sniff format
+  (unsupported → halt with supported-extensions hint), check existence
+  via `Igniter.exists?/2`, pull bytes into Rewrite via
+  `Igniter.include_existing_file/2`, decode, summarize. The notice now
+  reads `Spec loaded from <path>` with title / info.version / OpenAPI
+  spec version / path count / operation count. Decode failures surface
+  the parser's message verbatim.
+
+  Test fixtures: OAI's canonical petstore example for OAS 3.0
+  (`test/fixtures/specs/petstore-3.0.{yaml,json}`) and tictactoe for
+  OAS 3.1 (`tictactoe-3.1.{yaml,json}`). Vendored from
+  `OAI/learn.openapis.org` so renderer work in step 5+ has realistic
+  `components.schemas` to traverse. The fixtures are read at compile
+  time into module attributes and threaded through
+  `test_project(files: %{...})` because in test mode `Igniter.exists?/2`
+  only consults the virtual fs, never real disk.
+
+  Spec validation was considered (in-house structural checks vs
+  `ex_json_schema`) and deliberately deferred to step 5+, where the
+  renderer's actual demands codify what "valid enough" means for
+  Hearth's purposes.
+
 #### Load-bearing contracts
 
 These were learned the hard way and must hold for future steps:
@@ -452,10 +482,7 @@ These were learned the hard way and must hold for future steps:
 
 #### Pending
 
-- **Step 4c (next) — `Hearth.Spec.Loader.decode/2`.** Bytes +
-  content-type → map. Adds `yaml_elixir` and `jason` deps. Wire so
-  `mix hearth.gen ./local.yaml` reports decode results.
-- **Step 4d — `Hearth.Spec.Cache`.** On-disk read/write of
+- **Step 4d (next) — `Hearth.Spec.Cache`.** On-disk read/write of
   `priv/hearth/cache/<sha256>/spec.{ext}` + `meta.exs`.
 - **Step 4e — `Hearth.Spec.Fetcher`.** Req-based HTTP with cache.
   First network-I/O step. Tests use `Req.Test` stubs.
