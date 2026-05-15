@@ -20,18 +20,24 @@ defmodule Hearth.RegistryTest do
       assert bare == pinned
     end
 
-    test "date.codename is the canonical entry — no alias indirection" do
+    test "date.codename is a canonical entry — direct, no alias indirection" do
       {:ok, %{version: "2026-04-22.dahlia", resolved_version: "2026-04-22.dahlia"}} =
         Registry.lookup("stripe@2026-04-22.dahlia")
     end
 
-    test "@latest is an alias for the current date.codename" do
-      {:ok, canonical} = Registry.lookup("stripe@2026-04-22.dahlia")
+    test "@latest is also a canonical entry, with its own floating URL" do
       {:ok, latest} = Registry.lookup("stripe@latest")
+      {:ok, dated} = Registry.lookup("stripe@2026-04-22.dahlia")
 
-      assert latest.url == canonical.url
       assert latest.version == "latest"
-      assert latest.resolved_version == "2026-04-22.dahlia"
+      assert latest.resolved_version == "latest"
+
+      # Same content today, but the URLs are distinct so the cache treats
+      # them as separate sources. `latest` floats; the dated form is
+      # frozen.
+      refute latest.url == dated.url
+      assert latest.url =~ "refs/heads/master"
+      assert dated.url =~ "v2266"
     end
 
     test "codename alias resolves to the canonical date.codename URL" do
@@ -52,17 +58,63 @@ defmodule Hearth.RegistryTest do
       assert dated.resolved_version == "2026-04-22.dahlia"
     end
 
+    test "@basil resolves to the most recent dated basil release" do
+      {:ok, canonical} = Registry.lookup("stripe@2025-08-27.basil")
+      {:ok, family} = Registry.lookup("stripe@basil")
+
+      assert family.url == canonical.url
+      assert family.url =~ "v2017"
+      assert family.resolved_version == "2025-08-27.basil"
+    end
+
+    test "@clover resolves to the most recent dated clover release" do
+      {:ok, canonical} = Registry.lookup("stripe@2026-02-25.clover")
+      {:ok, family} = Registry.lookup("stripe@clover")
+
+      assert family.url == canonical.url
+      assert family.url =~ "v2203"
+      assert family.resolved_version == "2026-02-25.clover"
+    end
+
+    test "historic dated entries resolve to their pinned tag URLs" do
+      {:ok, oldest_basil} = Registry.lookup("stripe@2025-03-31.basil")
+      assert oldest_basil.url =~ "v1712"
+
+      {:ok, mid_clover} = Registry.lookup("stripe@2025-12-15.clover")
+      assert mid_clover.url =~ "v2139"
+
+      {:ok, older_dahlia} = Registry.lookup("stripe@2026-03-25.dahlia")
+      assert older_dahlia.url =~ "v2248"
+    end
+
+    test "date-alone aliases work across codename families" do
+      # Basil family
+      {:ok, dated} = Registry.lookup("stripe@2025-04-30")
+      assert dated.resolved_version == "2025-04-30.basil"
+      assert dated.url =~ "v1769"
+
+      # Clover family
+      {:ok, dated} = Registry.lookup("stripe@2025-11-17")
+      assert dated.resolved_version == "2025-11-17.clover"
+      assert dated.url =~ "v2132"
+    end
+
     test "unknown name returns :unknown_name error" do
       assert Registry.lookup("nonexistent") == {:error, {:unknown_name, "nonexistent"}}
     end
 
-    test "known name with unknown version returns :unknown_version error with available list" do
+    test "known name with unknown version returns :unknown_version error with canonical list only" do
       assert {:error, {:unknown_version, "stripe", "2099-01-01", available}} =
                Registry.lookup("stripe@2099-01-01")
 
       assert "latest" in available
-      assert "dahlia" in available
+      assert "2026-04-22.dahlia" in available
       assert hd(available) == "latest"
+
+      # Aliases are invisible to listings — only canonical (URL-backed)
+      # entries appear.
+      refute "dahlia" in available
+      refute "2026-04-22" in available
     end
 
     test "default integration name is derived via Macro.camelize" do
@@ -100,11 +152,15 @@ defmodule Hearth.RegistryTest do
       assert hd(versions) == "latest"
     end
 
-    test "includes alias keys alongside canonical versions" do
+    test "lists only canonical (URL-backed) versions — aliases are filtered out" do
       versions = Registry.versions("stripe")
-      assert "dahlia" in versions
-      assert "2026-04-22" in versions
+
+      assert "latest" in versions
       assert "2026-04-22.dahlia" in versions
+
+      # Aliases still resolve at lookup time but never appear in listings.
+      refute "dahlia" in versions
+      refute "2026-04-22" in versions
     end
 
     test "returns nil for an unknown shortcut" do

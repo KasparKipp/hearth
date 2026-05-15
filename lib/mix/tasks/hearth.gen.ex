@@ -16,6 +16,8 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
     ## Usage
 
         mix hearth.gen <source> [--integration <Name>] [--domain <Name>] [--refresh] [--yes]
+        mix hearth.gen --list                  # list shortcut names
+        mix hearth.gen <name> --list           # list versions for a shortcut
 
     ## Source modes
 
@@ -35,12 +37,12 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         * `stripe` — the Stripe API (https://stripe.com).
 
       Each shortcut can be pinned to a version with `name@version`. Bare
-      `stripe` is shorthand for `stripe@latest`. Historic versions are
-      added to the registry as their spec URLs are confirmed; until then
-      only `@latest` is available. The default integration module name
-      is derived from the shortcut via `Macro.camelize/1`
-      (`stripe → Stripe`, `google_docs → GoogleDocs`) — override with
-      `--integration <Name>` when you want something different.
+      `stripe` is shorthand for `stripe@latest`. Run `mix hearth.gen
+      <name> --list` to see the available versions for a shortcut. The
+      default integration module name is derived from the shortcut via
+      `Macro.camelize/1` (`stripe → Stripe`, `google_docs → GoogleDocs`)
+      — override with `--integration <Name>` when you want something
+      different.
 
     ## Options
 
@@ -53,6 +55,11 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         `MyApp.Integrations.<Name>`. (See "Module layout" in the README.)
       * `--refresh` — for URL and registry sources, bypass the on-disk
         cache and re-fetch the spec. No-op for file sources.
+      * `--list` — introspect the registry and exit. Without a source,
+        prints the shortcut names. With a registry shortcut as the
+        source (e.g. `mix hearth.gen stripe --list`), prints the
+        available versions for that shortcut. Non-registry sources
+        produce an error. Install is never run under `--list`.
       * `--yes` — non-interactive mode. Skips the prompt to run
         `mix hearth.install` on a fresh project and accepts any other
         confirmations.
@@ -91,9 +98,14 @@ if Code.ensure_loaded?(Igniter) do
           integration: :string,
           domain: :string,
           refresh: :boolean,
+          list: :boolean,
           yes: :boolean
         ],
-        positional: [:source],
+        # `:source` is optional so `mix hearth.gen --list` (and an empty
+        # invocation) can be intercepted in igniter/1 with task-specific
+        # messages rather than Igniter's generic "required positional"
+        # error.
+        positional: [{:source, optional: true}],
         installs: [],
         example: __MODULE__.Docs.example()
       }
@@ -101,10 +113,109 @@ if Code.ensure_loaded?(Igniter) do
 
     @impl Igniter.Mix.Task
     def igniter(igniter) do
-      case ensure_installed(igniter) do
-        {:ok, igniter} -> dispatch_source(igniter)
-        {:halt, igniter} -> igniter
+      cond do
+        igniter.args.options[:list] ->
+          # Pure introspection — skip install gating entirely.
+          handle_list(igniter)
+
+        is_nil(igniter.args.positional[:source]) ->
+          Igniter.add_issue(igniter, missing_source_message())
+
+        true ->
+          case ensure_installed(igniter) do
+            {:ok, igniter} -> dispatch_source(igniter)
+            {:halt, igniter} -> igniter
+          end
       end
+    end
+
+    # --list semantics:
+    #
+    #   * no source       → print the available shortcut names
+    #   * registry source → print available versions for that shortcut
+    #     (the @version part of the source is ignored — same answer for
+    #     `stripe`, `stripe@latest`, or `stripe@anything-else`)
+    #   * any other source → error: --list is registry-only
+    defp handle_list(igniter) do
+      # --list is pure introspection. Suppress Igniter's end-of-run
+      # "No proposed content changes!" line so query-mode commands
+      # don't leave that noise behind their actual output.
+      igniter = Igniter.assign(igniter, :quiet_on_no_changes?, true)
+
+      case igniter.args.positional[:source] do
+        nil ->
+          Mix.shell().info(format_shortcuts())
+          igniter
+
+        source ->
+          case Source.resolve(source) do
+            {:registry, name_with_version} ->
+              base = name_with_version |> String.split("@", parts: 2) |> hd()
+
+              case Hearth.Registry.versions(base) do
+                nil ->
+                  Igniter.add_issue(igniter, registry_unknown_name_message(base))
+
+                versions ->
+                  Mix.shell().info(format_versions(base, versions))
+                  igniter
+              end
+
+            _ ->
+              Igniter.add_issue(
+                igniter,
+                "hearth.gen: --list with a source only works for registry " <>
+                  "shortcuts (got #{inspect(source)}). Run `mix hearth.gen " <>
+                  "--list` without a source to see available shortcuts."
+              )
+          end
+      end
+    end
+
+    defp format_shortcuts do
+      shortcuts =
+        Hearth.Registry.list()
+        |> Enum.map(&"  * #{&1}")
+        |> Enum.join("\n")
+
+      """
+      Hearth shortcuts:
+
+      #{shortcuts}
+
+      Pass a shortcut to mix hearth.gen, e.g. `mix hearth.gen stripe`.
+      Run `mix hearth.gen <name> --list` to see versions for a shortcut.
+      """
+    end
+
+    defp format_versions(name, versions) do
+      list = versions |> Enum.map(&"  * #{&1}") |> Enum.join("\n")
+
+      """
+      #{name} versions:
+
+      #{list}
+
+      Pin with `name@version`, e.g. `mix hearth.gen #{name}@#{List.last(versions)}`.
+      Bare `mix hearth.gen #{name}` resolves to @latest.
+      """
+    end
+
+    defp missing_source_message do
+      """
+      hearth.gen: pass a source to generate from.
+
+        mix hearth.gen <source>           # see source modes below
+        mix hearth.gen --list             # show registered shortcuts
+        mix hearth.gen <name> --list      # show versions for a shortcut
+
+      Source modes:
+        * file:     priv/specs/<api>.yaml
+        * URL:      https://example.com/openapi.json
+        * registry: stripe   (run with --list for the full set)
+
+      Run `mix help hearth.gen` for full options.
+      """
     end
 
     # Speculatively compose `hearth.install` to find out what (if anything)

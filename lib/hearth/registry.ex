@@ -43,29 +43,92 @@ defmodule Hearth.Registry do
 
   @entries %{
     "stripe" => %{
-      # The canonical key for each Stripe release is the full
-      # `<date>.<codename>` form — that is where the URL actually lives.
-      # All shorter forms (date alone, codename alone) and the floating
-      # `"latest"` pointer are aliases that resolve to it.
+      # === Stripe registry layout ===
       #
-      # Why canonicalize on the most specific form: when Stripe ships
-      # their next release, only `"latest"` needs to be repointed at the
-      # new key. Today's date/codename aliases automatically follow this
-      # release into the historic record without any further edits.
+      # `latest` is a separate canonical entry pointing at Stripe's
+      # floating master URL — drifts as Stripe pushes. Use it when you
+      # want auto-tracking; use a dated form when you want reproducibility.
       #
-      # Promoting a new release looks like:
+      # Each dated `<date>.<codename>` entry holds an immutable tagged URL
+      # (e.g. v2266). The codename-alone alias (`dahlia`, `clover`, …)
+      # resolves to the MOST RECENT dated release in that codename family,
+      # so `stripe@dahlia` tracks the dahlia family's latest. Date-alone
+      # aliases (`2026-04-22`) resolve to the exact `<date>.<codename>`
+      # they correspond to.
       #
-      #   1. Add `"<new_date>.<new_codename>" => "<new_url>"`.
-      #   2. Add aliases `"<new_codename>"` and `"<new_date>"` for that key.
-      #   3. Repoint `"latest"` at the new key.
-      #   4. Update the previous release's canonical URL to a pinned
-      #      historic location (probably a commit SHA in the stripe/openapi
-      #      repo) so the spec doesn't drift.
+      # Source for the historic URLs: cloned stripe/openapi with
+      # `--filter=blob:none`, mapped each of the v1..v2266 tags to its
+      # `openapi/spec3.yaml` blob, grouped tags by the spec's `info.version`
+      # field, and picked the highest tag per version (i.e. the most
+      # recently-published spec snapshot for that public API date).
+      #
+      # Coverage is currently the three active codenames — basil, clover,
+      # dahlia. Earlier codenames (acacia and before) are skipped; add
+      # them if a user pins back that far.
+      #
+      # Promoting a new Stripe release:
+      #   1. Add a `<new_date>.<new_codename>` canonical entry with its
+      #      tag URL.
+      #   2. Add a `<new_date>` alias pointing at it.
+      #   3. If the codename matches an existing family, repoint the
+      #      codename alias to the new date. If it's a new codename, add
+      #      a new codename alias.
+      #   4. `latest` keeps the master URL — no edit needed there.
+
+      # Floating pointer (master/HEAD).
+      "latest" =>
+        "https://raw.githubusercontent.com/stripe/openapi/refs/heads/master/openapi/spec3.yaml",
+
+      # --- dahlia ---
       "2026-04-22.dahlia" =>
-        "https://raw.githubusercontent.com/stripe/openapi/refs/heads/master/latest/openapi.spec3.yaml",
-      "latest" => {:alias, "2026-04-22.dahlia"},
+        "https://raw.githubusercontent.com/stripe/openapi/v2266/openapi/spec3.yaml",
+      "2026-03-25.dahlia" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v2248/openapi/spec3.yaml",
       "dahlia" => {:alias, "2026-04-22.dahlia"},
-      "2026-04-22" => {:alias, "2026-04-22.dahlia"}
+      "2026-04-22" => {:alias, "2026-04-22.dahlia"},
+      "2026-03-25" => {:alias, "2026-03-25.dahlia"},
+
+      # --- clover ---
+      "2026-02-25.clover" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v2203/openapi/spec3.yaml",
+      "2026-01-28.clover" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v2182/openapi/spec3.yaml",
+      "2025-12-15.clover" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v2139/openapi/spec3.yaml",
+      "2025-11-17.clover" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v2132/openapi/spec3.yaml",
+      "2025-10-29.clover" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v2110/openapi/spec3.yaml",
+      "2025-09-30.clover" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v2092/openapi/spec3.yaml",
+      "clover" => {:alias, "2026-02-25.clover"},
+      "2026-02-25" => {:alias, "2026-02-25.clover"},
+      "2026-01-28" => {:alias, "2026-01-28.clover"},
+      "2025-12-15" => {:alias, "2025-12-15.clover"},
+      "2025-11-17" => {:alias, "2025-11-17.clover"},
+      "2025-10-29" => {:alias, "2025-10-29.clover"},
+      "2025-09-30" => {:alias, "2025-09-30.clover"},
+
+      # --- basil ---
+      "2025-08-27.basil" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v2017/openapi/spec3.yaml",
+      "2025-07-30.basil" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v1927/openapi/spec3.yaml",
+      "2025-06-30.basil" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v1867/openapi/spec3.yaml",
+      "2025-05-28.basil" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v1818/openapi/spec3.yaml",
+      "2025-04-30.basil" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v1769/openapi/spec3.yaml",
+      "2025-03-31.basil" =>
+        "https://raw.githubusercontent.com/stripe/openapi/v1712/openapi/spec3.yaml",
+      "basil" => {:alias, "2025-08-27.basil"},
+      "2025-08-27" => {:alias, "2025-08-27.basil"},
+      "2025-07-30" => {:alias, "2025-07-30.basil"},
+      "2025-06-30" => {:alias, "2025-06-30.basil"},
+      "2025-05-28" => {:alias, "2025-05-28.basil"},
+      "2025-04-30" => {:alias, "2025-04-30.basil"},
+      "2025-03-31" => {:alias, "2025-03-31.basil"}
     }
   }
 
@@ -103,7 +166,7 @@ defmodule Hearth.Registry do
              }}
 
           :unknown ->
-            {:error, {:unknown_version, name, version, sort_versions(versions)}}
+            {:error, {:unknown_version, name, version, canonical_versions(versions)}}
         end
     end
   end
@@ -111,11 +174,15 @@ defmodule Hearth.Registry do
   @spec list() :: [String.t()]
   def list, do: @entries |> Map.keys() |> Enum.sort()
 
+  # Lists only canonical versions (those backed by a URL). Aliases
+  # resolve at lookup time but are invisible to listings — surfacing
+  # them confuses users who expect "available versions" to be the
+  # source of truth, and aliases are convenience plumbing on top.
   @spec versions(String.t()) :: [String.t()] | nil
   def versions(name) when is_binary(name) do
     case Map.get(@entries, name) do
       nil -> nil
-      versions -> sort_versions(versions)
+      versions -> canonical_versions(versions)
     end
   end
 
@@ -137,11 +204,13 @@ defmodule Hearth.Registry do
     end
   end
 
-  # "latest" sorts first; the rest sort descending so the newest pinned
-  # version sits closest to "latest" once historic entries exist.
-  defp sort_versions(versions) do
+  # Canonical = the keys whose value is a URL string, not an `{:alias, …}`
+  # tuple. Sorted with "latest" pinned to the front and the rest
+  # descending so newer pinned releases sit closer to it.
+  defp canonical_versions(versions) do
     versions
-    |> Map.keys()
+    |> Enum.filter(fn {_key, value} -> is_binary(value) end)
+    |> Enum.map(&elem(&1, 0))
     |> Enum.sort(fn
       "latest", _ -> true
       _, "latest" -> false

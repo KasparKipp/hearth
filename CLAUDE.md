@@ -451,6 +451,100 @@ and prints a summary. Code generation (the renderers) is step 5+.
   This composition pattern is the contract for every future Hearth task
   that needs install state — they all open with the same gated compose.
 
+- **Step 4b-detour (done)** — Context-sensitive `--list` under the gen
+  task (no separate `mix hearth.list` task — the registry is gen's
+  domain). Two output shapes:
+
+  1. `mix hearth.gen --list` (no source) — prints just the shortcut
+     names. Deliberately narrow: no versions, no URLs, no derived
+     integration names. The follow-up command is signposted right in
+     the output: `Run mix hearth.gen <name> --list to see versions`.
+  2. `mix hearth.gen <name> --list` — prints the versions for that
+     shortcut. The `@version` portion of the source is ignored, so
+     `stripe`, `stripe@latest`, and `stripe@anything-else` all produce
+     the same output. The trailing hint suggests `name@<historic>` and
+     `name → @latest` to teach the version-pinning syntax.
+
+  Non-registry sources with `--list` (file path or URL) record a clear
+  issue: `--list with a source only works for registry shortcuts`.
+  Unknown shortcut + `--list` reuses the existing
+  `registry_unknown_name_message/1` so the answer is consistent with
+  the regular-resolution path.
+
+  Implementation notes:
+
+  * `:source` positional becomes optional in the `Info` schema so
+    `--list` and the empty invocation can be intercepted in `igniter/1`
+    with task-specific messages rather than Igniter's generic
+    "required positional" error. The missing-source error becomes
+    genuinely useful: it hints at `--list`, `<name> --list`, and the
+    three source modes.
+  * Output goes through `Mix.shell().info/1` instead of
+    `Igniter.add_notice/2` — the list IS the user-requested output,
+    not a side-comment, so it prints immediately rather than under a
+    "Notices:" header at end-of-run.
+  * The list path short-circuits install gating entirely.
+
+  Tests grow under two new describe blocks: `--list (no source)`
+  (narrow-output assertion, install-skipped invariant via
+  `Process.put`-threaded igniter capture) and `<name> --list`
+  (version output, @version-ignored equivalence across three forms,
+  unknown-shortcut error reuse, non-registry-source errors for file
+  and URL). Shell-output assertions use `ExUnit.CaptureIO.capture_io/1`
+  for `async: true` compatibility.
+
+- **Step 4b-historic (done)** — Stripe registry expanded to cover the
+  three active codename families: basil (6 dated releases, v1712 →
+  v2017), clover (6 dated releases, v2092 → v2203), and dahlia (2
+  dated releases, v2248 → v2266). 14 canonical dated entries plus the
+  floating `latest`, with codename aliases pointing at the most recent
+  dated release in each family and date-alone aliases pointing at the
+  corresponding `<date>.<codename>`. All URLs use the consistent
+  `openapi/spec3.yaml` path (replacing the earlier `latest/openapi.spec3.yaml`
+  for tagged URLs).
+
+  Source for the historic URLs: bare clone of stripe/openapi with
+  `--filter=blob:none`, every tag from v1 to v2266 mapped to its
+  `openapi/spec3.yaml` blob (~934 unique blobs across 2266 tags),
+  parallel-fetched the YAML to read `info.version`, grouped tags by
+  version and picked the highest tag per version. Earlier codenames
+  (acacia and pre-2022 dates) are intentionally skipped — easy to add
+  if a user pins back that far.
+
+  Five new registry tests (codename alias → most recent dated release
+  for basil and clover, oldest dated entries resolve to their pinned
+  tag URLs, date-alone aliases work across families) and one new gen
+  test asserting `stripe@basil` and `stripe@clover` produce
+  alias-annotated notices.
+
+- **Step 4b-detour-followup (done)** — Three corrections layered onto
+  the detour:
+
+  1. **`@latest` is no longer an alias.** It's a second canonical entry
+     pointing at the floating `master/latest/openapi.spec3.yaml` URL,
+     while `2026-04-22.dahlia` holds the *tagged* URL (`v2266`). The
+     two URLs differ by design: cache treats them as distinct sources,
+     so `stripe@latest` drifts as Stripe pushes to master while
+     `stripe@2026-04-22.dahlia` stays frozen. `dahlia` and `2026-04-22`
+     remain aliases for the dated form.
+  2. **Aliases are invisible to listings.** `Hearth.Registry.versions/1`
+     and the unknown-version error now filter to entries whose value is
+     a URL string — alias tuples don't appear. The drill-down output
+     for `stripe --list` is now `[latest, 2026-04-22.dahlia]` rather
+     than four flat peers (two of which were aliases). Aliases still
+     resolve at lookup time; they just don't surface as advertised
+     versions. The gen notice's "alias for" annotation remains the
+     mechanism for discovering them.
+  3. **No-op chatter is suppressed under `--list`.** `handle_list/1`
+     sets `igniter.assigns[:quiet_on_no_changes?] = true` so Igniter
+     doesn't print its "No proposed content changes!" line after a
+     query-mode command. A test asserts the assign is set.
+
+  Plus a small doc fix: the Registry shortcuts section in `mix help
+  hearth.gen` no longer claims "until then only `@latest` is available"
+  (directly contradicted by `--list`) — it points at `--list` for
+  version discovery instead. A test refutes both stale wordings.
+
 - **Step 4b-followup (done)** — Aliases for the Stripe shortcut, with
   the full `<date>.<codename>` form as the canonical key. Stripe stamps
   each release with both an ISO date (`2026-04-22`) and a flower

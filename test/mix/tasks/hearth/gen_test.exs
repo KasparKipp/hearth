@@ -1,6 +1,7 @@
 defmodule Mix.Tasks.Hearth.GenTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
   import Igniter.Test
 
   defp notice_text(igniter), do: Enum.join(igniter.notices, "\n\n")
@@ -115,18 +116,18 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert notice =~ "raw.githubusercontent.com/stripe"
     end
 
-    test "@latest is itself an alias and shows the underlying canonical version" do
+    test "@latest is a canonical entry with its own floating URL, no alias annotation" do
       igniter =
         test_project()
         |> Igniter.compose_task("hearth.gen", ["stripe@latest"])
 
       notice = notice_text(igniter)
-
-      assert notice =~
-               "registry shorthand `stripe@latest` (alias for `stripe@2026-04-22.dahlia`)"
+      assert notice =~ "registry shorthand `stripe@latest`."
+      refute notice =~ "alias for"
+      assert notice =~ "refs/heads/master"
     end
 
-    test "canonical date.codename notice does not include alias annotation" do
+    test "@2026-04-22.dahlia is a canonical entry with the tagged URL" do
       igniter =
         test_project()
         |> Igniter.compose_task("hearth.gen", ["stripe@2026-04-22.dahlia"])
@@ -134,15 +135,21 @@ defmodule Mix.Tasks.Hearth.GenTest do
       notice = notice_text(igniter)
       assert notice =~ "registry shorthand `stripe@2026-04-22.dahlia`."
       refute notice =~ "alias for"
+      assert notice =~ "v2266"
     end
   end
 
   describe "error paths" do
-    test "missing source raises a useful error" do
-      assert_raise ArgumentError, ~r/Required positional argument `source`/, fn ->
+    test "missing source records an issue hinting at --list and the source modes" do
+      igniter =
         test_project()
         |> Igniter.compose_task("hearth.gen", [])
-      end
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "pass a source") and
+                 String.contains?(issue, "--list") and
+                 String.contains?(issue, "registry")
+             end)
     end
 
     test "unclassifiable source records an issue" do
@@ -151,6 +158,155 @@ defmodule Mix.Tasks.Hearth.GenTest do
         |> Igniter.compose_task("hearth.gen", ["foo bar"])
 
       assert Enum.any?(igniter.issues, &String.contains?(&1, "could not classify"))
+    end
+  end
+
+  describe "--list (no source) — shortcut names" do
+    test "prints only the registered shortcut names" do
+      output =
+        capture_io(fn ->
+          test_project()
+          |> Igniter.compose_task("hearth.gen", ["--list"])
+        end)
+
+      assert output =~ "Hearth shortcuts"
+      assert output =~ "* stripe"
+
+      # Stays narrow: no version detail, no URL, no integration name.
+      refute output =~ "latest"
+      refute output =~ "dahlia"
+      refute output =~ "2026-04-22"
+      refute output =~ "default integration"
+      refute output =~ "https://"
+    end
+
+    test "does not run install gating" do
+      key = make_ref()
+
+      capture_io(fn ->
+        igniter = test_project() |> Igniter.compose_task("hearth.gen", ["--list"])
+        Process.put(key, igniter)
+      end)
+
+      igniter = Process.get(key)
+
+      assert_unchanged(igniter, [".formatter.exs", "config/config.exs"])
+      refute notice_text(igniter) =~ "Hearth v"
+    end
+
+    test "sets the quiet_on_no_changes? assign so Igniter does not chatter" do
+      key = make_ref()
+
+      capture_io(fn ->
+        igniter = test_project() |> Igniter.compose_task("hearth.gen", ["--list"])
+        Process.put(key, igniter)
+      end)
+
+      igniter = Process.get(key)
+      assert igniter.assigns[:quiet_on_no_changes?] == true
+    end
+  end
+
+  describe "<name> --list — versions for a shortcut" do
+    test "prints canonical versions only — aliases are filtered out" do
+      output =
+        capture_io(fn ->
+          test_project()
+          |> Igniter.compose_task("hearth.gen", ["stripe", "--list"])
+        end)
+
+      assert output =~ "stripe versions:"
+      assert output =~ "* latest"
+      assert output =~ "* 2026-04-22.dahlia"
+      assert output =~ "* 2026-03-25.dahlia"
+      assert output =~ "* 2026-02-25.clover"
+      assert output =~ "* 2025-08-27.basil"
+      assert output =~ "* 2025-03-31.basil"
+
+      # Aliases (dahlia, clover, basil codenames + date-alone forms)
+      # resolve at lookup but are invisible to listings — surfacing them
+      # confuses the "available versions" surface.
+      refute output =~ "* dahlia\n"
+      refute output =~ "* clover\n"
+      refute output =~ "* basil\n"
+      refute output =~ "* 2026-04-22\n"
+      refute output =~ "* 2025-03-31\n"
+
+      # The version listing should not also dump the URL or trigger
+      # source-recognition output.
+      refute output =~ "Source recognized"
+      refute output =~ "https://"
+    end
+
+    test "codename aliases resolve to the most recent dated release" do
+      basil =
+        test_project()
+        |> Igniter.compose_task("hearth.gen", ["stripe@basil"])
+        |> notice_text()
+
+      assert basil =~ "registry shorthand `stripe@basil` (alias for `stripe@2025-08-27.basil`)"
+      assert basil =~ "v2017"
+
+      clover =
+        test_project()
+        |> Igniter.compose_task("hearth.gen", ["stripe@clover"])
+        |> notice_text()
+
+      assert clover =~ "registry shorthand `stripe@clover` (alias for `stripe@2026-02-25.clover`)"
+      assert clover =~ "v2203"
+    end
+
+    test "@version on the source is ignored — same answer for any @version" do
+      bare =
+        capture_io(fn ->
+          test_project() |> Igniter.compose_task("hearth.gen", ["stripe", "--list"])
+        end)
+
+      pinned =
+        capture_io(fn ->
+          test_project() |> Igniter.compose_task("hearth.gen", ["stripe@latest", "--list"])
+        end)
+
+      anything =
+        capture_io(fn ->
+          test_project() |> Igniter.compose_task("hearth.gen", ["stripe@anything", "--list"])
+        end)
+
+      assert bare == pinned
+      assert bare == anything
+    end
+
+    test "unknown shortcut + --list records a useful issue" do
+      igniter =
+        test_project()
+        |> Igniter.compose_task("hearth.gen", ["unknownvendor", "--list"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "no registry entry for `unknownvendor`") and
+                 String.contains?(issue, "stripe")
+             end)
+    end
+
+    test "file source + --list errors with a clear hint" do
+      igniter =
+        test_project(files: %{"priv/specs/foo.yaml" => "openapi: 3.0.0\n"})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/foo.yaml", "--list"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "--list with a source only works for registry") and
+                 String.contains?(issue, "priv/specs/foo.yaml")
+             end)
+    end
+
+    test "URL source + --list errors with a clear hint" do
+      igniter =
+        test_project()
+        |> Igniter.compose_task("hearth.gen", ["https://example.com/openapi.json", "--list"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "--list with a source only works for registry") and
+                 String.contains?(issue, "https://example.com")
+             end)
     end
   end
 
@@ -244,7 +400,13 @@ defmodule Mix.Tasks.Hearth.GenTest do
 
     test "long_doc registry example uses a real name, not a placeholder" do
       doc = Mix.Tasks.Hearth.Gen.Docs.long_doc()
-      refute doc =~ ~r/mix hearth\.gen <name>/
+
+      # `<name>` is only acceptable in --list usage hints (`mix hearth.gen
+      # <name> --list`). It should never appear as a copy-paste-ready
+      # generation example, which would tempt users to literally type
+      # `<name>` and have nothing resolve.
+      refute doc =~ ~r/mix hearth\.gen <name>$/m
+      refute doc =~ ~r/mix hearth\.gen <name>\s+--integration/
       assert doc =~ ~r/mix hearth\.gen stripe/
     end
 
@@ -253,6 +415,18 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert doc =~ "Registry shortcuts"
       assert doc =~ "Currently available"
       assert doc =~ "stripe"
+    end
+
+    test "long_doc points at --list for version discovery instead of stale claims" do
+      doc = Mix.Tasks.Hearth.Gen.Docs.long_doc()
+
+      # The old wording claimed historic versions were absent — directly
+      # contradicted by `mix hearth.gen stripe --list`.
+      refute doc =~ "until then only `@latest` is available"
+      refute doc =~ "Historic versions are added to the registry"
+
+      assert doc =~ "mix hearth.gen\n      <name> --list" or
+               doc =~ "mix hearth.gen <name> --list"
     end
   end
 end
