@@ -69,6 +69,19 @@ defmodule Hearth.Spec.SourceTest do
       assert Source.resolve("Stripe") == {:registry, "stripe"}
       assert Source.resolve("GITHUB") == {:registry, "github"}
     end
+
+    test "name@version syntax is preserved" do
+      assert Source.resolve("stripe@latest") == {:registry, "stripe@latest"}
+      assert Source.resolve("stripe@2024-01-01") == {:registry, "stripe@2024-01-01"}
+    end
+
+    test "dotted version tags are preserved" do
+      assert Source.resolve("stripe@v1.2.3") == {:registry, "stripe@v1.2.3"}
+    end
+
+    test "case-folding applies to @version segment too" do
+      assert Source.resolve("Stripe@LATEST") == {:registry, "stripe@latest"}
+    end
   end
 
   describe "errors" do

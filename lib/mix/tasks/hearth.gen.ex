@@ -25,9 +25,22 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         # URL
         mix hearth.gen https://example.com/openapi.json --integration Acme
 
-        # Registry: curated shorthand for popular APIs.
-        # Coming soon — no registry names are resolvable today; use a
-        # file or URL above for now.
+        # Registry shortcut — curated name resolves to a canonical URL
+        mix hearth.gen stripe
+
+    ## Registry shortcuts
+
+      Currently available:
+
+        * `stripe` — the Stripe API (https://stripe.com).
+
+      Each shortcut can be pinned to a version with `name@version`. Bare
+      `stripe` is shorthand for `stripe@latest`. Historic versions are
+      added to the registry as their spec URLs are confirmed; until then
+      only `@latest` is available. The default integration module name
+      is derived from the shortcut via `Macro.camelize/1`
+      (`stripe → Stripe`, `google_docs → GoogleDocs`) — override with
+      `--integration <Name>` when you want something different.
 
     ## Options
 
@@ -47,9 +60,9 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
     ## Pipeline status
 
       * Available now — source recognition (URL / file / registry),
-        file-existence validation, install gating.
-      * Coming soon — registry lookup, YAML/JSON decode, on-disk cache,
-        HTTP fetcher, code generation.
+        registry lookup, file-existence validation, install gating.
+      * Coming soon — YAML/JSON decode, on-disk cache, HTTP fetcher,
+        code generation.
 
     If your project is not yet set up (no `:hearth` in `.formatter.exs`
     or no `:hearth_domains` in `config/config.exs`), `hearth.gen` will
@@ -155,7 +168,19 @@ if Code.ensure_loaded?(Igniter) do
           end
 
         {:registry, name} ->
-          Igniter.add_notice(igniter, registry_notice(name))
+          case Hearth.Registry.lookup(name) do
+            {:ok, entry} ->
+              Igniter.add_notice(igniter, registry_hit_notice(entry))
+
+            {:error, {:unknown_name, _}} ->
+              Igniter.add_issue(igniter, registry_unknown_name_message(name))
+
+            {:error, {:unknown_version, base, version, available}} ->
+              Igniter.add_issue(
+                igniter,
+                registry_unknown_version_message(base, version, available)
+              )
+          end
 
         {:error, reason} ->
           Igniter.add_issue(igniter, "hearth.gen: #{reason}")
@@ -186,14 +211,44 @@ if Code.ensure_loaded?(Igniter) do
       """
     end
 
-    defp registry_notice(name) do
+    defp registry_hit_notice(%{name: name, version: version, url: url, integration: integration}) do
       """
-      Source recognized: registry shorthand `#{name}`.
+      Source recognized: registry shorthand `#{name}@#{version}`.
 
-      Next pipeline stage: registry lookup. Not yet wired — no curated
-      entries are resolvable yet. When ready, registry names will resolve
-      to canonical OpenAPI URLs maintained by the Hearth project and
-      fetch through the same cache as bare URLs.
+      Resolved to:
+          #{url}
+
+      Default integration name: #{integration} (override with --integration).
+
+      Next pipeline stage: HTTP fetch (Req-based, with on-disk cache under
+      `priv/hearth/cache/<sha256>/`). Not yet wired — when ready, this
+      command will fetch and cache the spec before decoding it.
+      """
+    end
+
+    defp registry_unknown_name_message(name) do
+      available = Hearth.Registry.list() |> Enum.map(&"  * #{&1}") |> Enum.join("\n")
+
+      """
+      hearth.gen: no registry entry for `#{name}`.
+
+      Currently available shortcuts:
+      #{available}
+
+      Pin a version with `name@version` (e.g. `stripe@latest`). If you
+      have an OpenAPI spec elsewhere, pass it as a file path or URL
+      instead.
+      """
+    end
+
+    defp registry_unknown_version_message(name, version, available) do
+      versions_block = available |> Enum.map(&"  * #{name}@#{&1}") |> Enum.join("\n")
+
+      """
+      hearth.gen: registry shortcut `#{name}` has no version `#{version}`.
+
+      Available versions:
+      #{versions_block}
       """
     end
   end

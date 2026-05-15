@@ -451,13 +451,40 @@ and prints a summary. Code generation (the renderers) is step 5+.
   This composition pattern is the contract for every future Hearth task
   that needs install state — they all open with the same gated compose.
 
-- **Step 4b (next)** — `Hearth.Registry`: curated `name → %{url, integration}`
-  map. Seed entries: `stripe`, `petstore`, optionally `github` (gated on
-  size). Stripe URL verified:
-  `https://raw.githubusercontent.com/stripe/openapi/refs/heads/master/latest/openapi.spec3.json`.
-  Wire it into the gen task so `mix hearth.gen unknownvendor` lists
-  available entries instead of saying "lookup not yet wired."
-- **Step 4c** — `Hearth.Spec.Loader.decode/2`: bytes + content-type → map.
+- **Step 4b (done)** — `Hearth.Registry`: curated, versioned shorthand
+  map wired into the gen task.
+
+  **Shape.** `@entries` is `%{name => %{version => url}}`. Each shortcut
+  MUST have a `"latest"` key; bare `stripe` is shorthand for `stripe@latest`.
+  Version strings are free-form (ISO-like dates or vendor tags) and sort
+  with `"latest"` pinned to the front. v1 ships one entry — Stripe,
+  `https://raw.githubusercontent.com/stripe/openapi/refs/heads/master/latest/openapi.spec3.json`
+  (HTTP 200 verified, etag present). Historic spec URLs land as Kaspar
+  confirms them.
+
+  **Integration name derivation.** No `:integration` field stored — derive
+  via `Macro.camelize/1`: `stripe → Stripe`, `google_docs → GoogleDocs`,
+  `aws_s3 → AwsS3`. `--integration <Name>` still overrides per-call.
+
+  **Lookup return shape.** `{:ok, entry}` |
+  `{:error, {:unknown_name, name}}` |
+  `{:error, {:unknown_version, name, version, available}}`. Three error
+  paths get three distinct user messages — the gen task pattern-matches
+  on the tag and emits a different issue for "no such shortcut" vs.
+  "shortcut exists, this version doesn't."
+
+  **Source.resolve change.** Registry pattern widened to allow `@` and
+  `.` (`^[a-zA-Z0-9][a-zA-Z0-9_@.\-]*$`), so `stripe@latest` and
+  `stripe@2024-01-01` classify as `:registry` rather than falling
+  through to `:error`. Must still start with alphanumeric.
+
+  **Tests.** Eight registry tests (bare→latest equivalence, unknown
+  name vs unknown version paths, `Macro.camelize` documentation tests
+  covering `google_docs` / `aws_s3`, case-sensitivity contract, sorted
+  `list/0`, `versions/1`). Four new source tests for `@version`
+  syntax. Three new gen tests for the bare/explicit equivalence,
+  unknown-version dispatch, and the case-folded shorthand.
+- **Step 4c (next)** — `Hearth.Spec.Loader.decode/2`: bytes + content-type → map.
   Adds `yaml_elixir` and `jason` deps. Wire it so `mix hearth.gen ./local.yaml`
   reports decode results instead of "decode not yet wired."
 - **Step 4d** — `Hearth.Spec.Cache`: on-disk read/write of
@@ -465,8 +492,8 @@ and prints a summary. Code generation (the renderers) is step 5+.
 - **Step 4e** — `Hearth.Spec.Fetcher`: Req-based HTTP with cache. First
   step that does network I/O. Tests use `Req.Test` stubs. Wire so URL +
   registry sources actually fetch.
-- **Step 4f** — End-to-end summary: `mix hearth.gen petstore` prints
-  "Loaded N paths from <name>." Manual smoke from a sample consumer.
+- **Step 4f** — End-to-end summary: `mix hearth.gen stripe` prints
+  "Loaded N paths from Stripe API." Manual smoke from a sample consumer.
 
 ---
 

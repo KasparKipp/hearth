@@ -13,7 +13,11 @@ defmodule Hearth.Spec.Source do
   # the next layer's problem.
 
   @file_extensions ~w(.yaml .yml .json)
-  @registry_pattern ~r/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/
+  # Registry names may include `@` for `name@version` syntax and `.` for
+  # vendor-style version tags. Must start with an alphanumeric so that
+  # `@latest` (with no name) and `.something` (which looks path-like)
+  # never accidentally match.
+  @registry_pattern ~r/^[a-zA-Z0-9][a-zA-Z0-9_@.\-]*$/
 
   @type t ::
           {:url, String.t()}
@@ -41,8 +45,8 @@ defmodule Hearth.Spec.Source do
         {:error,
          "could not classify #{inspect(input)} — expected an http(s) URL, " <>
            "a file path (contains `/`, starts with `.`, or ends in " <>
-           ".yaml/.yml/.json), or a registry shorthand (alphanumeric, " <>
-           "e.g. `stripe`)"}
+           ".yaml/.yml/.json), or a registry shorthand " <>
+           "(e.g. `stripe` or `stripe@latest`)"}
     end
   end
 

@@ -41,22 +41,64 @@ defmodule Mix.Tasks.Hearth.GenTest do
       refute notice_text(igniter) =~ "Source recognized: file"
     end
 
-    test "registry source emits a registry-specific notice" do
+    test "bare shortcut resolves to @latest" do
       igniter =
         test_project()
         |> Igniter.compose_task("hearth.gen", ["stripe"])
 
       notice = notice_text(igniter)
-      assert notice =~ "Source recognized: registry shorthand `stripe`"
-      assert notice =~ "registry lookup"
+      assert notice =~ "Source recognized: registry shorthand `stripe@latest`"
+      assert notice =~ "Resolved to:"
+      assert notice =~ "raw.githubusercontent.com/stripe"
+      assert notice =~ "Default integration name: Stripe"
+      assert notice =~ "HTTP fetch"
     end
 
-    test "registry name is normalized to lowercase in the notice" do
+    test "explicit @latest is equivalent to bare shortcut" do
+      bare =
+        test_project()
+        |> Igniter.compose_task("hearth.gen", ["stripe"])
+        |> notice_text()
+
+      pinned =
+        test_project()
+        |> Igniter.compose_task("hearth.gen", ["stripe@latest"])
+        |> notice_text()
+
+      assert bare == pinned
+    end
+
+    test "registry name is normalized to lowercase before lookup" do
       igniter =
         test_project()
         |> Igniter.compose_task("hearth.gen", ["STRIPE"])
 
-      assert notice_text(igniter) =~ "`stripe`"
+      assert notice_text(igniter) =~ "`stripe@latest`"
+      assert notice_text(igniter) =~ "Resolved to:"
+    end
+
+    test "unknown registry name halts with the available shortcuts" do
+      igniter =
+        test_project()
+        |> Igniter.compose_task("hearth.gen", ["unknownvendor"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "no registry entry for `unknownvendor`") and
+                 String.contains?(issue, "stripe")
+             end)
+
+      refute notice_text(igniter) =~ "Resolved to:"
+    end
+
+    test "unknown version halts with the available versions for that shortcut" do
+      igniter =
+        test_project()
+        |> Igniter.compose_task("hearth.gen", ["stripe@2099-01-01"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "registry shortcut `stripe` has no version `2099-01-01`") and
+                 String.contains?(issue, "stripe@latest")
+             end)
     end
   end
 
@@ -165,10 +207,17 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert doc =~ "--yes"
     end
 
-    test "long_doc no longer shows a copy-pasteable registry example that does not work" do
+    test "long_doc registry example uses a real name, not a placeholder" do
       doc = Mix.Tasks.Hearth.Gen.Docs.long_doc()
       refute doc =~ ~r/mix hearth\.gen <name>/
-      refute doc =~ ~r/mix hearth\.gen stripe\b/
+      assert doc =~ ~r/mix hearth\.gen stripe/
+    end
+
+    test "long_doc lists available registry shortcuts" do
+      doc = Mix.Tasks.Hearth.Gen.Docs.long_doc()
+      assert doc =~ "Registry shortcuts"
+      assert doc =~ "Currently available"
+      assert doc =~ "stripe"
     end
   end
 end
