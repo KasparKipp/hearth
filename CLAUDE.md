@@ -451,6 +451,35 @@ and prints a summary. Code generation (the renderers) is step 5+.
   This composition pattern is the contract for every future Hearth task
   that needs install state — they all open with the same gated compose.
 
+- **Step 4b-followup (done)** — Aliases for the Stripe shortcut, with
+  the full `<date>.<codename>` form as the canonical key. Stripe stamps
+  each release with both an ISO date (`2026-04-22`) and a flower
+  codename (`dahlia`); the registry stores the URL under
+  `"2026-04-22.dahlia"` and pointers from `"latest"`, `"dahlia"`, and
+  `"2026-04-22"` as `{:alias, "2026-04-22.dahlia"}` tuples. The lookup
+  follows the chain. All five forms — `stripe`, `stripe@latest`,
+  `stripe@dahlia`, `stripe@2026-04-22`, `stripe@2026-04-22.dahlia` —
+  resolve to the same URL.
+
+  The entry struct gained a `:resolved_version` field that names the
+  terminal version in the alias chain (where the URL actually sits).
+  When `version != resolved_version` (the alias case — which now
+  includes the bare `stripe` and `stripe@latest` forms), the gen
+  notice header shows e.g. `(alias for stripe@2026-04-22.dahlia)` so
+  the user can see exactly which release they're targeting.
+
+  Why canonicalize on the most-specific form: when Stripe ships their
+  next release, only `"latest"` needs to be repointed. The date and
+  codename aliases automatically follow this release into the historic
+  record without any further edits. Promotion checklist lives as a
+  comment block above `@entries`.
+
+  Eight new tests: canonical date.codename direct lookup, the three
+  alias-resolution paths (codename / date / `latest`), version-list
+  inclusion of aliases, and three gen notice tests across alias
+  annotation, `@latest`-as-alias, and the canonical-no-annotation
+  path.
+
 - **Step 4b (done)** — `Hearth.Registry`: curated, versioned shorthand
   map wired into the gen task.
 

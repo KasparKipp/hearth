@@ -211,9 +211,25 @@ if Code.ensure_loaded?(Igniter) do
       """
     end
 
-    defp registry_hit_notice(%{name: name, version: version, url: url, integration: integration}) do
+    defp registry_hit_notice(entry) do
+      %{
+        name: name,
+        version: version,
+        resolved_version: resolved,
+        url: url,
+        integration: integration
+      } = entry
+
+      header =
+        if version == resolved do
+          "Source recognized: registry shorthand `#{name}@#{version}`."
+        else
+          "Source recognized: registry shorthand `#{name}@#{version}` " <>
+            "(alias for `#{name}@#{resolved}`)."
+        end
+
       """
-      Source recognized: registry shorthand `#{name}@#{version}`.
+      #{header}
 
       Resolved to:
           #{url}

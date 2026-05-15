@@ -100,6 +100,41 @@ defmodule Mix.Tasks.Hearth.GenTest do
                  String.contains?(issue, "stripe@latest")
              end)
     end
+
+    test "alias notice surfaces the alias relationship in the header" do
+      igniter =
+        test_project()
+        |> Igniter.compose_task("hearth.gen", ["stripe@dahlia"])
+
+      notice = notice_text(igniter)
+
+      assert notice =~
+               "registry shorthand `stripe@dahlia` (alias for `stripe@2026-04-22.dahlia`)"
+
+      assert notice =~ "Resolved to:"
+      assert notice =~ "raw.githubusercontent.com/stripe"
+    end
+
+    test "@latest is itself an alias and shows the underlying canonical version" do
+      igniter =
+        test_project()
+        |> Igniter.compose_task("hearth.gen", ["stripe@latest"])
+
+      notice = notice_text(igniter)
+
+      assert notice =~
+               "registry shorthand `stripe@latest` (alias for `stripe@2026-04-22.dahlia`)"
+    end
+
+    test "canonical date.codename notice does not include alias annotation" do
+      igniter =
+        test_project()
+        |> Igniter.compose_task("hearth.gen", ["stripe@2026-04-22.dahlia"])
+
+      notice = notice_text(igniter)
+      assert notice =~ "registry shorthand `stripe@2026-04-22.dahlia`."
+      refute notice =~ "alias for"
+    end
   end
 
   describe "error paths" do
