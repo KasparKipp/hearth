@@ -44,6 +44,16 @@ defmodule Hearth.Spec.FilterTest do
                {:ok, [{"Customers", :all}, {"Invoices", :all}]}
     end
 
+    test "repeated tag specs merge, unioning and sorting their operationIds" do
+      assert Filter.parse("Customers:update;Invoices;Customers:create") ==
+               {:ok, [{"Customers", {:only, ["create", "update"]}}, {"Invoices", :all}]}
+    end
+
+    test "a bare tag and a narrowed one for the same tag merge to the narrowed set" do
+      assert Filter.parse("Customers;Customers:create") ==
+               {:ok, [{"Customers", {:only, ["create"]}}]}
+    end
+
     test "rejects an empty tag name (leading colon)" do
       assert {:error, msg} = Filter.parse(":create")
       assert msg =~ "empty tag name"

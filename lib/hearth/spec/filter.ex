@@ -18,6 +18,11 @@ defmodule Hearth.Spec.Filter do
   #
   # Tag names containing `;`, `:`, or `,` are not addressable through
   # the flag — a future config-file mechanism covers those.
+  #
+  # Repeated specs for the same tag are merged into a single rule that
+  # keeps the tag's first-occurrence position. `:only` id-lists union
+  # and sort; a narrowing `:only` anywhere for a tag wins over a bare
+  # `:all` for that same tag.
 
   alias Hearth.Spec.Operation
 
@@ -34,6 +39,7 @@ defmodule Hearth.Spec.Filter do
         trimmed
         |> String.split(";", trim: true)
         |> parse_rules([])
+        |> merge_parsed()
     end
   end
 
@@ -50,6 +56,37 @@ defmodule Hearth.Spec.Filter do
     case parse_rule(segment) do
       {:ok, rule} -> parse_rules(rest, [rule | acc])
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp merge_parsed({:error, _reason} = error), do: error
+  defp merge_parsed({:ok, rules}), do: {:ok, merge_rules(rules)}
+
+  # Collapses repeated specs for the same tag into one rule, keeping the
+  # tag's first-occurrence position. If every spec for a tag is `:all`,
+  # the merged rule stays `:all`; if any spec narrows with `:only`, the
+  # merged rule is `{:only, <sorted union of every :only id-list>}` —
+  # a present `:only` always wins over a bare `:all` for that tag.
+  defp merge_rules(rules) do
+    rules
+    |> Enum.map(&elem(&1, 0))
+    |> Enum.uniq()
+    |> Enum.map(fn tag ->
+      specs = for {rule_tag, spec} <- rules, rule_tag == tag, do: spec
+      {tag, merge_specs(specs)}
+    end)
+  end
+
+  defp merge_specs(specs) do
+    only_ids =
+      Enum.flat_map(specs, fn
+        :all -> []
+        {:only, ids} -> ids
+      end)
+
+    case only_ids do
+      [] -> :all
+      ids -> {:only, ids |> Enum.uniq() |> Enum.sort()}
     end
   end
 
