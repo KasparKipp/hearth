@@ -24,4 +24,21 @@ defmodule Hearth.Render.ModuleNamesTest do
                App.Integrations.Petstore.PetstoreApi
     end
   end
+
+  describe "layer1/1" do
+    test "the raw client drops the Api suffix" do
+      assert ModuleNames.layer1(app_module: "MyApp", integration: "Stripe") ==
+               MyApp.Integrations.Stripe
+    end
+
+    test "a domain segment slots in after the app" do
+      assert ModuleNames.layer1(app_module: "MyApp", integration: "Stripe", domain: "Billing") ==
+               MyApp.Billing.Integrations.Stripe
+    end
+
+    test "layer1 is layer2's parent module" do
+      opts = [app_module: "MyApp", integration: "Stripe"]
+      assert Module.concat(ModuleNames.layer1(opts), "StripeApi") == ModuleNames.layer2(opts)
+    end
+  end
 end

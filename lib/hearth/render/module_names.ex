@@ -18,14 +18,20 @@ defmodule Hearth.Render.ModuleNames do
   # All inputs (`:app_module`, `:integration`, `:domain`) are expected
   # to be already-camelized strings.
 
+  # Layer 1 — the raw Req client: <App>.[<Domain>.]Integrations.<Integration>
+  @spec layer1(keyword()) :: module()
+  def layer1(opts), do: Module.concat(segments(opts))
+
+  # Layer 2 — the behaviour: <App>.[<Domain>.]Integrations.<Integration>.<Integration>Api
   @spec layer2(keyword()) :: module()
   def layer2(opts) do
-    app = Keyword.fetch!(opts, :app_module)
-    integration = Keyword.fetch!(opts, :integration)
-    domain = opts[:domain]
-
-    [app, domain, "Integrations", integration, "#{integration}Api"]
-    |> Enum.reject(&is_nil/1)
-    |> Module.concat()
+    Module.concat(segments(opts) ++ ["#{integration(opts)}Api"])
   end
+
+  defp segments(opts) do
+    [Keyword.fetch!(opts, :app_module), opts[:domain], "Integrations", integration(opts)]
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp integration(opts), do: Keyword.fetch!(opts, :integration)
 end

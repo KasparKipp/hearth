@@ -79,10 +79,10 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
       * Available now — source recognition (URL / file / registry),
         registry lookup, file-existence validation, install gating,
         YAML/JSON decode, operation extraction + tag filtering, and
-        Layer 2 behaviour generation (for file sources).
-      * Coming soon — Layer 1 (raw client), Layer 3 (implementation),
-        Mox + config wiring, on-disk cache, HTTP fetcher (for URL /
-        registry sources).
+        Layer 1 (raw client) + Layer 2 (behaviour) generation (for
+        file sources).
+      * Coming soon — Layer 3 (implementation), Mox + config wiring,
+        on-disk cache, HTTP fetcher (for URL / registry sources).
 
     If your project is not yet set up (no `:hearth` in `.formatter.exs`
     or no `:hearth_domains` in `config/config.exs`), `hearth.gen` will
@@ -397,37 +397,72 @@ if Code.ensure_loaded?(Igniter) do
 
     # `--integration` is required for file sources (registry sources
     # auto-derive it, but registry codegen isn't wired yet). With it,
-    # render the Layer 2 behaviour and write it to disk.
+    # render Layer 1 (raw client) and Layer 2 (behaviour) to disk.
     defp generate(igniter, path, spec, operations, selected) do
       case igniter.args.options[:integration] do
         nil ->
           Igniter.add_issue(igniter, missing_integration_message(path))
 
         integration ->
-          module = layer2_module(igniter, integration)
-          source = Hearth.Render.Layer2.render(module, selected)
-          location = Igniter.Project.Module.proper_location(igniter, module)
-
-          igniter
-          |> Igniter.create_new_file(location, source, on_exists: :overwrite)
-          |> Igniter.add_notice(
-            generated_notice(path, spec, operations, selected, module, location)
-          )
+          write_layers(igniter, path, spec, operations, selected, integration)
       end
     end
 
-    defp layer2_module(igniter, integration) do
+    defp write_layers(igniter, path, spec, operations, selected, integration) do
+      names = module_names(igniter, integration)
+      layer1 = Hearth.Render.ModuleNames.layer1(names)
+      layer2 = Hearth.Render.ModuleNames.layer2(names)
+
+      layer1_source =
+        Hearth.Render.Layer1.render(
+          layer1,
+          Igniter.Project.Application.app_name(igniter),
+          base_url(spec),
+          Hearth.Spec.Auth.strategy(spec)
+        )
+
+      layer2_source = Hearth.Render.Layer2.render(layer2, selected)
+      layer1_loc = Igniter.Project.Module.proper_location(igniter, layer1)
+      layer2_loc = Igniter.Project.Module.proper_location(igniter, layer2)
+      callbacks = "behaviour, #{length(selected)} #{pluralize("callback", length(selected))}"
+
+      igniter
+      |> Igniter.create_new_file(layer1_loc, layer1_source, on_exists: :overwrite)
+      |> Igniter.create_new_file(layer2_loc, layer2_source, on_exists: :overwrite)
+      |> Igniter.add_notice(
+        generated_notice(path, spec, operations, selected, [
+          {layer1, layer1_loc, "raw Req client"},
+          {layer2, layer2_loc, callbacks}
+        ])
+      )
+    end
+
+    defp module_names(igniter, integration) do
       app =
         igniter
         |> Igniter.Project.Application.app_name()
         |> to_string()
         |> Macro.camelize()
 
-      Hearth.Render.ModuleNames.layer2(
+      [
         app_module: app,
         integration: Macro.camelize(integration),
         domain: domain_segment(igniter)
-      )
+      ]
+    end
+
+    # TODO (multi-server): a spec's `servers` may list several URLs;
+    # this takes only the first. Planned: Layer 1 renders
+    # `@default_base_url` (the first server) always, plus `@base_urls`
+    # (the full list) when there is more than one; the client reads a
+    # `:base_url` config override alongside `:api_key`; and the
+    # generated `config/runtime.exs` raises in prod when the base URL
+    # must be picked explicitly.
+    defp base_url(spec) do
+      case spec |> Map.get("servers", []) |> List.first() do
+        %{"url" => url} when is_binary(url) -> url
+        _ -> nil
+      end
     end
 
     defp domain_segment(igniter) do
@@ -477,10 +512,14 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp generated_notice(path, spec, operations, selected, module, location) do
+    defp generated_notice(path, spec, operations, selected, layers) do
       summary = summarize(spec)
       tag_count = selected |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> length()
-      callbacks = pluralize("callback", length(selected))
+
+      file_lines =
+        Enum.map_join(layers, "\n", fn {module, location, label} ->
+          "* generating #{location}\n      #{inspect(module)} — #{label}"
+        end)
 
       """
       Spec loaded from #{path}.
@@ -490,11 +529,10 @@ if Code.ensure_loaded?(Igniter) do
       Selected #{length(selected)} of #{length(operations)} operations \
       across #{tag_count} #{pluralize("tag", tag_count)}.
 
-      * generating #{location}
-          #{inspect(module)} — behaviour, #{length(selected)} #{callbacks}
+      #{file_lines}
 
-      Next pipeline stage: Layer 1 (raw Req client), Layer 3
-      (implementation), and Mox wiring. Not yet wired.
+      Next pipeline stage: Layer 3 (implementation) and Mox wiring.
+      Not yet wired.
       """
     end
 

@@ -561,10 +561,50 @@ These were learned the hard way and must hold for future steps:
   output (`@callback ... :: ...`) is clearer to assemble as text, and
   `Code.format_string!/1` is the syntax check.
 
+- **Step 5d — Layer 1 raw Req client.** `mix hearth.gen` now writes
+  two files per run — Layer 1 (`<App>.Integrations.<Integration>`,
+  no `Api` suffix) alongside Layer 2.
+
+  - `Hearth.Spec.Auth.strategy/1` reduces a spec's
+    `components.securitySchemes` + top-level `security` to one strategy:
+    `:none | :bearer | {:api_key, :header|:query, name} | {:unsupported,
+    type}`. The primary scheme is the one named by `security`, else the
+    first by name order. Bearer + API-key are fully rendered;
+    oauth2 / openIdConnect / http-basic become `{:unsupported, _}`.
+  - `Hearth.Render.Layer1.render/4` builds the raw client: a `@base_url`
+    from the spec's first `servers` entry (a missing one leaves a TODO
+    + placeholder), `@otp_app`, and a `client/1` returning a configured
+    `%Req.Request{}`. Bearer → `auth: {:bearer, …}`; API-key → header or
+    query param; `:none` → base URL only; `{:unsupported, _}` → base URL
+    only plus a TODO comment. Bearer/API-key also get a `credential/1`
+    that reads `Application.get_env(@otp_app, __MODULE__)[:api_key]` with
+    an `:api_key` opt override, raising a clear error if absent.
+  - **Credential model (confirmed with Kaspar):** the credential lives
+    in app config keyed by the Layer 1 module — `config :otp_app,
+    <ClientModule>, api_key: …`. Step 5f generates the entry in
+    `config/runtime.exs`: prod path does `System.get_env("X") || raise`,
+    and inside an `if config_env() == :dev` block a dev path falls back
+    to a `"DEV_NO_X"` placeholder. That config also later holds the
+    Layer 3 impl module. Layer 1 here only *reads* the config.
+
+  **Deferred refinements** (TODO comments parked in `Hearth.Spec.Auth`
+  and the gen task's `base_url/1`):
+  - *Multiple `servers`.* v1 takes the first. Planned: render
+    `@default_base_url` (first) always, plus `@base_urls` (the full
+    list) when there are several; a `:base_url` config override
+    alongside `:api_key`; and a `config/runtime.exs` prod raise when
+    the base URL must be picked explicitly.
+  - *Multiple auth schemes.* v1 auto-picks the primary. Planned:
+    `mix hearth.gen` prompts the user to choose; a `--auth-scheme
+    <name>` flag selects non-interactively; under `--yes` with several
+    schemes and no `--auth-scheme`, the task halts rather than guesses.
+
 #### Pending
 
-- **Step 5d (next) — Layer 1 (raw Req client).**
-- **Steps 5e–5f** — Layer 3, Mox + config wiring.
+- **Step 5e (next) — Layer 3 (implementation).** One function per
+  Layer-2 callback, delegating to Layer 1's `client/1` via `Req`.
+- **Step 5f** — Mox defmock + config wiring (`config/runtime.exs`
+  credential entries per the model above, `:hearth_domains` append).
 - **Steps 4d–4f (deferred, parallel track)** — `Hearth.Spec.Cache`,
   `Hearth.Spec.Fetcher` (Req + cache; bundles the `latest`-resolution
   enhancement — TODO parked on the `latest` entry in

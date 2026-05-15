@@ -346,6 +346,80 @@ defmodule Mix.Tasks.Hearth.GenTest do
     end
   end
 
+  describe "Layer 1 generation" do
+    @petstore_layer1 "lib/test/integrations/petstore.ex"
+
+    test "writes the raw Req client module alongside the behaviour" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert_creates(igniter, @petstore_layer1)
+      source = created_file(igniter, @petstore_layer1)
+      assert source =~ "defmodule Test.Integrations.Petstore do"
+      assert source =~ "def client("
+    end
+
+    test "the base URL comes from the spec's servers" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert created_file(igniter, @petstore_layer1) =~
+               ~s(@base_url "http://petstore.swagger.io/v1")
+    end
+
+    test "an API-key security scheme renders a credential reader" do
+      spec =
+        JSON.encode!(%{
+          "openapi" => "3.0.0",
+          "info" => %{"title" => "Keyed", "version" => "1.0"},
+          "servers" => [%{"url" => "https://keyed.example.com"}],
+          "paths" => %{"/ping" => %{"get" => %{"operationId" => "ping", "tags" => ["X"]}}},
+          "components" => %{
+            "securitySchemes" => %{
+              "ApiKey" => %{"type" => "apiKey", "in" => "header", "name" => "X-API-Key"}
+            }
+          }
+        })
+
+      igniter =
+        test_project(files: %{"priv/specs/keyed.json" => spec})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/keyed.json",
+          "--integration",
+          "Keyed"
+        ])
+
+      source = created_file(igniter, "lib/test/integrations/keyed.ex")
+      assert source =~ ~s|headers: [{"X-API-Key", credential(opts)}]|
+      assert source =~ "defp credential(opts)"
+    end
+
+    test "the notice lists both generated files" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      notice = notice_text(igniter)
+      assert notice =~ "lib/test/integrations/petstore.ex"
+      assert notice =~ "lib/test/integrations/petstore/petstore_api.ex"
+      assert notice =~ "raw Req client"
+    end
+  end
+
   describe "Layer 2 generation" do
     @petstore_layer2 "lib/test/integrations/petstore/petstore_api.ex"
 
