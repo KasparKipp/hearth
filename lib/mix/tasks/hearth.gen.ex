@@ -15,7 +15,7 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
 
     ## Usage
 
-        mix hearth.gen <source> [--integration <Name>] [--domain <Name>] [--refresh] [--yes]
+        mix hearth.gen <source> [--integration <Name>] [--tag <Tag>] [--domain <Name>] [--n-operations <N>] [--refresh] [--yes]
         mix hearth.gen --list                  # list shortcut names
         mix hearth.gen <name> --list           # list versions for a shortcut
 
@@ -55,6 +55,16 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         `MyApp.Integrations.<Name>`. (See "Module layout" in the README.)
       * `--refresh` — for URL and registry sources, bypass the on-disk
         cache and re-fetch the spec. No-op for file sources.
+      * `--tag <Tag>` — repeatable. Restrict generation to the named
+        OpenAPI tag. `--tag "Customers"` takes every operation under
+        that tag; `--tag "Subscriptions:create_sub,list_sub"` narrows
+        to specific operationIds (the first `:` delimits, ids are
+        comma-separated). Repeat the flag for multiple tags.
+      * `--n-operations <N>` — operation-count gate (default 25). When
+        no `--tag` is given and the spec has more than `N` operations,
+        the task halts with a tag-discovery listing instead of
+        generating everything. Pass the spec's actual operation count
+        to bypass the gate.
       * `--list` — introspect the registry and exit. Without a source,
         prints the shortcut names. With a registry shortcut as the
         source (e.g. `mix hearth.gen stripe --list`), prints the
@@ -68,7 +78,8 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
 
       * Available now — source recognition (URL / file / registry),
         registry lookup, file-existence validation, install gating,
-        YAML/JSON decode (for file sources).
+        YAML/JSON decode, operation extraction + tag filtering (for
+        file sources).
       * Coming soon — on-disk cache, HTTP fetcher (for URL / registry
         sources), code generation.
 
@@ -89,8 +100,14 @@ if Code.ensure_loaded?(Igniter) do
 
     use Igniter.Mix.Task
 
+    alias Hearth.Spec.Filter
     alias Hearth.Spec.Loader
+    alias Hearth.Spec.Operation
     alias Hearth.Spec.Source
+
+    # Default operation-count gate: above this, an unfiltered spec halts
+    # with the tag-discovery listing instead of selecting everything.
+    @default_n_operations 25
 
     @impl Igniter.Mix.Task
     def info(_argv, _composing_task) do
@@ -101,6 +118,8 @@ if Code.ensure_loaded?(Igniter) do
           domain: :string,
           refresh: :boolean,
           list: :boolean,
+          tag: :keep,
+          n_operations: :integer,
           yes: :boolean
         ],
         # `:source` is optional so `mix hearth.gen --list` (and an empty
@@ -333,7 +352,7 @@ if Code.ensure_loaded?(Igniter) do
 
       with {:ok, bytes} <- read_rewrite_content(igniter, path),
            {:ok, spec} <- Loader.decode(bytes, format) do
-        Igniter.add_notice(igniter, file_loaded_notice(path, summarize(spec)))
+        select_and_report(igniter, path, spec)
       else
         {:error, reason} ->
           Igniter.add_issue(igniter, decode_failed_message(path, reason))
@@ -347,50 +366,115 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    @http_methods ~w(get put post delete options head patch trace)
+    # Extract operations, then select a subset: an explicit `--tag`
+    # filter, or — with no `--tag` — the operation-count gate.
+    defp select_and_report(igniter, path, spec) do
+      operations = Operation.extract(spec)
+      # Igniter aggregates a `:keep` option into a single list and
+      # defaults an absent one to `[]`, so `options[:tag]` is already
+      # the full list of `--tag` values.
+      tag_values = igniter.args.options[:tag] || []
+
+      case resolve_selection(igniter, operations, tag_values) do
+        {:ok, selected} ->
+          Igniter.add_notice(igniter, selection_notice(path, spec, operations, selected))
+
+        {:halt, message} ->
+          Igniter.add_issue(igniter, message)
+      end
+    end
+
+    defp resolve_selection(igniter, operations, []) do
+      limit = igniter.args.options[:n_operations] || @default_n_operations
+
+      if length(operations) <= limit do
+        {:ok, operations}
+      else
+        {:halt, discovery_message(operations, limit)}
+      end
+    end
+
+    defp resolve_selection(_igniter, operations, tag_values) do
+      case Filter.parse(tag_values) do
+        {:ok, filter} -> {:ok, Filter.apply(operations, filter)}
+        {:error, reason} -> {:halt, "hearth.gen: #{reason}"}
+      end
+    end
 
     defp summarize(spec) when is_map(spec) do
-      paths = Map.get(spec, "paths", %{})
-
       %{
         title: get_in(spec, ["info", "title"]) || "<untitled>",
         info_version: get_in(spec, ["info", "version"]) || "<unversioned>",
         openapi: Map.get(spec, "openapi", "<unknown>"),
-        paths: map_size(paths),
-        operations: count_operations(paths)
+        paths: paths_count(spec)
       }
     end
 
-    defp summarize(_),
-      do: %{title: "<not a map>", info_version: "?", openapi: "?", paths: 0, operations: 0}
+    defp summarize(_), do: %{title: "<not a map>", info_version: "?", openapi: "?", paths: 0}
 
-    defp count_operations(paths) when is_map(paths) do
-      paths
-      |> Map.values()
-      |> Enum.map(fn
-        path_item when is_map(path_item) ->
-          path_item |> Map.take(@http_methods) |> map_size()
-
-        _ ->
-          0
-      end)
-      |> Enum.sum()
+    defp paths_count(spec) do
+      case Map.get(spec, "paths") do
+        paths when is_map(paths) -> map_size(paths)
+        _ -> 0
+      end
     end
 
-    defp count_operations(_), do: 0
+    defp selection_notice(path, spec, operations, selected) do
+      summary = summarize(spec)
+      tag_count = selected |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> length()
 
-    defp file_loaded_notice(path, summary) do
       """
       Spec loaded from #{path}.
 
           #{summary.title} (info.version #{summary.info_version}, OpenAPI #{summary.openapi})
-          #{summary.paths} paths, #{summary.operations} operations
+          #{summary.paths} paths
+
+      Selected #{length(selected)} of #{length(operations)} operations \
+      across #{tag_count} #{pluralize("tag", tag_count)}.
 
       Next pipeline stage: code generation. Not yet wired — when ready,
       this command will render Layer 1/2/3, patch your config, and
       scaffold test files.
       """
     end
+
+    defp discovery_message(operations, limit) do
+      tag_lines =
+        operations
+        |> Operation.tag_index()
+        |> Enum.sort_by(&tag_sort_key/1)
+        |> Enum.map_join("\n", &tag_listing_line/1)
+
+      total = length(operations)
+
+      """
+      This spec has #{total} operations, above the --n-operations limit (#{limit}).
+
+      Tags in this spec — pass a subset with one or more --tag flags:
+
+      #{tag_lines}
+
+      Generate a subset, e.g.:
+        mix hearth.gen <source> --integration <Name> --tag "<Tag>"
+
+      Or generate everything:
+        mix hearth.gen <source> --integration <Name> --n-operations #{total}
+      """
+    end
+
+    defp tag_sort_key({:untagged, _ops}), do: {1, ""}
+    defp tag_sort_key({tag, _ops}), do: {0, tag}
+
+    defp tag_listing_line({tag, ops}) do
+      ids = Enum.map_join(ops, ", ", &":#{&1.id}")
+      "  #{tag_label(tag)}: [#{ids}]"
+    end
+
+    defp tag_label(:untagged), do: ":untagged"
+    defp tag_label(tag) when is_binary(tag), do: inspect(tag)
+
+    defp pluralize(word, 1), do: word
+    defp pluralize(word, _count), do: word <> "s"
 
     defp file_not_found_message(path) do
       "hearth.gen: file not found at #{inspect(path)}. " <>

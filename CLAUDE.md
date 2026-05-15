@@ -507,13 +507,27 @@ These were learned the hard way and must hold for future steps:
   merge (union + sort their `:only` lists). `apply/2` selects matching
   operations (union semantics across rules).
 
+- **Step 5b — Tag discovery + operation-count gate.** `mix hearth.gen`
+  now extracts operations from a decoded file source and selects a
+  subset. New flags: `--tag` (`:keep` — repeatable) and
+  `--n-operations` (integer, default 25). The gen task's `:file` branch
+  calls `Operation.extract/1`, then:
+  - ≥1 `--tag` → `Filter.parse/1` + `Filter.apply/2`; a parse error
+    halts with the bad-syntax message.
+  - no `--tag` → operation-count gate: at or under `--n-operations`,
+    proceed with everything; over it, **halt** with a copy-pasteable
+    tag-discovery listing (`"Tag": [:op_id, …]`, built from
+    `Operation.tag_index/1`) plus both escape hatches (`--tag` or
+    `--n-operations <count>`).
+
+  The success notice reports `Selected N of TOTAL operations across M
+  tags`. Igniter aggregates a `:keep` option into one list and defaults
+  an absent one to `[]`, so the task reads `options[:tag]` directly
+  (not `Keyword.get_values`). No codegen yet — step 5c writes files.
+
 #### Pending
 
-- **Step 5b (next) — Tag discovery + operation-count gate.** Wires 5a
-  into the gen task: extract, apply the repeatable `--tag` flag, or —
-  past the `--n-operations` threshold with no `--tag` — halt with a
-  copy-pasteable tag listing. No codegen yet.
-- **Step 5c — Layer 2 behaviour renderer.** Writes the behaviour module.
+- **Step 5c (next) — Layer 2 behaviour renderer.** Writes the behaviour module.
 - **Steps 5d–5f** — Layer 1, Layer 3, Mox + config wiring.
 - **Steps 4d–4f (deferred, parallel track)** — `Hearth.Spec.Cache`,
   `Hearth.Spec.Fetcher` (Req + cache; bundles the `latest`-resolution

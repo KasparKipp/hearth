@@ -13,6 +13,21 @@ defmodule Mix.Tasks.Hearth.GenTest do
 
   defp notice_text(igniter), do: Enum.join(igniter.notices, "\n\n")
 
+  # A JSON spec with `count` GET operations, all under one "Things" tag,
+  # for exercising the operation-count gate.
+  defp big_spec_json(count) do
+    paths =
+      Map.new(1..count, fn i ->
+        {"/thing#{i}", %{"get" => %{"operationId" => "getThing#{i}", "tags" => ["Things"]}}}
+      end)
+
+    JSON.encode!(%{
+      "openapi" => "3.0.0",
+      "info" => %{"title" => "Big API", "version" => "1.0.0"},
+      "paths" => paths
+    })
+  end
+
   describe "source recognition" do
     test "URL source emits a URL-specific notice" do
       igniter =
@@ -189,6 +204,69 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert notice =~ "registry shorthand `stripe@2026-04-22.dahlia`."
       refute notice =~ "alias for"
       assert notice =~ "v2266"
+    end
+  end
+
+  describe "operation selection and the --n-operations gate" do
+    test "a spec under the gate proceeds and reports the selection" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/petstore.yaml"])
+
+      assert notice_text(igniter) =~ "Selected 3 of 3 operations across 1 tag."
+    end
+
+    test "a spec over the gate with no --tag halts with the tag-discovery listing" do
+      igniter =
+        test_project(files: %{"priv/specs/big.json" => big_spec_json(30)})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/big.json"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "30 operations") and
+                 String.contains?(issue, "limit (25)") and
+                 String.contains?(issue, ~s("Things":)) and
+                 String.contains?(issue, ":get_thing1") and
+                 String.contains?(issue, "--n-operations 30")
+             end)
+
+      refute notice_text(igniter) =~ "Selected"
+    end
+
+    test "--tag skips the gate even when the spec is over the limit" do
+      igniter =
+        test_project(files: %{"priv/specs/big.json" => big_spec_json(30)})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/big.json", "--tag", "Things"])
+
+      assert notice_text(igniter) =~ "Selected 30 of 30 operations across 1 tag."
+    end
+
+    test "--tag narrows the selection to specific operationIds" do
+      igniter =
+        test_project(files: %{"priv/specs/big.json" => big_spec_json(30)})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/big.json",
+          "--tag",
+          "Things:get_thing1,get_thing2"
+        ])
+
+      assert notice_text(igniter) =~ "Selected 2 of 30 operations"
+    end
+
+    test "--n-operations raises the gate so a big spec proceeds" do
+      igniter =
+        test_project(files: %{"priv/specs/big.json" => big_spec_json(30)})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/big.json", "--n-operations", "30"])
+
+      assert notice_text(igniter) =~ "Selected 30 of 30 operations"
+    end
+
+    test "a malformed --tag value halts with the parse error" do
+      igniter =
+        test_project(files: %{"priv/specs/big.json" => big_spec_json(30)})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/big.json", "--tag", "Things:a:b"])
+
+      assert Enum.any?(igniter.issues, &String.contains?(&1, "comma-separated"))
+      refute notice_text(igniter) =~ "Selected"
     end
   end
 
