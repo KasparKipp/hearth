@@ -13,6 +13,13 @@ defmodule Mix.Tasks.Hearth.GenTest do
 
   defp notice_text(igniter), do: Enum.join(igniter.notices, "\n\n")
 
+  # The content of a file the task created/updated, read back out of the
+  # igniter's in-memory Rewrite (compose_task preserves rewrite changes).
+  defp created_file(igniter, path) do
+    {:ok, source} = Rewrite.source(igniter.rewrite, path)
+    Rewrite.Source.get(source, :content)
+  end
+
   # A JSON spec with `count` GET operations, all under one "Things" tag,
   # for exercising the operation-count gate.
   defp big_spec_json(count) do
@@ -40,24 +47,31 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert notice =~ "HTTP fetch"
     end
 
-    test "YAML file source decodes and summarizes the spec" do
+    test "YAML file source decodes, summarizes, and generates the behaviour" do
       igniter =
         test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
-        |> Igniter.compose_task("hearth.gen", ["priv/specs/petstore.yaml"])
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
 
       notice = notice_text(igniter)
       assert notice =~ "Spec loaded from priv/specs/petstore.yaml"
       assert notice =~ "Swagger Petstore"
       assert notice =~ "OpenAPI 3.0.0"
-      assert notice =~ ~r/\d+ paths/
       assert notice =~ ~r/\d+ operations/
-      assert notice =~ "code generation"
+      assert notice =~ "Test.Integrations.Petstore.PetstoreApi"
     end
 
-    test "JSON file source decodes and summarizes the spec" do
+    test "JSON file source decodes and generates the behaviour" do
       igniter =
         test_project(files: %{"priv/specs/petstore.json" => @petstore_3_0_json})
-        |> Igniter.compose_task("hearth.gen", ["priv/specs/petstore.json"])
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.json",
+          "--integration",
+          "Petstore"
+        ])
 
       notice = notice_text(igniter)
       assert notice =~ "Spec loaded"
@@ -67,7 +81,11 @@ defmodule Mix.Tasks.Hearth.GenTest do
     test "OAS 3.1 file source decodes correctly" do
       igniter =
         test_project(files: %{"priv/specs/tictactoe.yaml" => @tictactoe_3_1_yaml})
-        |> Igniter.compose_task("hearth.gen", ["priv/specs/tictactoe.yaml"])
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/tictactoe.yaml",
+          "--integration",
+          "Tictactoe"
+        ])
 
       notice = notice_text(igniter)
       assert notice =~ "Tic Tac Toe"
@@ -211,7 +229,11 @@ defmodule Mix.Tasks.Hearth.GenTest do
     test "a spec under the gate proceeds and reports the selection" do
       igniter =
         test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
-        |> Igniter.compose_task("hearth.gen", ["priv/specs/petstore.yaml"])
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
 
       assert notice_text(igniter) =~ "Selected 3 of 3 operations across 1 tag."
     end
@@ -235,7 +257,13 @@ defmodule Mix.Tasks.Hearth.GenTest do
     test "--tag skips the gate even when the spec is over the limit" do
       igniter =
         test_project(files: %{"priv/specs/big.json" => big_spec_json(30)})
-        |> Igniter.compose_task("hearth.gen", ["priv/specs/big.json", "--tag", "Things"])
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/big.json",
+          "--integration",
+          "Big",
+          "--tag",
+          "Things"
+        ])
 
       assert notice_text(igniter) =~ "Selected 30 of 30 operations across 1 tag."
     end
@@ -245,6 +273,8 @@ defmodule Mix.Tasks.Hearth.GenTest do
         test_project(files: %{"priv/specs/big.json" => big_spec_json(30)})
         |> Igniter.compose_task("hearth.gen", [
           "priv/specs/big.json",
+          "--integration",
+          "Big",
           "--tag",
           "Things:get_thing1,get_thing2"
         ])
@@ -255,7 +285,13 @@ defmodule Mix.Tasks.Hearth.GenTest do
     test "--n-operations raises the gate so a big spec proceeds" do
       igniter =
         test_project(files: %{"priv/specs/big.json" => big_spec_json(30)})
-        |> Igniter.compose_task("hearth.gen", ["priv/specs/big.json", "--n-operations", "30"])
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/big.json",
+          "--integration",
+          "Big",
+          "--n-operations",
+          "30"
+        ])
 
       assert notice_text(igniter) =~ "Selected 30 of 30 operations"
     end
@@ -267,6 +303,84 @@ defmodule Mix.Tasks.Hearth.GenTest do
 
       assert Enum.any?(igniter.issues, &String.contains?(&1, "comma-separated"))
       refute notice_text(igniter) =~ "Selected"
+    end
+  end
+
+  describe "Layer 2 generation" do
+    @petstore_layer2 "lib/test/integrations/petstore/petstore_api.ex"
+
+    test "writes the behaviour module to the conventional path" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert_creates(igniter, @petstore_layer2)
+    end
+
+    test "the behaviour has a callback per selected operation" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      source = created_file(igniter, @petstore_layer2)
+      assert source =~ "defmodule Test.Integrations.Petstore.PetstoreApi do"
+      assert source =~ "@callback list_pets(opts :: keyword())"
+      assert source =~ "@callback create_pets(opts :: keyword())"
+      assert source =~ "@callback show_pet_by_id(pet_id :: String.t(), opts :: keyword())"
+    end
+
+    test "--tag narrows which callbacks are generated" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore",
+          "--tag",
+          "pets:list_pets"
+        ])
+
+      source = created_file(igniter, @petstore_layer2)
+      assert source =~ "@callback list_pets("
+      refute source =~ "@callback create_pets("
+      refute source =~ "@callback show_pet_by_id("
+    end
+
+    test "--domain nests the module and file path under the domain" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore",
+          "--domain",
+          "Billing"
+        ])
+
+      path = "lib/test/billing/integrations/petstore/petstore_api.ex"
+      assert_creates(igniter, path)
+
+      assert created_file(igniter, path) =~
+               "defmodule Test.Billing.Integrations.Petstore.PetstoreApi"
+    end
+
+    test "a file source without --integration halts with a helpful issue" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/petstore.yaml"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "--integration is required") and
+                 String.contains?(issue, "priv/specs/petstore.yaml")
+             end)
     end
   end
 

@@ -78,10 +78,11 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
 
       * Available now — source recognition (URL / file / registry),
         registry lookup, file-existence validation, install gating,
-        YAML/JSON decode, operation extraction + tag filtering (for
-        file sources).
-      * Coming soon — on-disk cache, HTTP fetcher (for URL / registry
-        sources), code generation.
+        YAML/JSON decode, operation extraction + tag filtering, and
+        Layer 2 behaviour generation (for file sources).
+      * Coming soon — Layer 1 (raw client), Layer 3 (implementation),
+        Mox + config wiring, on-disk cache, HTTP fetcher (for URL /
+        registry sources).
 
     If your project is not yet set up (no `:hearth` in `.formatter.exs`
     or no `:hearth_domains` in `config/config.exs`), `hearth.gen` will
@@ -377,10 +378,52 @@ if Code.ensure_loaded?(Igniter) do
 
       case resolve_selection(igniter, operations, tag_values) do
         {:ok, selected} ->
-          Igniter.add_notice(igniter, selection_notice(path, spec, operations, selected))
+          generate(igniter, path, spec, operations, selected)
 
         {:halt, message} ->
           Igniter.add_issue(igniter, message)
+      end
+    end
+
+    # `--integration` is required for file sources (registry sources
+    # auto-derive it, but registry codegen isn't wired yet). With it,
+    # render the Layer 2 behaviour and write it to disk.
+    defp generate(igniter, path, spec, operations, selected) do
+      case igniter.args.options[:integration] do
+        nil ->
+          Igniter.add_issue(igniter, missing_integration_message(path))
+
+        integration ->
+          module = layer2_module(igniter, integration)
+          source = Hearth.Render.Layer2.render(module, selected)
+          location = Igniter.Project.Module.proper_location(igniter, module)
+
+          igniter
+          |> Igniter.create_new_file(location, source, on_exists: :overwrite)
+          |> Igniter.add_notice(
+            generated_notice(path, spec, operations, selected, module, location)
+          )
+      end
+    end
+
+    defp layer2_module(igniter, integration) do
+      app =
+        igniter
+        |> Igniter.Project.Application.app_name()
+        |> to_string()
+        |> Macro.camelize()
+
+      Hearth.Render.ModuleNames.layer2(
+        app_module: app,
+        integration: Macro.camelize(integration),
+        domain: domain_segment(igniter)
+      )
+    end
+
+    defp domain_segment(igniter) do
+      case igniter.args.options[:domain] do
+        nil -> nil
+        domain -> Macro.camelize(domain)
       end
     end
 
@@ -419,22 +462,35 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp selection_notice(path, spec, operations, selected) do
+    defp generated_notice(path, spec, operations, selected, module, location) do
       summary = summarize(spec)
       tag_count = selected |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> length()
+      callbacks = pluralize("callback", length(selected))
 
       """
       Spec loaded from #{path}.
 
           #{summary.title} (info.version #{summary.info_version}, OpenAPI #{summary.openapi})
-          #{summary.paths} paths
 
       Selected #{length(selected)} of #{length(operations)} operations \
       across #{tag_count} #{pluralize("tag", tag_count)}.
 
-      Next pipeline stage: code generation. Not yet wired — when ready,
-      this command will render Layer 1/2/3, patch your config, and
-      scaffold test files.
+      * generating #{location}
+          #{inspect(module)} — behaviour, #{length(selected)} #{callbacks}
+
+      Next pipeline stage: Layer 1 (raw Req client), Layer 3
+      (implementation), and Mox wiring. Not yet wired.
+      """
+    end
+
+    defp missing_integration_message(path) do
+      """
+      hearth.gen: --integration is required for a file source.
+
+        mix hearth.gen #{path} --integration <Name>
+
+      <Name> becomes the integration's module name — `--integration Stripe`
+      generates the behaviour at App.Integrations.Stripe.StripeApi.
       """
     end
 

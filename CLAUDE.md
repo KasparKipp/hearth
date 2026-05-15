@@ -523,12 +523,38 @@ These were learned the hard way and must hold for future steps:
   The success notice reports `Selected N of TOTAL operations across M
   tags`. Igniter aggregates a `:keep` option into one list and defaults
   an absent one to `[]`, so the task reads `options[:tag]` directly
-  (not `Keyword.get_values`). No codegen yet — step 5c writes files.
+  (not `Keyword.get_values`).
+
+- **Step 5c — Layer 2 behaviour renderer.** `mix hearth.gen <file>
+  --integration <Name>` now writes a behaviour module to disk — the
+  first step that generates code. `--integration` is required for file
+  sources (a missing one halts with a helpful issue).
+
+  - `Hearth.Render.ModuleNames.layer2/1` derives the module name.
+    Verbose style: `<App>.Integrations.<Integration>.<Integration>Api`;
+    `--domain Billing` slots a domain segment in after the app.
+    `--style` / `--no-integrations-segment` remain unwired.
+  - `Hearth.Render.Layer2.render/2` builds the behaviour source — one
+    `@callback` per selected operation. Path params become positional
+    `String.t()` args (named via `Operation.sanitize_id/1`), query/body
+    funnel through a final `opts :: keyword()`, every callback returns
+    the generic `{:ok, Req.Response.t()} | {:error, Exception.t()}`.
+    An operation `summary` becomes a `@doc` on the callback. The module
+    is assembled as a string and run through `Code.format_string!/1` —
+    it normalizes layout and raises on any syntax error.
+  - The gen task writes via `Igniter.create_new_file/4` with
+    `on_exists: :overwrite` (re-running regenerates silently — ownership
+    tokens are step 6+). The path comes from
+    `Igniter.Project.Module.proper_location/2`.
+
+  Renderers build source as strings, not quoted AST — typespec-heavy
+  output (`@callback ... :: ...`) is clearer to assemble as text, and
+  `Code.format_string!/1` is the syntax check.
 
 #### Pending
 
-- **Step 5c (next) — Layer 2 behaviour renderer.** Writes the behaviour module.
-- **Steps 5d–5f** — Layer 1, Layer 3, Mox + config wiring.
+- **Step 5d (next) — Layer 1 (raw Req client).**
+- **Steps 5e–5f** — Layer 3, Mox + config wiring.
 - **Steps 4d–4f (deferred, parallel track)** — `Hearth.Spec.Cache`,
   `Hearth.Spec.Fetcher` (Req + cache; bundles the `latest`-resolution
   enhancement — TODO parked on the `latest` entry in
