@@ -373,9 +373,29 @@ and updates this section.
   Existing values are preserved: an explicit `false` opt-out and a populated
   list both survive re-runs untouched. Four properties covered: file
   creation, `false` preservation, populated-list preservation, full idempotency.
-- **Step 3 (next)** — `mix hearth.install` emits a post-install notice
-  (`Igniter.add_notice/2`) explaining `:hearth_domains` and pointing at
-  `mix hearth.gen`.
+- **Step 3 (done)** — `mix hearth.install` emits a context-aware summary
+  notice. Three branches, dispatched on pre-run state and post-run diff:
+  - **First install** (`:hearth_domains` was absent): full explainer with
+    a Hearth-version header, list of modified files, a worked
+    `config :otp_app, hearth_domains: [...]` example using the consumer's
+    actual app name, opt-out instructions, and a `mix hearth.gen` pointer
+    that names OpenAPI 3.x as the input format.
+  - **Repeat install, files changed**: short `=== Hearth vX.Y.Z ===` header
+    + `Modified: <files>` line. No re-explanation.
+  - **Repeat install, no changes**: single-line `Hearth vX.Y.Z already
+    installed — no changes.`
+
+  The version stamp comes from `Application.spec(:hearth, :vsn)`. Touched
+  files are computed by `Igniter.has_changes?/2` scoped per path against
+  the post-patch igniter. The notice deliberately does **not** reference
+  unreleased commands like `mix hearth.regen` — a test enforces this.
+
+  UX feedback items addressed in this step: 7 (file-summary), 8 (notice
+  header), 9 (repeat-run noise), 10 (`hearth.regen` reference dropped),
+  11 (OpenAPI hint added), 12 (version stamp). Items 1–5 are upstream
+  Igniter ergonomics and out of scope here.
+- **Step 4 (next)** — TBD. Candidates: scaffold `priv/specs/.gitkeep`
+  for the conventional spec location, or pivot to `mix hearth.gen` planning.
 
 ---
 
