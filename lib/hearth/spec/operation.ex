@@ -71,6 +71,20 @@ defmodule Hearth.Spec.Operation do
     |> Map.new(fn {tag, ops} -> {tag, Enum.reverse(ops)} end)
   end
 
+  @doc false
+  # Lowercases, splits camelCase, and collapses every run of
+  # non-alphanumeric characters (hyphens, dots, spaces, repeated
+  # underscores) into a single underscore, so the result is always a
+  # valid Elixir function name. Public so `Hearth.Spec.Filter` can
+  # normalize user-supplied operationIds the same way `:id` is derived.
+  @spec sanitize_id(String.t()) :: String.t()
+  def sanitize_id(string) when is_binary(string) do
+    string
+    |> Macro.underscore()
+    |> String.replace(~r/[^a-z0-9]+/, "_")
+    |> String.trim("_")
+  end
+
   defp extract_path({path, path_item}) when is_binary(path) and is_map(path_item) do
     shared_params = Map.get(path_item, "parameters", [])
 
@@ -119,25 +133,14 @@ defmodule Hearth.Spec.Operation do
   end
 
   defp base_id(%__MODULE__{operation_id: id}) when is_binary(id) and id != "" do
-    sanitize(id)
+    sanitize_id(id)
   end
 
   defp base_id(%__MODULE__{method: method, path: path}) do
-    # Replace path separators and param braces with spaces; `sanitize/1`
+    # Replace path separators and param braces with spaces; `sanitize_id/1`
     # collapses them (and any other non-alphanumerics) into underscores.
     slug = String.replace(path, ~r"[/{}]", " ")
-    sanitize("#{method} #{slug}")
-  end
-
-  # Lowercases, splits camelCase, and collapses every run of
-  # non-alphanumeric characters (hyphens, dots, spaces, repeated
-  # underscores) into a single underscore so the result is always a
-  # valid Elixir function name.
-  defp sanitize(string) do
-    string
-    |> Macro.underscore()
-    |> String.replace(~r/[^a-z0-9]+/, "_")
-    |> String.trim("_")
+    sanitize_id("#{method} #{slug}")
   end
 
   defp dedupe(base, seen) do

@@ -494,15 +494,24 @@ These were learned the hard way and must hold for future steps:
   `parameters` merge into each operation. `$ref` parameters are left
   unclassified (no `"in"` key) — resolution is step 6+.
 
-  `Hearth.Spec.Filter` parses the `--tags` CLI string (`;` / `:` / `,`
-  three-level delimited) into `[{tag, :all | {:only, ids}}]` and
-  `apply/2` selects matching operations (union semantics across rules).
+  `Hearth.Spec.Filter` parses the repeatable `--tag` flag — `parse/1`
+  takes the list of `--tag` values; within a value the first `:`
+  separates the tag name from a comma-separated operationId allowlist
+  (`"Subscriptions:create,list"`), a value with no colon is a whole
+  tag. Tag names may contain commas/semicolons/spaces. User-supplied
+  operationIds are run through `Operation.sanitize_id/1` so an id
+  copied straight from the spec (`getBoard`, `get-board`) still
+  matches the derived `:id`. A stray `:` in the operationId portion is
+  a rejected typo — but an id portion that is *only* delimiters
+  (`"Customers::"`) reports "no operationIds" instead. Repeated tags
+  merge (union + sort their `:only` lists). `apply/2` selects matching
+  operations (union semantics across rules).
 
 #### Pending
 
 - **Step 5b (next) — Tag discovery + operation-count gate.** Wires 5a
-  into the gen task: extract, apply `--tags`, or — past the
-  `--n-operations` threshold with no filter — halt with a
+  into the gen task: extract, apply the repeatable `--tag` flag, or —
+  past the `--n-operations` threshold with no `--tag` — halt with a
   copy-pasteable tag listing. No codegen yet.
 - **Step 5c — Layer 2 behaviour renderer.** Writes the behaviour module.
 - **Steps 5d–5f** — Layer 1, Layer 3, Mox + config wiring.
