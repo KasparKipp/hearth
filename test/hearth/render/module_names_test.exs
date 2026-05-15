@@ -41,4 +41,16 @@ defmodule Hearth.Render.ModuleNamesTest do
       assert Module.concat(ModuleNames.layer1(opts), "StripeApi") == ModuleNames.layer2(opts)
     end
   end
+
+  describe "layer3/1" do
+    test "the Req implementation is layer2 plus a Req suffix" do
+      assert ModuleNames.layer3(app_module: "MyApp", integration: "Stripe") ==
+               MyApp.Integrations.Stripe.StripeApi.Req
+    end
+
+    test "layer3 nests under layer2" do
+      opts = [app_module: "MyApp", integration: "Stripe", domain: "Billing"]
+      assert Module.concat(ModuleNames.layer2(opts), "Req") == ModuleNames.layer3(opts)
+    end
+  end
 end

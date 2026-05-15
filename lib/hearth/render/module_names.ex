@@ -28,6 +28,12 @@ defmodule Hearth.Render.ModuleNames do
     Module.concat(segments(opts) ++ ["#{integration(opts)}Api"])
   end
 
+  # Layer 3 — the Req implementation: <Layer2>.Req
+  @spec layer3(keyword()) :: module()
+  def layer3(opts) do
+    Module.concat(segments(opts) ++ ["#{integration(opts)}Api", "Req"])
+  end
+
   defp segments(opts) do
     [Keyword.fetch!(opts, :app_module), opts[:domain], "Integrations", integration(opts)]
     |> Enum.reject(&is_nil/1)

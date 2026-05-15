@@ -599,12 +599,36 @@ These were learned the hard way and must hold for future steps:
     <name>` flag selects non-interactively; under `--yes` with several
     schemes and no `--auth-scheme`, the task halts rather than guesses.
 
+- **Step 5e — Layer 3 Req implementation.** `mix hearth.gen <file>
+  --integration <Name>` now writes the third file — the Req-based
+  implementation that satisfies the Layer 2 behaviour. After 5e the
+  integration is functional end to end.
+
+  - Module: `<Layer2>.Req` (`ModuleNames.layer3/1`). `Hearth.Render.Layer3`
+    `@behaviour`s Layer 2, `alias`es Layer 1, and renders one `@impl
+    true` function per operation, each a one-liner delegating to a
+    private `request/3` helper. `request/3` calls the Layer 1
+    `client/0` and dispatches via `Req.request/2` — whose return type
+    already matches the Layer 2 callback spec.
+  - Path params interpolate into the URL (`{petId}` → `#{pet_id}`);
+    query/body params ride through `opts` untouched, so every function
+    body is uniform — pure plumbing.
+  - **Empty-selection guard:** a `--tag` filter matching no operations
+    now halts (`"no operations matched the --tag filter"`) instead of
+    generating empty modules with an unused `request/3`.
+  - **`req` dependency:** the generated Layer 1/3 reference `Req` at
+    runtime. `req` reaches Hearth only transitively via the optional,
+    dev-time `igniter` dep, so the *consuming* app needs it directly.
+    `mix hearth.gen` adds `{:req, "~> 0.5"}` via
+    `Igniter.Project.Deps.add_dep/2` — placed in the gen task, not
+    `hearth.install`, because the generated code is what needs it
+    (install alone produces nothing that does).
+
 #### Pending
 
-- **Step 5e (next) — Layer 3 (implementation).** One function per
-  Layer-2 callback, delegating to Layer 1's `client/1` via `Req`.
-- **Step 5f** — Mox defmock + config wiring (`config/runtime.exs`
-  credential entries per the model above, `:hearth_domains` append).
+- **Step 5f (next)** — Mox defmock + config wiring (`config/runtime.exs`
+  credential entries per the step-5d model, active-impl `:impl` config,
+  `:hearth_domains` append).
 - **Steps 4d–4f (deferred, parallel track)** — `Hearth.Spec.Cache`,
   `Hearth.Spec.Fetcher` (Req + cache; bundles the `latest`-resolution
   enhancement — TODO parked on the `latest` entry in

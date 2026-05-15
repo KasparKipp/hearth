@@ -404,7 +404,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert source =~ "defp credential(opts)"
     end
 
-    test "the notice lists both generated files" do
+    test "the notice lists all three generated files" do
       igniter =
         test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
         |> Igniter.compose_task("hearth.gen", [
@@ -416,7 +416,60 @@ defmodule Mix.Tasks.Hearth.GenTest do
       notice = notice_text(igniter)
       assert notice =~ "lib/test/integrations/petstore.ex"
       assert notice =~ "lib/test/integrations/petstore/petstore_api.ex"
+      assert notice =~ "lib/test/integrations/petstore/petstore_api/req.ex"
       assert notice =~ "raw Req client"
+      assert notice =~ "Req implementation"
+    end
+  end
+
+  describe "Layer 3 generation" do
+    @petstore_layer3 "lib/test/integrations/petstore/petstore_api/req.ex"
+
+    test "writes the Req implementation module" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert_creates(igniter, @petstore_layer3)
+      source = created_file(igniter, @petstore_layer3)
+      assert source =~ "defmodule Test.Integrations.Petstore.PetstoreApi.Req do"
+      assert source =~ "@behaviour Test.Integrations.Petstore.PetstoreApi"
+      assert source =~ "@impl true"
+      assert source =~ ~s|def list_pets(opts \\\\ []), do: request(:get, "/pets", opts)|
+
+      assert source =~
+               ~s|def show_pet_by_id(pet_id, opts \\\\ []), do: request(:get, "/pets/\#{pet_id}", opts)|
+    end
+
+    test "the gen run adds {:req, …} to the consumer's deps" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert created_file(igniter, "mix.exs") =~ ":req"
+    end
+
+    test "a --tag filter matching no operations halts instead of generating empty modules" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore",
+          "--tag",
+          "NoSuchTag"
+        ])
+
+      assert Enum.any?(igniter.issues, &String.contains?(&1, "no operations matched"))
+      refute notice_text(igniter) =~ "generating"
     end
   end
 

@@ -79,10 +79,10 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
       * Available now — source recognition (URL / file / registry),
         registry lookup, file-existence validation, install gating,
         YAML/JSON decode, operation extraction + tag filtering, and
-        Layer 1 (raw client) + Layer 2 (behaviour) generation (for
-        file sources).
-      * Coming soon — Layer 3 (implementation), Mox + config wiring,
-        on-disk cache, HTTP fetcher (for URL / registry sources).
+        Layer 1/2/3 generation — raw client, behaviour, and Req
+        implementation (for file sources).
+      * Coming soon — Mox + config wiring, on-disk cache, HTTP fetcher
+        (for URL / registry sources).
 
     If your project is not yet set up (no `:hearth` in `.formatter.exs`
     or no `:hearth_domains` in `config/config.exs`), `hearth.gen` will
@@ -397,7 +397,8 @@ if Code.ensure_loaded?(Igniter) do
 
     # `--integration` is required for file sources (registry sources
     # auto-derive it, but registry codegen isn't wired yet). With it,
-    # render Layer 1 (raw client) and Layer 2 (behaviour) to disk.
+    # render Layer 1 (raw client), Layer 2 (behaviour), and Layer 3
+    # (Req implementation) to disk.
     defp generate(igniter, path, spec, operations, selected) do
       case igniter.args.options[:integration] do
         nil ->
@@ -412,29 +413,54 @@ if Code.ensure_loaded?(Igniter) do
       names = module_names(igniter, integration)
       layer1 = Hearth.Render.ModuleNames.layer1(names)
       layer2 = Hearth.Render.ModuleNames.layer2(names)
+      layer3 = Hearth.Render.ModuleNames.layer3(names)
 
-      layer1_source =
-        Hearth.Render.Layer1.render(
-          layer1,
-          Igniter.Project.Application.app_name(igniter),
-          base_url(spec),
-          Hearth.Spec.Auth.strategy(spec)
-        )
+      sources = [
+        {layer1,
+         Hearth.Render.Layer1.render(
+           layer1,
+           Igniter.Project.Application.app_name(igniter),
+           base_url(spec),
+           Hearth.Spec.Auth.strategy(spec)
+         ), "raw Req client"},
+        {layer2, Hearth.Render.Layer2.render(layer2, selected),
+         "behaviour, #{length(selected)} #{pluralize("callback", length(selected))}"},
+        {layer3, Hearth.Render.Layer3.render(layer3, layer2, layer1, selected),
+         "Req implementation, #{length(selected)} #{pluralize("function", length(selected))}"}
+      ]
 
-      layer2_source = Hearth.Render.Layer2.render(layer2, selected)
-      layer1_loc = Igniter.Project.Module.proper_location(igniter, layer1)
-      layer2_loc = Igniter.Project.Module.proper_location(igniter, layer2)
-      callbacks = "behaviour, #{length(selected)} #{pluralize("callback", length(selected))}"
+      written =
+        Enum.map(sources, fn {module, source, label} ->
+          location = Igniter.Project.Module.proper_location(igniter, module)
+          {module, location, source, label}
+        end)
 
       igniter
-      |> Igniter.create_new_file(layer1_loc, layer1_source, on_exists: :overwrite)
-      |> Igniter.create_new_file(layer2_loc, layer2_source, on_exists: :overwrite)
+      # The generated Layer 1/3 reference Req at runtime. `req` rides
+      # into Hearth only transitively via the optional, dev-time
+      # `igniter` dep, so the consuming app needs it as a direct
+      # dependency of its own. Added here (idempotently) rather than in
+      # `hearth.install` because it is the *generated code* that needs
+      # it — `mix hearth.install` alone produces nothing that does.
+      |> Igniter.Project.Deps.add_dep({:req, "~> 0.5"})
+      |> write_files(written)
       |> Igniter.add_notice(
-        generated_notice(path, spec, operations, selected, [
-          {layer1, layer1_loc, "raw Req client"},
-          {layer2, layer2_loc, callbacks}
-        ])
+        generated_notice(
+          path,
+          spec,
+          operations,
+          selected,
+          Enum.map(written, fn {module, location, _source, label} ->
+            {module, location, label}
+          end)
+        )
       )
+    end
+
+    defp write_files(igniter, written) do
+      Enum.reduce(written, igniter, fn {_module, location, source, _label}, acc ->
+        Igniter.create_new_file(acc, location, source, on_exists: :overwrite)
+      end)
     end
 
     defp module_names(igniter, integration) do
@@ -488,9 +514,17 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     defp resolve_selection(_igniter, operations, tag_values) do
-      case Filter.parse(tag_values) do
-        {:ok, filter} -> {:ok, Filter.apply(operations, filter)}
-        {:error, reason} -> {:halt, "hearth.gen: #{reason}"}
+      with {:ok, filter} <- Filter.parse(tag_values),
+           [_first | _rest] = selected <- Filter.apply(operations, filter) do
+        {:ok, selected}
+      else
+        {:error, reason} ->
+          {:halt, "hearth.gen: #{reason}"}
+
+        [] ->
+          {:halt,
+           "hearth.gen: no operations matched the --tag filter. " <>
+             "Run `mix hearth.gen <source> --list` to see the available tags."}
       end
     end
 
