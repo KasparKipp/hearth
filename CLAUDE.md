@@ -368,11 +368,14 @@ and updates this section.
 
 - **Step 1 (done)** — `mix hearth.install` skeleton. Adds `:hearth` to the
   consumer's `.formatter.exs` `import_deps`. Tested with `Igniter.Test`.
-- **Step 2 (next)** — `mix hearth.install` initializes `:hearth_domains` in
-  `config/config.exs` (set to `[]` only if unset, so `false` opt-outs survive
-  re-runs).
-- **Step 3** — `mix hearth.install` emits a post-install notice explaining
-  `:hearth_domains` and pointing at `mix hearth.gen`.
+- **Step 2 (done)** — `mix hearth.install` initializes `:hearth_domains` to
+  `[]` in `config/config.exs` via `Igniter.Project.Config.configure_new/6`.
+  Existing values are preserved: an explicit `false` opt-out and a populated
+  list both survive re-runs untouched. Four properties covered: file
+  creation, `false` preservation, populated-list preservation, full idempotency.
+- **Step 3 (next)** — `mix hearth.install` emits a post-install notice
+  (`Igniter.add_notice/2`) explaining `:hearth_domains` and pointing at
+  `mix hearth.gen`.
 
 ---
 

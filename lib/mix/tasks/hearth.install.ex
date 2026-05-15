@@ -16,6 +16,9 @@ defmodule Mix.Tasks.Hearth.Install.Docs do
     Sets up your project to use Hearth:
 
       * imports Hearth's formatter rules into `.formatter.exs`
+      * initializes `config :<otp_app>, :hearth_domains, []` in `config/config.exs`
+        if (and only if) the key is not already set. Existing values — including
+        an explicit `false` opt-out — are preserved.
 
     ## Example
 
@@ -46,8 +49,16 @@ if Code.ensure_loaded?(Igniter) do
 
     @impl Igniter.Mix.Task
     def igniter(igniter) do
+      otp_app = Igniter.Project.Application.app_name(igniter)
+
       igniter
       |> Igniter.Project.Formatter.import_dep(:hearth)
+      |> Igniter.Project.Config.configure_new(
+        "config.exs",
+        otp_app,
+        [:hearth_domains],
+        []
+      )
     end
   end
 else
