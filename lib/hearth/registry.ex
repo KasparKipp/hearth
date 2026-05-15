@@ -76,6 +76,22 @@ defmodule Hearth.Registry do
       #   4. `latest` keeps the master URL — no edit needed there.
 
       # Floating pointer (master/HEAD).
+      #
+      # TODO (step 4e — fetcher): once HTTP fetching exists, resolve
+      # this URL during `mix hearth.gen stripe --list` and annotate
+      # the list as `* latest → <date>.<codename>` by reading
+      # `info.version` from the fetched spec. If the fetch fails
+      # (404, network error, Stripe restructured the repo), the
+      # surfaced error MUST point users at this project's issue
+      # tracker so the registry can be corrected. Suggested phrasing:
+      #
+      #     Looks like the latest Stripe spec URL has changed.
+      #     Would you mind opening an issue at <repo-url>?
+      #
+      # The repo URL lives in mix.exs under `package.links.GitHub`
+      # and can be read at runtime with:
+      #
+      #     Mix.Project.config()[:package][:links]["GitHub"]
       "latest" =>
         "https://raw.githubusercontent.com/stripe/openapi/refs/heads/master/openapi/spec3.yaml",
 

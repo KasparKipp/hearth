@@ -363,259 +363,111 @@ and `Igniter.Project.Module.create_module/4`.
 
 ### Step-by-step build log
 
-We are building the library incrementally. Each step lands as a single commit
-and updates this section.
+We are building the library incrementally. Each step lands as a single
+commit. Past steps are condensed to current state and load-bearing
+contracts; the blow-by-blow lives in git history. Plan for Step 4 lives
+at `~/.claude/plans/um-what-s-gitkeep-compiled-hennessy.md`.
 
-- **Step 1 (done)** — `mix hearth.install` skeleton. Adds `:hearth` to the
-  consumer's `.formatter.exs` `import_deps`. Tested with `Igniter.Test`.
-- **Step 2 (done)** — `mix hearth.install` initializes `:hearth_domains` to
-  `[]` in `config/config.exs` via `Igniter.Project.Config.configure_new/6`.
-  Existing values are preserved: an explicit `false` opt-out and a populated
-  list both survive re-runs untouched. Four properties covered: file
-  creation, `false` preservation, populated-list preservation, full idempotency.
-- **Step 3 (done)** — `mix hearth.install` emits a context-aware summary
-  notice. Three branches, dispatched on pre-run state and post-run diff:
-  - **First install** (`:hearth_domains` was absent): full explainer with
-    a Hearth-version header, list of modified files, a worked
-    `config :otp_app, hearth_domains: [...]` example using the consumer's
-    actual app name, opt-out instructions, and a `mix hearth.gen` pointer
-    that names OpenAPI 3.x as the input format.
-  - **Repeat install, files changed**: short `=== Hearth vX.Y.Z ===` header
-    + `Modified: <files>` line. No re-explanation.
-  - **Repeat install, no changes**: single-line `Hearth vX.Y.Z already
-    installed — no changes.`
+#### Done
 
-  The version stamp comes from `Application.spec(:hearth, :vsn)`. Touched
-  files are computed by `Igniter.has_changes?/2` scoped per path against
-  the post-patch igniter. The notice deliberately does **not** reference
-  unreleased commands like `mix hearth.regen` — a test enforces this.
+- **Steps 1–3 — `mix hearth.install`.** Idempotent installer. Adds
+  `:hearth` to the consumer's `.formatter.exs` `import_deps`, initializes
+  `config :otp_app, hearth_domains: []` in `config/config.exs` (preserving
+  any existing value — explicit `false` opt-outs and populated lists
+  survive re-runs untouched), and emits a context-aware summary notice
+  with three branches: first install (full explainer + `:hearth_domains`
+  worked example using the consumer's actual app name), repeat with
+  changes (short header + modified-files line), repeat no-op (single
+  line). Version stamp via `Application.spec(:hearth, :vsn)`. Touched
+  files computed by `Igniter.has_changes?/2` scoped per path.
 
-  UX feedback items addressed in this step: 7 (file-summary), 8 (notice
-  header), 9 (repeat-run noise), 10 (`hearth.regen` reference dropped),
-  11 (OpenAPI hint added), 12 (version stamp). Items 1–5 are upstream
-  Igniter ergonomics and out of scope here.
-### Step 4 — `mix hearth.gen` spec input pipeline
+- **Step 4a — `mix hearth.gen` skeleton + source discrimination.** Task
+  with the same optional-Igniter dance as `hearth.install`.
+  `Hearth.Spec.Source.resolve/1` (pure) classifies argv as
+  `{:url, _} | {:file, _} | {:registry, _} | {:error, _}`. The registry
+  regex allows `@` and `.` so `stripe@latest` and `stripe@2024-01-01`
+  classify correctly; input is case-folded. The task dispatches per
+  shape; missing source, unclassifiable input, missing files, and
+  refused install all halt via `Igniter.add_issue/2`. File existence
+  is checked via `Igniter.exists?/2` (works against both real fs and
+  Igniter's in-memory Rewrite — tests use `test_project(files: %{...})`).
 
-Plan: `~/.claude/plans/um-what-s-gitkeep-compiled-hennessy.md`.
+  Auto-composes `mix hearth.install` via speculative `compose_task` +
+  `Igniter.has_changes?/2` against `.formatter.exs` and
+  `config/config.exs`: discards the composed result if install would
+  be a no-op (so consumers don't see "already installed" chatter under
+  gen); otherwise `--yes` or `igniter.assigns[:test_mode?]` auto-accept,
+  else `Mix.shell().yes?/1` prompts. **This gated-compose pattern is
+  the contract for every future Hearth task that needs install state.**
 
-Sliced into micro-steps so each is a single small commit, mirroring the
-install cadence. End-state demo for step 4: `mix hearth.gen stripe`
-fetches Stripe's spec, caches it under `priv/hearth/cache/`, decodes it,
-and prints a summary. Code generation (the renderers) is step 5+.
+- **Step 4b — Curated, versioned registry.** `Hearth.Registry` ships one
+  entry: Stripe, with 14 dated canonical versions covering basil
+  (v1712–v2017), clover (v2092–v2203), dahlia (v2248–v2266), plus a
+  floating `latest` pointing at `master/openapi/spec3.yaml`. Codename
+  aliases (`basil`, `clover`, `dahlia`) resolve to the most-recent dated
+  release in their family; date-alone aliases resolve to the
+  corresponding `<date>.<codename>`. URLs source from a bare clone of
+  stripe/openapi grouped by `info.version`. Pre-2025 codenames are
+  intentionally skipped.
 
-- **Step 4a (done)** — `mix hearth.gen` task skeleton + source
-  discrimination (the original 4a+4b folded together so each commit adds
-  observable behavior, not just code). Same optional-igniter dance as
-  `hearth.install`. `info/2` declares `positional: [:source]` so a missing
-  source raises a useful `ArgumentError` from Igniter rather than silently
-  no-op'ing. `Hearth.Spec.Source.resolve/1` (`lib/hearth/spec/source.ex`)
-  is a pure function that classifies the argument as `{:url, …}` |
-  `{:file, …}` | `{:registry, …}` | `{:error, reason}`. The task dispatches
-  on the shape and emits a per-shape notice naming both what was recognized
-  and which pipeline stage comes next; unclassifiable inputs go through
-  `Igniter.add_issue/2` so the run halts.
+  Lookup returns
+  `{:ok, %{name, version, resolved_version, url, integration}}` (with
+  `integration` derived via `Macro.camelize/1` — `stripe → Stripe`,
+  `google_docs → GoogleDocs`), or
+  `{:error, {:unknown_name, _}}`, or
+  `{:error, {:unknown_version, name, version, available}}`. The gen
+  task pattern-matches the tag and emits a distinct user message per
+  error path. The gen notice's `(alias for stripe@2025-08-27.basil)`
+  annotation is how users discover what an alias resolves to.
 
-  UX guidelines learned the hard way during this step: every commit must
-  produce visibly different behavior for distinct user inputs. The notice
-  is consumer-facing, so it never references our internal CLAUDE.md —
-  a test (`gen_test.exs:"consumer-facing docs"`) enforces this. The
-  long_doc only advertises features that actually work today; registry
-  shortcuts are described as "not yet wired" until step 4c.
-- **Step 4a-followup (done)** — Three UX polish items landed together
-  because they shape the contract for every future Hearth task:
+  `versions/1` and the unknown-version error filter to canonical
+  (URL-backed) entries only. Aliases resolve at lookup time but are
+  invisible to listings.
 
-  1. **Gated install composition.** `mix hearth.gen` speculatively composes
-     `mix hearth.install` and uses `Igniter.has_changes?/2` against
-     `[".formatter.exs", "config/config.exs"]` to decide whether install
-     would actually do work. If not — discard the composed result and use
-     the original igniter, so consumers never see install's "already
-     installed" notice as gen-precondition chatter. If install IS needed:
-     `--yes` or `igniter.assigns[:test_mode?]` auto-accept; otherwise
-     `Mix.shell().yes?/1` prompts the user. Refusal halts with a clear
-     `Igniter.add_issue/2` message pointing at `--yes` or manual install.
-  2. **File-existence validation.** `:file` sources are checked via
-     `Igniter.exists?/2` (which checks both the real filesystem AND
-     Igniter's in-memory Rewrite state, so tests can use
-     `test_project(files: %{...})`). Missing files halt with an issue
-     naming the path; no misleading "Source recognized: file" notice.
-  3. **`mix help` honesty.** `mix help hearth.gen` now has a full Options
-     section documenting every flag, and the registry example is reframed
-     as "Coming soon — no registry names are resolvable today" rather
-     than `mix hearth.gen <name>` (a copy-paste trap). `mix help
-     hearth.install` cross-links to the gen auto-invocation so users
-     reach the same understanding from either direction. Two tests
-     (`long_doc documents every task option`, `long_doc no longer shows
-     a copy-pasteable registry example that does not work`) guard against
-     regression.
+  `mix hearth.gen --list` (no source) prints shortcut names only.
+  `mix hearth.gen <name> --list` prints canonical versions for that
+  shortcut (the `@version` part is ignored, so `stripe`,
+  `stripe@latest`, and `stripe@anything-else` produce identical
+  output). Non-registry sources with `--list` error. Sets
+  `igniter.assigns[:quiet_on_no_changes?]` so query-mode commands
+  don't print "No proposed content changes!". Output goes through
+  `Mix.shell().info/1`, not notices, so it appears immediately rather
+  than under a `Notices:` header.
 
-  This composition pattern is the contract for every future Hearth task
-  that needs install state — they all open with the same gated compose.
+#### Load-bearing contracts
 
-- **Step 4b-detour (done)** — Context-sensitive `--list` under the gen
-  task (no separate `mix hearth.list` task — the registry is gen's
-  domain). Two output shapes:
+These were learned the hard way and must hold for future steps:
 
-  1. `mix hearth.gen --list` (no source) — prints just the shortcut
-     names. Deliberately narrow: no versions, no URLs, no derived
-     integration names. The follow-up command is signposted right in
-     the output: `Run mix hearth.gen <name> --list to see versions`.
-  2. `mix hearth.gen <name> --list` — prints the versions for that
-     shortcut. The `@version` portion of the source is ignored, so
-     `stripe`, `stripe@latest`, and `stripe@anything-else` all produce
-     the same output. The trailing hint suggests `name@<historic>` and
-     `name → @latest` to teach the version-pinning syntax.
+- **Every commit produces visibly different behavior for distinct user
+  inputs.** Skeletons that no-op identically on every input are
+  misleading and got reworked.
+- **Consumer-facing notices never reference internal CLAUDE.md or step
+  numbers.** A test in `gen_test.exs:"consumer-facing docs"` enforces
+  this.
+- **`long_doc` only advertises features that work today.** Lock-in tests
+  refute stale wording and copy-paste traps (e.g. literal
+  `mix hearth.gen <name>` outside the `--list` context).
+- **Tasks that need install state open with the same gated compose
+  pattern** described under Step 4a.
 
-  Non-registry sources with `--list` (file path or URL) record a clear
-  issue: `--list with a source only works for registry shortcuts`.
-  Unknown shortcut + `--list` reuses the existing
-  `registry_unknown_name_message/1` so the answer is consistent with
-  the regular-resolution path.
+#### Pending
 
-  Implementation notes:
-
-  * `:source` positional becomes optional in the `Info` schema so
-    `--list` and the empty invocation can be intercepted in `igniter/1`
-    with task-specific messages rather than Igniter's generic
-    "required positional" error. The missing-source error becomes
-    genuinely useful: it hints at `--list`, `<name> --list`, and the
-    three source modes.
-  * Output goes through `Mix.shell().info/1` instead of
-    `Igniter.add_notice/2` — the list IS the user-requested output,
-    not a side-comment, so it prints immediately rather than under a
-    "Notices:" header at end-of-run.
-  * The list path short-circuits install gating entirely.
-
-  Tests grow under two new describe blocks: `--list (no source)`
-  (narrow-output assertion, install-skipped invariant via
-  `Process.put`-threaded igniter capture) and `<name> --list`
-  (version output, @version-ignored equivalence across three forms,
-  unknown-shortcut error reuse, non-registry-source errors for file
-  and URL). Shell-output assertions use `ExUnit.CaptureIO.capture_io/1`
-  for `async: true` compatibility.
-
-- **Step 4b-historic (done)** — Stripe registry expanded to cover the
-  three active codename families: basil (6 dated releases, v1712 →
-  v2017), clover (6 dated releases, v2092 → v2203), and dahlia (2
-  dated releases, v2248 → v2266). 14 canonical dated entries plus the
-  floating `latest`, with codename aliases pointing at the most recent
-  dated release in each family and date-alone aliases pointing at the
-  corresponding `<date>.<codename>`. All URLs use the consistent
-  `openapi/spec3.yaml` path (replacing the earlier `latest/openapi.spec3.yaml`
-  for tagged URLs).
-
-  Source for the historic URLs: bare clone of stripe/openapi with
-  `--filter=blob:none`, every tag from v1 to v2266 mapped to its
-  `openapi/spec3.yaml` blob (~934 unique blobs across 2266 tags),
-  parallel-fetched the YAML to read `info.version`, grouped tags by
-  version and picked the highest tag per version. Earlier codenames
-  (acacia and pre-2022 dates) are intentionally skipped — easy to add
-  if a user pins back that far.
-
-  Five new registry tests (codename alias → most recent dated release
-  for basil and clover, oldest dated entries resolve to their pinned
-  tag URLs, date-alone aliases work across families) and one new gen
-  test asserting `stripe@basil` and `stripe@clover` produce
-  alias-annotated notices.
-
-- **Step 4b-detour-followup (done)** — Three corrections layered onto
-  the detour:
-
-  1. **`@latest` is no longer an alias.** It's a second canonical entry
-     pointing at the floating `master/latest/openapi.spec3.yaml` URL,
-     while `2026-04-22.dahlia` holds the *tagged* URL (`v2266`). The
-     two URLs differ by design: cache treats them as distinct sources,
-     so `stripe@latest` drifts as Stripe pushes to master while
-     `stripe@2026-04-22.dahlia` stays frozen. `dahlia` and `2026-04-22`
-     remain aliases for the dated form.
-  2. **Aliases are invisible to listings.** `Hearth.Registry.versions/1`
-     and the unknown-version error now filter to entries whose value is
-     a URL string — alias tuples don't appear. The drill-down output
-     for `stripe --list` is now `[latest, 2026-04-22.dahlia]` rather
-     than four flat peers (two of which were aliases). Aliases still
-     resolve at lookup time; they just don't surface as advertised
-     versions. The gen notice's "alias for" annotation remains the
-     mechanism for discovering them.
-  3. **No-op chatter is suppressed under `--list`.** `handle_list/1`
-     sets `igniter.assigns[:quiet_on_no_changes?] = true` so Igniter
-     doesn't print its "No proposed content changes!" line after a
-     query-mode command. A test asserts the assign is set.
-
-  Plus a small doc fix: the Registry shortcuts section in `mix help
-  hearth.gen` no longer claims "until then only `@latest` is available"
-  (directly contradicted by `--list`) — it points at `--list` for
-  version discovery instead. A test refutes both stale wordings.
-
-- **Step 4b-followup (done)** — Aliases for the Stripe shortcut, with
-  the full `<date>.<codename>` form as the canonical key. Stripe stamps
-  each release with both an ISO date (`2026-04-22`) and a flower
-  codename (`dahlia`); the registry stores the URL under
-  `"2026-04-22.dahlia"` and pointers from `"latest"`, `"dahlia"`, and
-  `"2026-04-22"` as `{:alias, "2026-04-22.dahlia"}` tuples. The lookup
-  follows the chain. All five forms — `stripe`, `stripe@latest`,
-  `stripe@dahlia`, `stripe@2026-04-22`, `stripe@2026-04-22.dahlia` —
-  resolve to the same URL.
-
-  The entry struct gained a `:resolved_version` field that names the
-  terminal version in the alias chain (where the URL actually sits).
-  When `version != resolved_version` (the alias case — which now
-  includes the bare `stripe` and `stripe@latest` forms), the gen
-  notice header shows e.g. `(alias for stripe@2026-04-22.dahlia)` so
-  the user can see exactly which release they're targeting.
-
-  Why canonicalize on the most-specific form: when Stripe ships their
-  next release, only `"latest"` needs to be repointed. The date and
-  codename aliases automatically follow this release into the historic
-  record without any further edits. Promotion checklist lives as a
-  comment block above `@entries`.
-
-  Eight new tests: canonical date.codename direct lookup, the three
-  alias-resolution paths (codename / date / `latest`), version-list
-  inclusion of aliases, and three gen notice tests across alias
-  annotation, `@latest`-as-alias, and the canonical-no-annotation
-  path.
-
-- **Step 4b (done)** — `Hearth.Registry`: curated, versioned shorthand
-  map wired into the gen task.
-
-  **Shape.** `@entries` is `%{name => %{version => url}}`. Each shortcut
-  MUST have a `"latest"` key; bare `stripe` is shorthand for `stripe@latest`.
-  Version strings are free-form (ISO-like dates or vendor tags) and sort
-  with `"latest"` pinned to the front. v1 ships one entry — Stripe,
-  `https://raw.githubusercontent.com/stripe/openapi/refs/heads/master/latest/openapi.spec3.json`
-  (HTTP 200 verified, etag present). Historic spec URLs land as Kaspar
-  confirms them.
-
-  **Integration name derivation.** No `:integration` field stored — derive
-  via `Macro.camelize/1`: `stripe → Stripe`, `google_docs → GoogleDocs`,
-  `aws_s3 → AwsS3`. `--integration <Name>` still overrides per-call.
-
-  **Lookup return shape.** `{:ok, entry}` |
-  `{:error, {:unknown_name, name}}` |
-  `{:error, {:unknown_version, name, version, available}}`. Three error
-  paths get three distinct user messages — the gen task pattern-matches
-  on the tag and emits a different issue for "no such shortcut" vs.
-  "shortcut exists, this version doesn't."
-
-  **Source.resolve change.** Registry pattern widened to allow `@` and
-  `.` (`^[a-zA-Z0-9][a-zA-Z0-9_@.\-]*$`), so `stripe@latest` and
-  `stripe@2024-01-01` classify as `:registry` rather than falling
-  through to `:error`. Must still start with alphanumeric.
-
-  **Tests.** Eight registry tests (bare→latest equivalence, unknown
-  name vs unknown version paths, `Macro.camelize` documentation tests
-  covering `google_docs` / `aws_s3`, case-sensitivity contract, sorted
-  `list/0`, `versions/1`). Four new source tests for `@version`
-  syntax. Three new gen tests for the bare/explicit equivalence,
-  unknown-version dispatch, and the case-folded shorthand.
-- **Step 4c (next)** — `Hearth.Spec.Loader.decode/2`: bytes + content-type → map.
-  Adds `yaml_elixir` and `jason` deps. Wire it so `mix hearth.gen ./local.yaml`
-  reports decode results instead of "decode not yet wired."
-- **Step 4d** — `Hearth.Spec.Cache`: on-disk read/write of
+- **Step 4c (next) — `Hearth.Spec.Loader.decode/2`.** Bytes +
+  content-type → map. Adds `yaml_elixir` and `jason` deps. Wire so
+  `mix hearth.gen ./local.yaml` reports decode results.
+- **Step 4d — `Hearth.Spec.Cache`.** On-disk read/write of
   `priv/hearth/cache/<sha256>/spec.{ext}` + `meta.exs`.
-- **Step 4e** — `Hearth.Spec.Fetcher`: Req-based HTTP with cache. First
-  step that does network I/O. Tests use `Req.Test` stubs. Wire so URL +
-  registry sources actually fetch.
-- **Step 4f** — End-to-end summary: `mix hearth.gen stripe` prints
+- **Step 4e — `Hearth.Spec.Fetcher`.** Req-based HTTP with cache.
+  First network-I/O step. Tests use `Req.Test` stubs.
+
+  Bundled enhancement: resolve `latest` against its master URL and read
+  `info.version` from the YAML so `mix hearth.gen stripe --list` can
+  annotate `* latest → 2026-04-22.dahlia`. On fetch failure, point users
+  at this project's issue tracker so the registry can be updated. URL
+  comes from `Mix.Project.config()[:package][:links]["GitHub"]`. TODO
+  is parked as a comment on the `latest` entry in
+  `lib/hearth/registry.ex`.
+- **Step 4f — End-to-end summary.** `mix hearth.gen stripe` prints
   "Loaded N paths from Stripe API." Manual smoke from a sample consumer.
 
 ---
