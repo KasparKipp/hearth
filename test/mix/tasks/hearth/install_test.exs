@@ -152,6 +152,13 @@ defmodule Mix.Tasks.Hearth.InstallTest do
     end
   end
 
+  describe "consumer-facing docs" do
+    test "long_doc cross-links to hearth.gen auto-invocation" do
+      doc = Mix.Tasks.Hearth.Install.Docs.long_doc()
+      assert doc =~ "hearth.gen"
+    end
+  end
+
   describe "idempotency" do
     test "running twice in a row is a no-op" do
       test_project()

@@ -25,6 +25,10 @@ defmodule Mix.Tasks.Hearth.Install.Docs do
         - repeat install that modified files — short header with the file list.
         - repeat install with no changes — single-line "already installed".
 
+    You normally only run this once per project. `mix hearth.gen` will
+    invoke it automatically on a fresh project (prompting unless `--yes`
+    is passed), so most users never need to call `hearth.install` directly.
+
     ## Example
 
     ```bash

@@ -15,7 +15,7 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
 
     ## Usage
 
-        mix hearth.gen <source> [--integration <Name>] [--domain <Name>] [--refresh]
+        mix hearth.gen <source> [--integration <Name>] [--domain <Name>] [--refresh] [--yes]
 
     ## Source modes
 
@@ -25,14 +25,37 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         # URL
         mix hearth.gen https://example.com/openapi.json --integration Acme
 
-        # Registry (curated shorthand — not yet wired)
-        mix hearth.gen <name>
+        # Registry: curated shorthand for popular APIs.
+        # Coming soon — no registry names are resolvable today; use a
+        # file or URL above for now.
+
+    ## Options
+
+      * `--integration <Name>` — module name for the generated integration
+        (e.g. `Stripe`, `Acme`). Required for file and URL sources;
+        auto-derived from the registry entry when using a registry name.
+      * `--domain <Name>` — optional domain segment under your app's
+        namespace. With `--domain Billing`, the integration is generated
+        at `MyApp.Billing.Integrations.<Name>` instead of
+        `MyApp.Integrations.<Name>`. (See "Module layout" in the README.)
+      * `--refresh` — for URL and registry sources, bypass the on-disk
+        cache and re-fetch the spec. No-op for file sources.
+      * `--yes` — non-interactive mode. Skips the prompt to run
+        `mix hearth.install` on a fresh project and accepts any other
+        confirmations.
 
     ## Pipeline status
 
-      * Available now — source recognition (URL / file / registry).
+      * Available now — source recognition (URL / file / registry),
+        file-existence validation, install gating.
       * Coming soon — registry lookup, YAML/JSON decode, on-disk cache,
         HTTP fetcher, code generation.
+
+    If your project is not yet set up (no `:hearth` in `.formatter.exs`
+    or no `:hearth_domains` in `config/config.exs`), `hearth.gen` will
+    prompt to run `mix hearth.install` first. Pass `--yes` to skip the
+    prompt. On an already-installed project the install step is silently
+    skipped — no extra noise.
     """
   end
 end
@@ -65,6 +88,55 @@ if Code.ensure_loaded?(Igniter) do
 
     @impl Igniter.Mix.Task
     def igniter(igniter) do
+      case ensure_installed(igniter) do
+        {:ok, igniter} -> dispatch_source(igniter)
+        {:halt, igniter} -> igniter
+      end
+    end
+
+    # Speculatively compose `hearth.install` to find out what (if anything)
+    # it would change. Three outcomes:
+    #
+    #   1. install is a no-op → discard the speculative result and proceed
+    #      silently. The consumer sees only gen's own notice.
+    #   2. install would touch files AND (--yes OR test mode) → use the
+    #      composed igniter (install's notices and patches included).
+    #   3. install would touch files AND interactive → prompt; if accepted
+    #      use the composed igniter; if refused halt with an issue.
+    @install_touched_files [".formatter.exs", "config/config.exs"]
+
+    defp ensure_installed(igniter) do
+      composed = Igniter.compose_task(igniter, "hearth.install", [])
+
+      cond do
+        not Igniter.has_changes?(composed, @install_touched_files) ->
+          {:ok, igniter}
+
+        igniter.args.options[:yes] || igniter.assigns[:test_mode?] ->
+          {:ok, composed}
+
+        Mix.shell().yes?(install_prompt()) ->
+          {:ok, composed}
+
+        true ->
+          {:halt,
+           Igniter.add_issue(
+             igniter,
+             "hearth.gen needs `mix hearth.install` to run first. " <>
+               "Re-run with --yes to install automatically, or run " <>
+               "`mix hearth.install` manually."
+           )}
+      end
+    end
+
+    defp install_prompt do
+      """
+      hearth.gen needs `mix hearth.install` to set up your project's
+      formatter import and :hearth_domains config. Run install now?
+      """
+    end
+
+    defp dispatch_source(igniter) do
       source = igniter.args.positional[:source]
 
       case Source.resolve(source) do
@@ -72,7 +144,15 @@ if Code.ensure_loaded?(Igniter) do
           Igniter.add_notice(igniter, url_notice(url))
 
         {:file, path} ->
-          Igniter.add_notice(igniter, file_notice(path))
+          if Igniter.exists?(igniter, path) do
+            Igniter.add_notice(igniter, file_notice(path))
+          else
+            Igniter.add_issue(
+              igniter,
+              "hearth.gen: file not found at #{inspect(path)}. " <>
+                "Check the path is correct and relative to the project root."
+            )
+          end
 
         {:registry, name} ->
           Igniter.add_notice(igniter, registry_notice(name))

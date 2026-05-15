@@ -421,6 +421,36 @@ and prints a summary. Code generation (the renderers) is step 5+.
   a test (`gen_test.exs:"consumer-facing docs"`) enforces this. The
   long_doc only advertises features that actually work today; registry
   shortcuts are described as "not yet wired" until step 4c.
+- **Step 4a-followup (done)** — Three UX polish items landed together
+  because they shape the contract for every future Hearth task:
+
+  1. **Gated install composition.** `mix hearth.gen` speculatively composes
+     `mix hearth.install` and uses `Igniter.has_changes?/2` against
+     `[".formatter.exs", "config/config.exs"]` to decide whether install
+     would actually do work. If not — discard the composed result and use
+     the original igniter, so consumers never see install's "already
+     installed" notice as gen-precondition chatter. If install IS needed:
+     `--yes` or `igniter.assigns[:test_mode?]` auto-accept; otherwise
+     `Mix.shell().yes?/1` prompts the user. Refusal halts with a clear
+     `Igniter.add_issue/2` message pointing at `--yes` or manual install.
+  2. **File-existence validation.** `:file` sources are checked via
+     `Igniter.exists?/2` (which checks both the real filesystem AND
+     Igniter's in-memory Rewrite state, so tests can use
+     `test_project(files: %{...})`). Missing files halt with an issue
+     naming the path; no misleading "Source recognized: file" notice.
+  3. **`mix help` honesty.** `mix help hearth.gen` now has a full Options
+     section documenting every flag, and the registry example is reframed
+     as "Coming soon — no registry names are resolvable today" rather
+     than `mix hearth.gen <name>` (a copy-paste trap). `mix help
+     hearth.install` cross-links to the gen auto-invocation so users
+     reach the same understanding from either direction. Two tests
+     (`long_doc documents every task option`, `long_doc no longer shows
+     a copy-pasteable registry example that does not work`) guard against
+     regression.
+
+  This composition pattern is the contract for every future Hearth task
+  that needs install state — they all open with the same gated compose.
+
 - **Step 4b (next)** — `Hearth.Registry`: curated `name → %{url, integration}`
   map. Seed entries: `stripe`, `petstore`, optionally `github` (gated on
   size). Stripe URL verified:
