@@ -480,22 +480,38 @@ These were learned the hard way and must hold for future steps:
 - **Tasks that need install state open with the same gated compose
   pattern** described under Step 4a.
 
+- **Step 5a — Operation extraction + tag filter.** Two pure modules,
+  no I/O, no codegen. `Hearth.Spec.Operation` flattens a decoded spec's
+  `paths → <path> → <method>` nesting into `%Operation{}` structs;
+  `extract/1` builds the list, `tag_index/1` groups by tag for the
+  step-5b discovery listing. The `:id` field is the snake_case function
+  name — always present, derived from `operationId` (via a `sanitize/1`
+  that runs `Macro.underscore` then collapses any non-alphanumeric run,
+  so hyphenated ids like `get-board` become `get_board`) or from
+  `<verb>_<path-slug>` when `operationId` is absent. Collisions get
+  numeric suffixes (`get_user`, `get_user_2`) — an explicit test pins
+  this so a future override mechanism has a fixed point. Path-item-level
+  `parameters` merge into each operation. `$ref` parameters are left
+  unclassified (no `"in"` key) — resolution is step 6+.
+
+  `Hearth.Spec.Filter` parses the `--tags` CLI string (`;` / `:` / `,`
+  three-level delimited) into `[{tag, :all | {:only, ids}}]` and
+  `apply/2` selects matching operations (union semantics across rules).
+
 #### Pending
 
-- **Step 4d (next) — `Hearth.Spec.Cache`.** On-disk read/write of
-  `priv/hearth/cache/<sha256>/spec.{ext}` + `meta.exs`.
-- **Step 4e — `Hearth.Spec.Fetcher`.** Req-based HTTP with cache.
-  First network-I/O step. Tests use `Req.Test` stubs.
-
-  Bundled enhancement: resolve `latest` against its master URL and read
-  `info.version` from the YAML so `mix hearth.gen stripe --list` can
-  annotate `* latest → 2026-04-22.dahlia`. On fetch failure, point users
-  at this project's issue tracker so the registry can be updated. URL
-  comes from `Mix.Project.config()[:package][:links]["GitHub"]`. TODO
-  is parked as a comment on the `latest` entry in
-  `lib/hearth/registry.ex`.
-- **Step 4f — End-to-end summary.** `mix hearth.gen stripe` prints
-  "Loaded N paths from Stripe API." Manual smoke from a sample consumer.
+- **Step 5b (next) — Tag discovery + operation-count gate.** Wires 5a
+  into the gen task: extract, apply `--tags`, or — past the
+  `--n-operations` threshold with no filter — halt with a
+  copy-pasteable tag listing. No codegen yet.
+- **Step 5c — Layer 2 behaviour renderer.** Writes the behaviour module.
+- **Steps 5d–5f** — Layer 1, Layer 3, Mox + config wiring.
+- **Steps 4d–4f (deferred, parallel track)** — `Hearth.Spec.Cache`,
+  `Hearth.Spec.Fetcher` (Req + cache; bundles the `latest`-resolution
+  enhancement — TODO parked on the `latest` entry in
+  `lib/hearth/registry.ex`), end-to-end URL/registry codegen. These
+  light up URL and registry sources; file-source codegen (step 5)
+  doesn't depend on them.
 
 ---
 
