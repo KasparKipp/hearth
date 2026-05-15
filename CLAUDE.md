@@ -394,8 +394,49 @@ and updates this section.
   header), 9 (repeat-run noise), 10 (`hearth.regen` reference dropped),
   11 (OpenAPI hint added), 12 (version stamp). Items 1–5 are upstream
   Igniter ergonomics and out of scope here.
-- **Step 4 (next)** — TBD. Candidates: scaffold `priv/specs/.gitkeep`
-  for the conventional spec location, or pivot to `mix hearth.gen` planning.
+### Step 4 — `mix hearth.gen` spec input pipeline
+
+Plan: `~/.claude/plans/um-what-s-gitkeep-compiled-hennessy.md`.
+
+Sliced into micro-steps so each is a single small commit, mirroring the
+install cadence. End-state demo for step 4: `mix hearth.gen stripe`
+fetches Stripe's spec, caches it under `priv/hearth/cache/`, decodes it,
+and prints a summary. Code generation (the renderers) is step 5+.
+
+- **Step 4a (done)** — `mix hearth.gen` task skeleton + source
+  discrimination (the original 4a+4b folded together so each commit adds
+  observable behavior, not just code). Same optional-igniter dance as
+  `hearth.install`. `info/2` declares `positional: [:source]` so a missing
+  source raises a useful `ArgumentError` from Igniter rather than silently
+  no-op'ing. `Hearth.Spec.Source.resolve/1` (`lib/hearth/spec/source.ex`)
+  is a pure function that classifies the argument as `{:url, …}` |
+  `{:file, …}` | `{:registry, …}` | `{:error, reason}`. The task dispatches
+  on the shape and emits a per-shape notice naming both what was recognized
+  and which pipeline stage comes next; unclassifiable inputs go through
+  `Igniter.add_issue/2` so the run halts.
+
+  UX guidelines learned the hard way during this step: every commit must
+  produce visibly different behavior for distinct user inputs. The notice
+  is consumer-facing, so it never references our internal CLAUDE.md —
+  a test (`gen_test.exs:"consumer-facing docs"`) enforces this. The
+  long_doc only advertises features that actually work today; registry
+  shortcuts are described as "not yet wired" until step 4c.
+- **Step 4b (next)** — `Hearth.Registry`: curated `name → %{url, integration}`
+  map. Seed entries: `stripe`, `petstore`, optionally `github` (gated on
+  size). Stripe URL verified:
+  `https://raw.githubusercontent.com/stripe/openapi/refs/heads/master/latest/openapi.spec3.json`.
+  Wire it into the gen task so `mix hearth.gen unknownvendor` lists
+  available entries instead of saying "lookup not yet wired."
+- **Step 4c** — `Hearth.Spec.Loader.decode/2`: bytes + content-type → map.
+  Adds `yaml_elixir` and `jason` deps. Wire it so `mix hearth.gen ./local.yaml`
+  reports decode results instead of "decode not yet wired."
+- **Step 4d** — `Hearth.Spec.Cache`: on-disk read/write of
+  `priv/hearth/cache/<sha256>/spec.{ext}` + `meta.exs`.
+- **Step 4e** — `Hearth.Spec.Fetcher`: Req-based HTTP with cache. First
+  step that does network I/O. Tests use `Req.Test` stubs. Wire so URL +
+  registry sources actually fetch.
+- **Step 4f** — End-to-end summary: `mix hearth.gen petstore` prints
+  "Loaded N paths from <name>." Manual smoke from a sample consumer.
 
 ---
 
