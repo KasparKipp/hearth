@@ -187,12 +187,33 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
+    defp list_for_source(igniter, _source, {:file, path}) do
+      case decode_file(igniter, path) do
+        {:ok, igniter, spec} ->
+          operations = Operation.extract(spec)
+
+          Mix.shell().info(
+            tag_discovery(operations,
+              source: path,
+              integration: igniter.args.options[:integration],
+              limit: nil
+            )
+          )
+
+          igniter
+
+        {:error, message} ->
+          Igniter.add_issue(igniter, message)
+      end
+    end
+
     defp list_for_source(igniter, source, _other) do
       Igniter.add_issue(
         igniter,
-        "hearth.gen: --list with a source only works for registry " <>
-          "shortcuts (got #{inspect(source)}). Run `mix hearth.gen " <>
-          "--list` without a source to see available shortcuts."
+        "hearth.gen: --list works without a source (registry shortcuts), " <>
+          "with a registry shortcut (its versions), or with a file path " <>
+          "(the spec's tags). A URL source needs the fetcher, which is not " <>
+          "yet wired. Got #{inspect(source)}."
       )
     end
 
@@ -323,40 +344,29 @@ if Code.ensure_loaded?(Igniter) do
       """
     end
 
-    # File-source flow:
-    #
-    #   1. Sniff the format from the extension. Unsupported → halt.
-    #   2. Existence check via Igniter (works against both real disk and
-    #      `test_project(files: %{...})` virtual fs).
-    #   3. Pull bytes through Igniter's Rewrite layer so test fixtures and
-    #      real files take the same path.
-    #   4. Decode via Hearth.Spec.Loader. Decode failures halt with the
-    #      parser's message attached.
-    #   5. Summarize: title, info.version, OpenAPI spec version, path
-    #      count, operation count (sum of HTTP-method keys per path-item).
     defp handle_file_source(igniter, path) do
-      case Loader.sniff(path) do
-        :unknown ->
-          Igniter.add_issue(igniter, unsupported_format_message(path))
-
-        format when format in [:yaml, :json] ->
-          if Igniter.exists?(igniter, path) do
-            load_local_spec(igniter, path, format)
-          else
-            Igniter.add_issue(igniter, file_not_found_message(path))
-          end
+      case decode_file(igniter, path) do
+        {:ok, igniter, spec} -> select_and_report(igniter, path, spec)
+        {:error, message} -> Igniter.add_issue(igniter, message)
       end
     end
 
-    defp load_local_spec(igniter, path, format) do
-      igniter = Igniter.include_existing_file(igniter, path)
-
-      with {:ok, bytes} <- read_rewrite_content(igniter, path),
+    # Sniff format → existence check → read through Igniter's Rewrite
+    # layer (so test fixtures and real files take the same path) →
+    # decode. Returns `{:ok, igniter, spec}` (the igniter now has the
+    # spec file in its Rewrite) or `{:error, user_message}`. Shared by
+    # the generation flow and `mix hearth.gen <file> --list`.
+    defp decode_file(igniter, path) do
+      with format when format in [:yaml, :json] <- Loader.sniff(path),
+           true <- Igniter.exists?(igniter, path) or :missing,
+           igniter = Igniter.include_existing_file(igniter, path),
+           {:ok, bytes} <- read_rewrite_content(igniter, path),
            {:ok, spec} <- Loader.decode(bytes, format) do
-        select_and_report(igniter, path, spec)
+        {:ok, igniter, spec}
       else
-        {:error, reason} ->
-          Igniter.add_issue(igniter, decode_failed_message(path, reason))
+        :unknown -> {:error, unsupported_format_message(path)}
+        :missing -> {:error, file_not_found_message(path)}
+        {:error, reason} -> {:error, decode_failed_message(path, reason)}
       end
     end
 
@@ -433,7 +443,12 @@ if Code.ensure_loaded?(Igniter) do
       if length(operations) <= limit do
         {:ok, operations}
       else
-        {:halt, discovery_message(operations, limit)}
+        {:halt,
+         tag_discovery(operations,
+           source: igniter.args.positional[:source],
+           integration: igniter.args.options[:integration],
+           limit: limit
+         )}
       end
     end
 
@@ -494,28 +509,64 @@ if Code.ensure_loaded?(Igniter) do
       """
     end
 
-    defp discovery_message(operations, limit) do
-      tag_lines =
-        operations
-        |> Operation.tag_index()
-        |> Enum.sort_by(&tag_sort_key/1)
-        |> Enum.map_join("\n", &tag_listing_line/1)
-
+    # Builds the tag-discovery text: a header, the per-tag operationId
+    # listing, and a fully-expanded subset command — every tag with
+    # every one of its operationIds spelled out, one `--tag` per line.
+    # The user copies it and deletes whole lines or individual
+    # operationIds; nothing has to be looked up, no intent is assumed.
+    #
+    # Shared by the `--n-operations` gate (pass `:limit`) and
+    # `mix hearth.gen <file> --list` (pass `limit: nil`).
+    defp tag_discovery(operations, opts) do
+      source = opts[:source]
+      integration = opts[:integration] || "<Name>"
+      index = Operation.tag_index(operations)
       total = length(operations)
+      tag_count = index |> Map.keys() |> Enum.count(&is_binary/1)
 
       """
-      This spec has #{total} operations, above the --n-operations limit (#{limit}).
+      #{discovery_header(total, tag_count, opts[:limit])}
 
       Tags in this spec — pass a subset with one or more --tag flags:
 
-      #{tag_lines}
+      #{format_tag_listing(index)}
 
-      Generate a subset, e.g.:
-        mix hearth.gen <source> --integration <Name> --tag "<Tag>"
+      Generate a subset — copy this and delete the --tag lines or the
+      operationIds you don't want:
+
+      #{subset_command(source, integration, index)}
 
       Or generate everything:
-        mix hearth.gen <source> --integration <Name> --n-operations #{total}
+        mix hearth.gen #{source} --integration #{integration} --n-operations #{total}
       """
+    end
+
+    defp discovery_header(total, tag_count, nil) do
+      "This spec has #{total} operations across #{tag_count} #{pluralize("tag", tag_count)}."
+    end
+
+    defp discovery_header(total, _tag_count, limit) do
+      "This spec has #{total} operations, above the --n-operations limit (#{limit})."
+    end
+
+    defp format_tag_listing(index) do
+      index
+      |> Enum.sort_by(&tag_sort_key/1)
+      |> Enum.map_join("\n", &tag_listing_line/1)
+    end
+
+    defp subset_command(source, integration, index) do
+      tag_lines =
+        index
+        |> Enum.filter(fn {tag, _ops} -> is_binary(tag) end)
+        |> Enum.sort_by(fn {tag, _ops} -> tag end)
+        |> Enum.map(fn {tag, ops} ->
+          ids = Enum.map_join(ops, ",", & &1.id)
+          ~s(    --tag "#{tag}:#{ids}")
+        end)
+
+      ["  mix hearth.gen #{source} --integration #{integration}" | tag_lines]
+      |> Enum.join(" \\\n")
     end
 
     defp tag_sort_key({:untagged, _ops}), do: {1, ""}

@@ -428,7 +428,9 @@ at `~/.claude/plans/um-what-s-gitkeep-compiled-hennessy.md`.
   `mix hearth.gen <name> --list` prints canonical versions for that
   shortcut (the `@version` part is ignored, so `stripe`,
   `stripe@latest`, and `stripe@anything-else` produce identical
-  output). Non-registry sources with `--list` error. Sets
+  output). `mix hearth.gen <file> --list` prints the file's
+  tag-discovery listing (see step 5b). A URL source under `--list`
+  errors (the fetcher is not wired). Sets
   `igniter.assigns[:quiet_on_no_changes?]` so query-mode commands
   don't print "No proposed content changes!". Output goes through
   `Mix.shell().info/1`, not notices, so it appears immediately rather
@@ -515,10 +517,18 @@ These were learned the hard way and must hold for future steps:
   - ≥1 `--tag` → `Filter.parse/1` + `Filter.apply/2`; a parse error
     halts with the bad-syntax message.
   - no `--tag` → operation-count gate: at or under `--n-operations`,
-    proceed with everything; over it, **halt** with a copy-pasteable
-    tag-discovery listing (`"Tag": [:op_id, …]`, built from
-    `Operation.tag_index/1`) plus both escape hatches (`--tag` or
-    `--n-operations <count>`).
+    proceed with everything; over it, **halt** with the tag-discovery
+    text (built by the shared `tag_discovery/2`).
+
+  The tag-discovery text — also produced by `mix hearth.gen <file>
+  --list` — has three parts: a per-tag operationId listing
+  (`"Tag": [:op_id, …]`), a **fully-expanded subset command** (the real
+  invocation with every tag spelled out as `--tag "Tag:op1,op2,…"`, one
+  per backslash-continued line — the user copies it and deletes whole
+  lines or individual operationIds, no lookup or guessed intent), and
+  the generate-everything escape hatch (`--n-operations <count>`). The
+  command echoes the actual source path and `--integration` value when
+  they were given.
 
   The success notice reports `Selected N of TOTAL operations across M
   tags`. Igniter aggregates a `:keep` option into one list and defaults

@@ -304,6 +304,46 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert Enum.any?(igniter.issues, &String.contains?(&1, "comma-separated"))
       refute notice_text(igniter) =~ "Selected"
     end
+
+    test "the gate discovery echoes the real source and integration in the subset command" do
+      igniter =
+        test_project(files: %{"priv/specs/big.json" => big_spec_json(30)})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/big.json", "--integration", "Big"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(
+                 issue,
+                 "mix hearth.gen priv/specs/big.json --integration Big"
+               ) and String.contains?(issue, ~s(--tag "Things:get_thing1,))
+             end)
+    end
+
+    test "the subset command spells out every tag with its operationIds, one --tag per line" do
+      spec =
+        JSON.encode!(%{
+          "openapi" => "3.0.0",
+          "info" => %{"title" => "Multi", "version" => "1.0"},
+          "paths" => %{
+            "/a" => %{"get" => %{"operationId" => "getA", "tags" => ["Search"]}},
+            "/b" => %{"get" => %{"operationId" => "getB", "tags" => ["Validation"]}}
+          }
+        })
+
+      output =
+        capture_io(fn ->
+          test_project(files: %{"priv/specs/multi.json" => spec})
+          |> Igniter.compose_task("hearth.gen", [
+            "priv/specs/multi.json",
+            "--integration",
+            "Multi",
+            "--list"
+          ])
+        end)
+
+      assert output =~
+               ~s(mix hearth.gen priv/specs/multi.json --integration Multi \\\n) <>
+                 ~s(    --tag "Search:get_a" \\\n    --tag "Validation:get_b")
+    end
   end
 
   describe "Layer 2 generation" do
@@ -532,24 +572,26 @@ defmodule Mix.Tasks.Hearth.GenTest do
              end)
     end
 
-    test "file source + --list errors with a clear hint" do
-      igniter =
-        test_project(files: %{"priv/specs/foo.yaml" => "openapi: 3.0.0\n"})
-        |> Igniter.compose_task("hearth.gen", ["priv/specs/foo.yaml", "--list"])
+    test "a file source + --list prints the spec's tag discovery instead of erroring" do
+      output =
+        capture_io(fn ->
+          test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+          |> Igniter.compose_task("hearth.gen", ["priv/specs/petstore.yaml", "--list"])
+        end)
 
-      assert Enum.any?(igniter.issues, fn issue ->
-               String.contains?(issue, "--list with a source only works for registry") and
-                 String.contains?(issue, "priv/specs/foo.yaml")
-             end)
+      assert output =~ "operations across"
+      assert output =~ ~s("pets":)
+      assert output =~ ":list_pets"
+      assert output =~ "Generate a subset"
     end
 
-    test "URL source + --list errors with a clear hint" do
+    test "URL source + --list errors — the fetcher is not yet wired" do
       igniter =
         test_project()
         |> Igniter.compose_task("hearth.gen", ["https://example.com/openapi.json", "--list"])
 
       assert Enum.any?(igniter.issues, fn issue ->
-               String.contains?(issue, "--list with a source only works for registry") and
+               String.contains?(issue, "URL source needs the fetcher") and
                  String.contains?(issue, "https://example.com")
              end)
     end
