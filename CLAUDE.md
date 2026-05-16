@@ -273,10 +273,82 @@ The minimum useful surface:
 - [ ] **Tesla adapter.** If anyone asks.
 - [ ] **Multipart uploads, streaming, server-sent events.** Each is a template
       special-case. Done when a real integration in this codebase needs them.
+- [ ] **Generated reusable request steps — `<App>.Hearth.Steps`.** A module
+      generated into the consumer's project to hold hand-portable Req request
+      steps that Layer 1's `new/1` wires in via `Req.Request.append_request_steps/2`.
+
+      The motivating case: when every GET operation in the spec follows REST
+      and declares no `requestBody`, Hearth can safely generate a step that
+      promotes a GET *carrying* a binary body to a POST — for APIs
+      (Elasticsearch-style search) that accept a query body only over POST.
+      Because the spec proves no GET legitimately has a body, a body present
+      at runtime is unambiguously the "too big for the query string" case.
+
+      ```elixir
+      # Layer 1 — generated new/1 gains the step
+      def new(opts \\ []) do
+        Req.new(base_url: @base_url, auth: {:bearer, credential(opts)})
+        |> Req.Request.append_request_steps(
+          post_binary_body: &MyApp.Hearth.Steps.post_binary_body/1
+        )
+        |> Req.merge(opts)
+      end
+
+      # MyApp.Hearth.Steps — generated once, hearth:owned, user-editable
+      def post_binary_body(req) do
+        with %{method: :get, body: <<_::binary>>} <- req do
+          %{req | method: :post}
+        end
+      end
+      ```
+
+      `<App>.Hearth.Steps` is the home for any future reusable, user-editable
+      step (retry policy, custom headers, pagination cursors): Hearth seeds
+      it, the user evolves it.
+- [ ] **Prefixed-ID URL shorthand.** Many APIs use type-prefixed resource IDs
+      (Stripe: `cus_…` customers, `sub_…` subscriptions, `pi_…` payment
+      intents). When a spec's IDs carry such prefixes, Hearth could generate a
+      `parse_url/1` helper (or request step) in Layer 1 that expands a bare
+      prefixed ID into its full resource path — keeping call sites short:
+
+      ```elixir
+      defp parse_url("sub_" <> _ = id), do: "/subscriptions/#{id}"
+      defp parse_url("cus_" <> _ = id), do: "/customers/#{id}"
+      defp parse_url(url), do: url
+
+      def request(url, opts \\ []), do: Req.request(new(url: parse_url(url)), opts)
+      def request!(url, opts \\ []), do: Req.request!(new(url: parse_url(url)), opts)
+      ```
+
+      So `Stripe.request!("cus_123")` resolves to `/customers/cus_123`. Open
+      question: where the prefix → path mapping comes from — inferred from the
+      spec's path patterns, or a curated registry entry per API.
 - [ ] **AsyncAPI input.** Generate websocket / pub-sub clients with the same
       three-layer shape. Sister project, not Hearth itself.
 - [ ] **GraphQL SDL input.** Different enough that it probably wants its own
       generator. Listed here only to acknowledge "we thought about it."
+- [ ] **Version-aware collision naming.** v1's collision strategy is a bare
+      numeric suffix — two operations both named `validate` become `validate`
+      and `validate_1`, which says nothing about *why* they differ. When the
+      colliding operations differ by an API version carried in the URL path
+      (`/v2/notices/validate` vs `/v3/notices/validate`) or a version header,
+      Hearth could derive the suffix from that version instead:
+
+      ```elixir
+      @impl true
+      def validate_v2(opts \\ []) do
+        TED.request("/v2/notices/validate", [method: :post] ++ opts)
+      end
+
+      @impl true
+      def validate_v3(opts \\ []) do
+        TED.request("/v3/notices/validate", [method: :post] ++ opts)
+      end
+      ```
+
+      `validate_v2` / `validate_v3` self-documents the split. The bare numeric
+      suffix stays the fallback for collisions with no discernible version
+      difference.
 
 ---
 
@@ -544,14 +616,25 @@ These were learned the hard way and must hold for future steps:
     Verbose style: `<App>.Integrations.<Integration>.<Integration>Api`;
     `--domain Billing` slots a domain segment in after the app.
     `--style` / `--no-integrations-segment` remain unwired.
-  - `Hearth.Render.Layer2.render/2` builds the behaviour source — one
+  - `Hearth.Render.Layer2.render/3` builds the behaviour source — one
     `@callback` per selected operation. Path params become positional
     `String.t()` args (named via `Operation.sanitize_id/1`), query/body
     funnel through a final `opts :: keyword()`, every callback returns
     the generic `{:ok, Req.Response.t()} | {:error, Exception.t()}`.
-    An operation `summary` becomes a `@doc` on the callback. The module
-    is assembled as a string and run through `Code.format_string!/1` —
-    it normalizes layout and raises on any syntax error.
+    An operation's `summary` and `description` become a `@doc` heredoc
+    on the callback — summary on the first line, description below it
+    (blank line between); either may be absent, and with neither no
+    `@doc` is emitted. The module is assembled as a string and run
+    through `Code.format_string!/1` — it normalizes layout and raises
+    on any syntax error.
+  - **Moduledoc metadata footer.** `render/3`'s third argument is a
+    metadata map (`:source`, `:title`, `:version`, `:openapi`,
+    `:description`); the gen task fills it via `spec_metadata/2` from
+    the source path and the spec's `info` block. The moduledoc closes
+    with a `## Source` section — a markdown bullet list of the
+    populated fields, plus the spec `description` below it. Absent
+    fields are skipped; with no metadata at all (the `\\ %{}` default,
+    used by unit tests) the section is omitted entirely.
   - The gen task writes via `Igniter.create_new_file/4` with
     `on_exists: :overwrite` (re-running regenerates silently — ownership
     tokens are step 6+). The path comes from
@@ -573,12 +656,13 @@ These were learned the hard way and must hold for future steps:
     oauth2 / openIdConnect / http-basic become `{:unsupported, _}`.
   - `Hearth.Render.Layer1.render/4` builds the raw client: a `@base_url`
     from the spec's first `servers` entry (a missing one leaves a TODO
-    + placeholder), `@otp_app`, and a `client/1` returning a configured
-    `%Req.Request{}`. Bearer → `auth: {:bearer, …}`; API-key → header or
-    query param; `:none` → base URL only; `{:unsupported, _}` → base URL
-    only plus a TODO comment. Bearer/API-key also get a `credential/1`
-    that reads `Application.get_env(@otp_app, __MODULE__)[:api_key]` with
-    an `:api_key` opt override, raising a clear error if absent.
+    + placeholder), `@otp_app`, and a `new/1` (mirroring `Req.new/1`)
+    returning a configured `%Req.Request{}`. Bearer → `auth: {:bearer,
+    …}`; API-key → header or query param; `:none` → base URL only;
+    `{:unsupported, _}` → base URL only plus a TODO comment.
+    Bearer/API-key also get a `credential/1` that reads
+    `Application.get_env(@otp_app, __MODULE__)[:api_key]` with an
+    `:api_key` opt override, raising a clear error if absent.
   - **Credential model (confirmed with Kaspar):** the credential lives
     in app config keyed by the Layer 1 module — `config :otp_app,
     <ClientModule>, api_key: …`. Step 5f generates the entry in
@@ -606,16 +690,30 @@ These were learned the hard way and must hold for future steps:
 
   - Module: `<Layer2>.Req` (`ModuleNames.layer3/1`). `Hearth.Render.Layer3`
     `@behaviour`s Layer 2, `alias`es Layer 1, and renders one `@impl
-    true` function per operation, each a one-liner delegating to a
-    private `request/3` helper. `request/3` calls the Layer 1
-    `client/0` and dispatches via `Req.request/2` — whose return type
+    true` function per operation.
+  - **API shape (post-redesign).** Layer 1 owns all HTTP machinery and
+    exposes three functions: `new/1` (builds the configured `%Req.Request{}`,
+    mirroring `Req.new/1`), `request/2` and `request!/2`:
+
+    ```elixir
+    def request(url, opts \\ []), do: Req.request(new(url: url), opts)
+    def request!(url, opts \\ []), do: Req.request!(new(url: url), opts)
+    ```
+
+    `new/1` ends with `|> Req.merge(opts)` so caller opts (e.g.
+    `new(url: …)`) flow into the request — the Hearth-only `:api_key`
+    override is `Keyword.delete`d before the merge for auth schemes
+    that read it. Each Layer 3 function delegates to `<Layer1>.request/2`
+    — never `new/1` or `Req` directly. `Req.request/2`'s return type
     already matches the Layer 2 callback spec.
-  - Path params interpolate into the URL (`{petId}` → `#{pet_id}`);
-    query/body params ride through `opts` untouched, so every function
-    body is uniform — pure plumbing.
+  - Path params interpolate into the URL (`{petId}` → `#{pet_id}`).
+    `:get` is Req's default method, so GET operations call
+    `<Layer1>.request(url, opts)` with no `method:`; any other verb
+    prepends `[method: …] ++ opts`. Query/body params ride through
+    `opts` untouched — every function body is uniform plumbing.
   - **Empty-selection guard:** a `--tag` filter matching no operations
     now halts (`"no operations matched the --tag filter"`) instead of
-    generating empty modules with an unused `request/3`.
+    generating empty modules.
   - **`req` dependency:** the generated Layer 1/3 reference `Req` at
     runtime. `req` reaches Hearth only transitively via the optional,
     dev-time `igniter` dep, so the *consuming* app needs it directly.
@@ -623,6 +721,20 @@ These were learned the hard way and must hold for future steps:
     `Igniter.Project.Deps.add_dep/2` — placed in the gen task, not
     `hearth.install`, because the generated code is what needs it
     (install alone produces nothing that does).
+  - **Shared base path folding.** `Hearth.Spec.BasePath.common_prefix/1`
+    finds the longest leading path-segment sequence shared by every
+    operation in the spec (`/api/v1/customers`, `/api/v1/subscriptions`
+    → `/api/v1`); the gen task `BasePath.strip/2`s it off the selected
+    operation paths, so Layer 3 calls read `request("/customers", opts)`
+    not `request("/api/v1/customers", opts)`. The prefix is always
+    stripped and is threaded into `Layer1.render/5` as a `path_prefix`
+    argument: Layer 1 appends it to the spec's base URL **or**, when the
+    spec declares no `servers`, to the `https://api.example.com`
+    placeholder (`@base_url "https://api.example.com/v3"` + the
+    set-the-base-URL TODO) — so the prefix is never lost. The prefix is
+    capped one segment short of the shortest path (every operation keeps
+    a segment) and is computed over *all* extracted operations, not the
+    `--tag`-selected subset, so it stays stable regardless of filtering.
 
 #### Pending
 

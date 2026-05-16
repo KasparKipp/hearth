@@ -23,3 +23,7 @@ erl_crash.dump
 hearth-*.tar
 
 /.claude
+
+# Integrations generated locally for dev smoke-testing
+# (`mix hearth.gen <spec> --domain Generated`).
+/lib/hearth/generated/

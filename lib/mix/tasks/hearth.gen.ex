@@ -101,6 +101,7 @@ if Code.ensure_loaded?(Igniter) do
 
     use Igniter.Mix.Task
 
+    alias Hearth.Spec.BasePath
     alias Hearth.Spec.Filter
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
@@ -415,15 +416,22 @@ if Code.ensure_loaded?(Igniter) do
       layer2 = Hearth.Render.ModuleNames.layer2(names)
       layer3 = Hearth.Render.ModuleNames.layer3(names)
 
+      # A leading path prefix shared by every operation (e.g. `/v3`) is
+      # stripped from the operation paths and folded into Layer 1's base
+      # URL — see `Hearth.Render.Layer1` for the base-URL side.
+      prefix = BasePath.common_prefix(operations)
+      selected = BasePath.strip(selected, prefix)
+
       sources = [
         {layer1,
          Hearth.Render.Layer1.render(
            layer1,
            Igniter.Project.Application.app_name(igniter),
            base_url(spec),
+           prefix,
            Hearth.Spec.Auth.strategy(spec)
          ), "raw Req client"},
-        {layer2, Hearth.Render.Layer2.render(layer2, selected),
+        {layer2, Hearth.Render.Layer2.render(layer2, selected, spec_metadata(path, spec)),
          "behaviour, #{length(selected)} #{pluralize("callback", length(selected))}"},
         {layer3, Hearth.Render.Layer3.render(layer3, layer2, layer1, selected),
          "Req implementation, #{length(selected)} #{pluralize("function", length(selected))}"}
@@ -526,6 +534,18 @@ if Code.ensure_loaded?(Igniter) do
            "hearth.gen: no operations matched the --tag filter. " <>
              "Run `mix hearth.gen <source> --list` to see the available tags."}
       end
+    end
+
+    # Metadata threaded into the Layer 2 moduledoc footer: the source
+    # the spec came from, plus its `info` fields.
+    defp spec_metadata(source, spec) do
+      %{
+        source: source,
+        title: get_in(spec, ["info", "title"]),
+        version: get_in(spec, ["info", "version"]),
+        openapi: spec["openapi"],
+        description: get_in(spec, ["info", "description"])
+      }
     end
 
     defp summarize(spec) when is_map(spec) do

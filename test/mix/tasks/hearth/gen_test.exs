@@ -361,7 +361,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert_creates(igniter, @petstore_layer1)
       source = created_file(igniter, @petstore_layer1)
       assert source =~ "defmodule Test.Integrations.Petstore do"
-      assert source =~ "def client("
+      assert source =~ "def new("
     end
 
     test "the base URL comes from the spec's servers" do
@@ -422,6 +422,74 @@ defmodule Mix.Tasks.Hearth.GenTest do
     end
   end
 
+  describe "shared base path" do
+    @versioned_spec JSON.encode!(%{
+                      "openapi" => "3.0.0",
+                      "info" => %{"title" => "Versioned", "version" => "1.0"},
+                      "servers" => [%{"url" => "https://api.example.com"}],
+                      "paths" => %{
+                        "/api/v1/customers" => %{
+                          "get" => %{"operationId" => "listCustomers", "tags" => ["Customers"]}
+                        },
+                        "/api/v1/customers/{id}" => %{
+                          "get" => %{
+                            "operationId" => "getCustomer",
+                            "tags" => ["Customers"],
+                            "parameters" => [%{"name" => "id", "in" => "path"}]
+                          }
+                        }
+                      }
+                    })
+
+    test "a path prefix shared by every operation is folded into the base URL" do
+      igniter =
+        test_project(files: %{"priv/specs/versioned.json" => @versioned_spec})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/versioned.json",
+          "--integration",
+          "Versioned"
+        ])
+
+      layer1 = created_file(igniter, "lib/test/integrations/versioned.ex")
+      assert layer1 =~ ~s(@base_url "https://api.example.com/api/v1")
+
+      layer3 = created_file(igniter, "lib/test/integrations/versioned/versioned_api/req.ex")
+      assert layer3 =~ "Versioned.request(\"/customers\", opts)"
+      assert layer3 =~ "Versioned.request(\"/customers/\#{id}\", opts)"
+    end
+
+    @no_servers_spec JSON.encode!(%{
+                       "openapi" => "3.0.0",
+                       "info" => %{"title" => "Serverless", "version" => "1.0"},
+                       "paths" => %{
+                         "/v3/notices" => %{
+                           "get" => %{"operationId" => "listNotices", "tags" => ["Notices"]}
+                         },
+                         "/v3/notices/search" => %{
+                           "get" => %{"operationId" => "searchNotices", "tags" => ["Notices"]}
+                         }
+                       }
+                     })
+
+    test "the prefix folds into the base-URL placeholder when the spec has no servers" do
+      igniter =
+        test_project(files: %{"priv/specs/srv.json" => @no_servers_spec})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/srv.json",
+          "--integration",
+          "Srv"
+        ])
+
+      layer1 = created_file(igniter, "lib/test/integrations/srv.ex")
+      assert layer1 =~ "# TODO: the spec declared no `servers`"
+      assert layer1 =~ ~s(@base_url "https://api.example.com/v3")
+
+      layer3 = created_file(igniter, "lib/test/integrations/srv/srv_api/req.ex")
+      assert layer3 =~ "Srv.request(\"/notices\", opts)"
+      assert layer3 =~ "Srv.request(\"/notices/search\", opts)"
+    end
+  end
+
   describe "Layer 3 generation" do
     @petstore_layer3 "lib/test/integrations/petstore/petstore_api/req.ex"
 
@@ -439,10 +507,10 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert source =~ "defmodule Test.Integrations.Petstore.PetstoreApi.Req do"
       assert source =~ "@behaviour Test.Integrations.Petstore.PetstoreApi"
       assert source =~ "@impl true"
-      assert source =~ ~s|def list_pets(opts \\\\ []), do: request(:get, "/pets", opts)|
+      assert source =~ "Petstore.request(\"/pets\", opts)"
 
       assert source =~
-               ~s|def show_pet_by_id(pet_id, opts \\\\ []), do: request(:get, "/pets/\#{pet_id}", opts)|
+               "Petstore.request(\"/pets/\#{pet_id}\", opts)"
     end
 
     test "the gen run adds {:req, …} to the consumer's deps" do
@@ -502,6 +570,22 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert source =~ "@callback list_pets(opts :: keyword())"
       assert source =~ "@callback create_pets(opts :: keyword())"
       assert source =~ "@callback show_pet_by_id(pet_id :: String.t(), opts :: keyword())"
+    end
+
+    test "the behaviour moduledoc records the source path and spec info" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      source = created_file(igniter, @petstore_layer2)
+      assert source =~ "## Source"
+      assert source =~ ~s(* **Source:** `priv/specs/petstore.yaml`)
+      assert source =~ "* **Title:** Swagger Petstore"
+      assert source =~ "* **Version:** 1.0.0"
     end
 
     test "--tag narrows which callbacks are generated" do

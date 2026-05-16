@@ -23,23 +23,32 @@ defmodule Hearth.Render.Layer3Test do
       assert source =~ "alias MyApp.Integrations.Stripe"
     end
 
-    test "one @impl function per operation, delegating through request/3" do
+    test "one @impl function per operation, delegating to the client's request/2" do
       source = render([op(id: "list_pets", path: "/pets", method: :get)])
 
       assert source =~ "@impl true"
-      assert source =~ ~s|def list_pets(opts \\\\ []), do: request(:get, "/pets", opts)|
+      assert source =~ "def list_pets(opts \\\\ []) do"
+      assert source =~ "Stripe.request(\"/pets\", opts)"
     end
 
-    test "the request/3 helper dispatches through the Layer 1 client and Req" do
+    test ":get is Req's default — the method is left unspecified" do
+      source = render([op(id: "list_pets", path: "/pets", method: :get)])
+
+      refute source =~ "method: :get"
+    end
+
+    test "never touches new/1 or Req directly — only the client's request/2" do
       source = render([op(id: "list_pets", path: "/pets")])
 
-      assert source =~ "defp request(method, url, opts) do"
-      assert source =~ "Stripe.client() |> Req.request([method: method, url: url] ++ opts)"
+      refute source =~ "defp request"
+      refute source =~ ".new("
+      refute source =~ "Req.request"
+      assert source =~ "Stripe.request("
     end
 
     test "the HTTP method comes from the operation" do
       source = render([op(id: "create_pet", path: "/pets", method: :post)])
-      assert source =~ "request(:post,"
+      assert source =~ "Stripe.request(\"/pets\", [method: :post] ++ opts)"
     end
 
     test "a path param becomes a positional arg interpolated into the URL" do
@@ -53,8 +62,10 @@ defmodule Hearth.Render.Layer3Test do
           )
         ])
 
+      assert source =~ "def show_pet(pet_id, opts \\\\ []) do"
+
       assert source =~
-               ~s|def show_pet(pet_id, opts \\\\ []), do: request(:get, "/pets/\#{pet_id}", opts)|
+               "Stripe.request(\"/pets/\#{pet_id}\", opts)"
     end
 
     test "multiple path params interpolate in spec order" do
@@ -72,7 +83,7 @@ defmodule Hearth.Render.Layer3Test do
         ])
 
       assert source =~ "def get_square(row, column, opts \\\\ [])"
-      assert source =~ ~s|"/board/\#{row}/\#{column}"|
+      assert source =~ "\"/board/\#{row}/\#{column}\""
     end
 
     test "the rendered module is syntactically valid Elixir" do
