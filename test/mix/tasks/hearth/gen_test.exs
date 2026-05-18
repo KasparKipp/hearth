@@ -540,6 +540,14 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert mix_exs =~ "only: [:test]" or mix_exs =~ "only: :test"
     end
 
+    test "queues `mix deps.get` when it added deps to mix.exs" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> gen("priv/specs/petstore.yaml", "Petstore")
+
+      assert {"deps.get", []} in igniter.tasks
+    end
+
     test "a second integration appends without clobbering the first" do
       igniter =
         test_project(

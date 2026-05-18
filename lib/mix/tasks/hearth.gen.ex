@@ -495,6 +495,19 @@ if Code.ensure_loaded?(Igniter) do
           wired_files(auth)
         )
       )
+      |> fetch_deps_if_changed()
+    end
+
+    # When `mix hearth.gen` added `req`/`mox` to the consumer's
+    # `mix.exs`, queue `mix deps.get` so its `mix.lock` is set up — the
+    # generated code is otherwise uncompilable until the user fetches.
+    # Skipped when `mix.exs` was untouched (the deps already present).
+    defp fetch_deps_if_changed(igniter) do
+      if Igniter.has_changes?(igniter, ["mix.exs"]) do
+        Igniter.add_task(igniter, "deps.get")
+      else
+        igniter
+      end
     end
 
     # `:external`-tagged tests hit the real network — make them opt-in
