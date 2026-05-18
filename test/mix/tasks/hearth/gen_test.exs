@@ -483,7 +483,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
         ])
 
       source = created_file(igniter, "test/test/integrations/keyed_test.exs")
-      assert source =~ "Application.put_env(:test, @client, api_key: @api_key)"
+      assert source =~ "Application.put_env(:test, @client, Keyword.put(previous, :api_key, @api_key))"
       assert source =~ ~s|Plug.Conn.get_req_header(conn, "x-api-key") == [@api_key]|
     end
 
@@ -741,6 +741,81 @@ defmodule Mix.Tasks.Hearth.GenTest do
       # the Layer 1 auth test is Hearth-owned — regenerated
       assert created_file(igniter, "test/test/integrations/petstore_test.exs") =~
                "if Code.ensure_loaded?(Plug.Conn) do"
+    end
+  end
+
+  describe "multi-server base URLs" do
+    defp server_spec(urls) do
+      JSON.encode!(%{
+        "openapi" => "3.0.0",
+        "info" => %{"title" => "Multi", "version" => "1.0"},
+        "servers" => Enum.map(urls, &%{"url" => &1}),
+        "paths" => %{"/ping" => %{"get" => %{"operationId" => "ping", "tags" => ["X"]}}}
+      })
+    end
+
+    defp gen_servers(urls) do
+      test_project(files: %{"priv/specs/m.json" => server_spec(urls)})
+      |> Igniter.compose_task("hearth.gen", ["priv/specs/m.json", "--integration", "Acme"])
+    end
+
+    test "the prod server is Layer 1's @base_url; the non-prod one goes to config/test.exs" do
+      igniter = gen_servers(["https://staging.acme.com", "https://api.acme.com"])
+
+      assert created_file(igniter, "lib/test/integrations/acme.ex") =~
+               ~s(@base_url "https://api.acme.com")
+
+      assert created_file(igniter, "config/test.exs") =~
+               ~s(base_url: "https://staging.acme.com")
+    end
+
+    test "extra prod servers become commented overrides in config/config.exs" do
+      igniter =
+        gen_servers(["https://api.acme.com", "https://eu.acme.com", "https://staging.acme.com"])
+
+      config = created_file(igniter, "config/config.exs")
+      assert config =~ "# Hearth: alternate base URLs"
+      assert config =~ ~s(base_url: "https://eu.acme.com")
+    end
+
+    test "re-running does not duplicate the alternates block" do
+      urls = ["https://api.acme.com", "https://eu.acme.com"]
+
+      igniter =
+        test_project(files: %{"priv/specs/m.json" => server_spec(urls)})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/m.json", "--integration", "Acme"])
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/m.json", "--integration", "Acme"])
+
+      config = created_file(igniter, "config/config.exs")
+      assert length(String.split(config, "# Hearth: alternate base URLs")) == 2
+    end
+
+    test "extra non-prod servers become commented options in config/test.exs" do
+      igniter =
+        gen_servers([
+          "https://api.acme.com",
+          "https://staging.acme.com",
+          "https://dev.acme.com"
+        ])
+
+      test_config = created_file(igniter, "config/test.exs")
+      assert test_config =~ "# Hearth: alternate base URLs"
+      assert test_config =~ ~s(base_url: "https://dev.acme.com")
+    end
+
+    test "a spec with no servers emits a base-URL warning" do
+      spec =
+        JSON.encode!(%{
+          "openapi" => "3.0.0",
+          "info" => %{"title" => "NoServers", "version" => "1.0"},
+          "paths" => %{"/ping" => %{"get" => %{"operationId" => "ping", "tags" => ["X"]}}}
+        })
+
+      igniter =
+        test_project(files: %{"priv/specs/n.json" => spec})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/n.json", "--integration", "Acme"])
+
+      assert Enum.any?(igniter.warnings, &String.contains?(&1, "declared no `servers`"))
     end
   end
 

@@ -35,8 +35,12 @@ defmodule Hearth.Render.TestsTest do
     test "bearer auth seeds the credential and asserts the bearer header" do
       source = render(:bearer)
 
-      assert source =~ "Application.put_env(:my_app, @client, api_key: @api_key)"
-      assert source =~ "on_exit(fn -> Application.delete_env(:my_app, @client) end)"
+      assert source =~ "previous = Application.get_env(:my_app, @client, [])"
+
+      assert source =~
+               "Application.put_env(:my_app, @client, Keyword.put(previous, :api_key, @api_key))"
+
+      assert source =~ "on_exit(fn -> Application.put_env(:my_app, @client, previous) end)"
 
       assert source =~
                ~s|Plug.Conn.get_req_header(conn, "authorization") == ["Bearer \#{@api_key}"]|
@@ -123,7 +127,9 @@ defmodule Hearth.Render.TestsTest do
       assert source =~ "@client App.Integrations.Stripe"
       assert source =~ ~s/System.get_env("STRIPE_API_KEY")/
       assert source =~ ~s/"DEV_NO_STRIPE_API_KEY"/
-      assert source =~ "on_exit(fn -> Application.delete_env(:my_app, @client) end)"
+      assert source =~ "previous = Application.get_env(:my_app, @client, [])"
+      assert source =~ "Keyword.put(previous, :api_key, api_key)"
+      assert source =~ "on_exit(fn -> Application.put_env(:my_app, @client, previous) end)"
     end
 
     test ":none auth needs no credential — async: true, no setup" do

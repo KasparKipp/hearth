@@ -432,6 +432,8 @@ if Code.ensure_loaded?(Igniter) do
       prefix = BasePath.common_prefix(operations)
       selected = BasePath.strip(selected, prefix)
 
+      servers = Hearth.Spec.Servers.resolve(spec)
+
       # Each entry carries a location kind (`:source_folder` → `lib/`,
       # `:test` → `test/`, routed by the `Test` suffix via
       # `Igniter.Project.Module.proper_location/3`) and an `on_exists`
@@ -439,7 +441,7 @@ if Code.ensure_loaded?(Igniter) do
       # `:overwrite` regenerates them. The external test is a user-owned
       # scaffold — `:skip` never touches it after first generation.
       sources = [
-        {layer1, Hearth.Render.Layer1.render(layer1, otp_app, base_url(spec), prefix, auth),
+        {layer1, Hearth.Render.Layer1.render(layer1, otp_app, servers.default, prefix, auth),
          "raw Req client", :source_folder, :overwrite},
         {layer2,
          Hearth.Render.Layer2.render(layer2, selected,
@@ -485,7 +487,10 @@ if Code.ensure_loaded?(Igniter) do
       |> patch_test_helper()
       |> patch_credential_config(otp_app, layer1, names[:integration], auth)
       |> patch_impl_config(otp_app, layer2, mock)
+      |> patch_base_url_config(otp_app, layer1, servers, prefix)
       |> patch_hearth_domains(otp_app, layer2)
+      |> patch_base_url_alternates(otp_app, layer1, servers, prefix)
+      |> warn_servers(otp_app, layer1, servers)
       |> Igniter.add_notice(
         generated_notice(
           path,
@@ -500,6 +505,79 @@ if Code.ensure_loaded?(Igniter) do
       )
       |> fetch_deps_if_changed()
     end
+
+    # `config/test.exs` overrides Layer 1's base URL with a non-prod
+    # server, so the external test points there (not at production).
+    # The shared path prefix is folded in, matching Layer 1's @base_url.
+    # 0 servers → a placeholder; `warn_servers/3` flags it.
+    defp patch_base_url_config(igniter, otp_app, layer1, servers, prefix) do
+      url = with_prefix(servers.test || "https://api.example.com", prefix)
+
+      Igniter.Project.Config.configure(
+        igniter,
+        "test.exs",
+        otp_app,
+        [layer1, :base_url],
+        {:code, Sourceror.parse_string!(inspect(url))},
+        updater: &{:ok, &1}
+      )
+    end
+
+    # Extra server URLs the spec offered are surfaced as commented-out
+    # config overrides: prod-candidates in `config/config.exs`, non-prod
+    # in `config/test.exs`. Appended idempotently (per-integration marker).
+    defp patch_base_url_alternates(igniter, otp_app, layer1, servers, prefix) do
+      igniter
+      |> append_alternates("config.exs", otp_app, layer1, servers.default_alternates, prefix)
+      |> append_alternates("test.exs", otp_app, layer1, servers.test_alternates, prefix)
+    end
+
+    defp append_alternates(igniter, _file, _otp_app, _layer1, [], _prefix), do: igniter
+
+    defp append_alternates(igniter, file, otp_app, layer1, urls, prefix) do
+      marker = "# Hearth: alternate base URLs for #{inspect(layer1)}"
+
+      lines =
+        Enum.map_join(urls, "\n", fn url ->
+          "# config #{inspect(otp_app)}, #{inspect(layer1)}, " <>
+            "base_url: #{inspect(with_prefix(url, prefix))}"
+        end)
+
+      block = marker <> " — uncomment one to switch.\n" <> lines <> "\n"
+
+      Igniter.create_or_update_file(igniter, "config/#{file}", block, fn source ->
+        content = Rewrite.Source.get(source, :content)
+
+        if String.contains?(content, marker) do
+          source
+        else
+          Rewrite.Source.update(source, :content, content <> "\n" <> block)
+        end
+      end)
+    end
+
+    # When the spec declared no `servers`, the base URL is a placeholder
+    # — warn the user where to set the real one.
+    defp warn_servers(igniter, otp_app, layer1, %{warn?: true}) do
+      Igniter.add_warning(igniter, """
+      The spec declared no `servers` — Layer 1's base URL is a placeholder.
+      Set the real one:
+
+          config #{inspect(otp_app)}, #{inspect(layer1)}, base_url: "https://api.example.com"
+      """)
+    end
+
+    defp warn_servers(igniter, _otp_app, _layer1, %{fallback_default?: true}) do
+      Igniter.add_notice(
+        igniter,
+        "Every spec server looked non-production; used the first as the default base URL."
+      )
+    end
+
+    defp warn_servers(igniter, _otp_app, _layer1, _servers), do: igniter
+
+    defp with_prefix(url, ""), do: url
+    defp with_prefix(url, prefix), do: String.trim_trailing(url, "/") <> prefix
 
     # When `mix hearth.gen` added `req`/`mox` to the consumer's
     # `mix.exs`, queue `mix deps.get` so its `mix.lock` is set up — the
@@ -634,7 +712,7 @@ if Code.ensure_loaded?(Igniter) do
         "test/support/mocks.ex",
         "test/test_helper.exs (:external exclude)",
         "config/config.exs (:hearth_domains)",
-        "config/test.exs (impl)"
+        "config/test.exs (impl, base_url)"
       ]
 
       case auth do
@@ -662,20 +740,6 @@ if Code.ensure_loaded?(Igniter) do
         integration: Macro.camelize(integration),
         domain: domain_segment(igniter)
       ]
-    end
-
-    # TODO (multi-server): a spec's `servers` may list several URLs;
-    # this takes only the first. Planned: Layer 1 renders
-    # `@default_base_url` (the first server) always, plus `@base_urls`
-    # (the full list) when there is more than one; the client reads a
-    # `:base_url` config override alongside `:api_key`; and the
-    # generated `config/runtime.exs` raises in prod when the base URL
-    # must be picked explicitly.
-    defp base_url(spec) do
-      case spec |> Map.get("servers", []) |> List.first() do
-        %{"url" => url} when is_binary(url) -> url
-        _ -> nil
-      end
     end
 
     # `--no-domain` → `""` (the segment is dropped); `--domain X` → the

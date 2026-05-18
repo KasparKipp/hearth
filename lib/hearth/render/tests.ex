@@ -62,6 +62,10 @@ defmodule Hearth.Render.Tests do
   end
 
   # Bearer and API-key auth read a credential; seed it into app config.
+  # `Keyword.put` into the *existing* config rather than `put_env` of a
+  # bare list — `put_env` replaces the whole keyword, which would wipe
+  # a `:base_url` set by `config/test.exs`. `on_exit` restores the
+  # previous value exactly (no `delete_env`, which has the same wipe).
   defp setup_block(:bearer, otp_app), do: credential_setup(otp_app)
   defp setup_block({:api_key, _location, _name}, otp_app), do: credential_setup(otp_app)
   defp setup_block(_auth, _otp_app), do: ""
@@ -69,8 +73,9 @@ defmodule Hearth.Render.Tests do
   defp credential_setup(otp_app) do
     """
     setup do
-      Application.put_env(#{inspect(otp_app)}, @client, api_key: @api_key)
-      on_exit(fn -> Application.delete_env(#{inspect(otp_app)}, @client) end)
+      previous = Application.get_env(#{inspect(otp_app)}, @client, [])
+      Application.put_env(#{inspect(otp_app)}, @client, Keyword.put(previous, :api_key, @api_key))
+      on_exit(fn -> Application.put_env(#{inspect(otp_app)}, @client, previous) end)
       :ok
     end
     """
@@ -190,11 +195,13 @@ defmodule Hearth.Render.Tests do
     @client #{inspect(layer1)}
 
     setup do
-      Application.put_env(#{inspect(otp_app)}, @client,
-        api_key: System.get_env(#{inspect(env_var)}) || #{inspect("DEV_NO_" <> env_var)}
-      )
-
-      on_exit(fn -> Application.delete_env(#{inspect(otp_app)}, @client) end)
+      # Merge into the existing config — `config/test.exs` sets a
+      # `:base_url` on @client; a bare `put_env` would wipe it and the
+      # external test would hit production.
+      previous = Application.get_env(#{inspect(otp_app)}, @client, [])
+      api_key = System.get_env(#{inspect(env_var)}) || #{inspect("DEV_NO_" <> env_var)}
+      Application.put_env(#{inspect(otp_app)}, @client, Keyword.put(previous, :api_key, api_key))
+      on_exit(fn -> Application.put_env(#{inspect(otp_app)}, @client, previous) end)
       :ok
     end
     """

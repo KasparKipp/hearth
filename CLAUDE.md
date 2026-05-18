@@ -681,13 +681,8 @@ These were learned the hard way and must hold for future steps:
     to a `"DEV_NO_X"` placeholder. That config also later holds the
     Layer 3 impl module. Layer 1 here only *reads* the config.
 
-  **Deferred refinements** (TODO comments parked in `Hearth.Spec.Auth`
-  and the gen task's `base_url/1`):
-  - *Multiple `servers`.* v1 takes the first. Planned: render
-    `@default_base_url` (first) always, plus `@base_urls` (the full
-    list) when there are several; a `:base_url` config override
-    alongside `:api_key`; and a `config/runtime.exs` prod raise when
-    the base URL must be picked explicitly.
+  **Deferred refinements** (TODO comment parked in `Hearth.Spec.Auth`):
+  - *Multiple `servers`.* Resolved — see "Step 5i" below.
   - *Multiple auth schemes.* v1 auto-picks the primary. Planned:
     `mix hearth.gen` prompts the user to choose; a `--auth-scheme
     <name>` flag selects non-interactively; under `--yes` with several
@@ -836,6 +831,30 @@ These were learned the hard way and must hold for future steps:
     to `test/test_helper.exs` (idempotent) — `:external` tests are
     opt-in: `mix test` skips them, `mix test --include external` runs
     them.
+
+- **Step 5i — multi-server base-URL resolution.** A spec's `servers:`
+  list is now resolved properly (was: first server only).
+
+  - `Hearth.Spec.Servers` (pure) classifies each server URL — *non-prod*
+    if it contains `dev.`/`staging.`/`preview.`/`demo.`/`sandbox.` or
+    its host TLD is `.dev`, else a *prod-candidate*. `resolve/1` returns
+    the **default** URL (Layer 1's `@base_url` — a prod candidate, or
+    the first of several), the **test** URL (a non-prod server, written
+    to `config/test.exs` so the external test points off production),
+    each one's commented-override `alternates`, a `warn?` (0 servers),
+    and `fallback_default?` (every server non-prod).
+  - **Layer 1's base URL is config-overridable.** `new/1` reads
+    `base_url()` — `Application.get_env(@otp_app, __MODULE__)[:base_url]
+    || @base_url` — exactly like `:api_key`. `@base_url` stays the
+    spec-derived compile-time default (with the BasePath prefix folded
+    in).
+  - The gen task: `patch_base_url_config` writes `config/test.exs`
+    `base_url:` (prefix folded in to match `@base_url`);
+    `patch_base_url_alternates` appends a commented-out override block
+    (prod alternates → `config/config.exs`, non-prod → `config/test.exs`,
+    idempotent per-integration marker); `warn_servers` emits an
+    `Igniter.add_warning` for 0 servers and a notice for the
+    all-non-prod fallback.
 
 #### Pending
 
