@@ -422,6 +422,21 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert notice =~ "Req implementation"
       assert notice =~ "Layer 1 auth test"
     end
+
+    test "the notice reports the wired files" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      notice = notice_text(igniter)
+      assert notice =~ "wiring test/support/mocks.ex"
+      assert notice =~ "wiring config/config.exs"
+      assert notice =~ "wiring config/test.exs"
+    end
   end
 
   describe "Layer 1 test generation" do
@@ -482,8 +497,170 @@ defmodule Mix.Tasks.Hearth.GenTest do
         ])
 
       refute created_file(igniter, "mix.exs") =~ ":plug"
+
       assert created_file(igniter, @petstore_layer1_test) =~
                "if Code.ensure_loaded?(Plug.Conn) do"
+    end
+  end
+
+  describe "host wiring — Mox mock" do
+    @keyed_spec JSON.encode!(%{
+                  "openapi" => "3.0.0",
+                  "info" => %{"title" => "Keyed", "version" => "1.0"},
+                  "servers" => [%{"url" => "https://keyed.example.com"}],
+                  "paths" => %{"/ping" => %{"get" => %{"operationId" => "ping", "tags" => ["X"]}}},
+                  "components" => %{
+                    "securitySchemes" => %{
+                      "ApiKey" => %{"type" => "apiKey", "in" => "header", "name" => "X-API-Key"}
+                    }
+                  }
+                })
+
+    defp gen(igniter, source, integration) do
+      Igniter.compose_task(igniter, "hearth.gen", [source, "--integration", integration])
+    end
+
+    test "creates test/support/mocks.ex with a Mox.defmock per integration" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> gen("priv/specs/petstore.yaml", "Petstore")
+
+      source = created_file(igniter, "test/support/mocks.ex")
+      assert source =~ "Mox.defmock(Test.Integrations.Petstore.PetstoreApi.Mock,"
+      assert source =~ "for: Test.Integrations.Petstore.PetstoreApi"
+    end
+
+    test "adds {:mox, …, only: :test} to the consumer's deps" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> gen("priv/specs/petstore.yaml", "Petstore")
+
+      mix_exs = created_file(igniter, "mix.exs")
+      assert mix_exs =~ ":mox"
+      assert mix_exs =~ "only: [:test]" or mix_exs =~ "only: :test"
+    end
+
+    test "a second integration appends without clobbering the first" do
+      igniter =
+        test_project(
+          files: %{
+            "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
+            "priv/specs/keyed.json" => @keyed_spec
+          }
+        )
+        |> gen("priv/specs/petstore.yaml", "Petstore")
+        |> gen("priv/specs/keyed.json", "Keyed")
+
+      source = created_file(igniter, "test/support/mocks.ex")
+      assert source =~ "Test.Integrations.Petstore.PetstoreApi.Mock"
+      assert source =~ "Test.Integrations.Keyed.KeyedApi.Mock"
+    end
+
+    test "re-running for the same integration does not duplicate the defmock" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> gen("priv/specs/petstore.yaml", "Petstore")
+        |> gen("priv/specs/petstore.yaml", "Petstore")
+
+      source = created_file(igniter, "test/support/mocks.ex")
+      occurrences = source |> String.split("PetstoreApi.Mock") |> length()
+      assert occurrences == 2
+    end
+  end
+
+  describe "host wiring — config" do
+    test "config/test.exs points the dispatcher at the Mox mock" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      source = created_file(igniter, "config/test.exs")
+      assert source =~ "Test.Integrations.Petstore.PetstoreApi"
+      assert source =~ "impl: Test.Integrations.Petstore.PetstoreApi.Mock"
+    end
+
+    test "the Layer 2 module is appended to :hearth_domains" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      source = created_file(igniter, "config/config.exs")
+      assert source =~ "hearth_domains"
+      assert source =~ "Test.Integrations.Petstore.PetstoreApi"
+    end
+
+    test "an API-key spec wires a runtime.exs credential for prod and dev" do
+      igniter =
+        test_project(files: %{"priv/specs/keyed.json" => @keyed_spec})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/keyed.json",
+          "--integration",
+          "Keyed"
+        ])
+
+      source = created_file(igniter, "config/runtime.exs")
+      assert source =~ ~s|System.get_env("KEYED_API_KEY")|
+      assert source =~ "config_env() == :prod"
+      assert source =~ "config_env() == :dev"
+      assert source =~ "DEV_NO_KEYED_API_KEY"
+    end
+
+    test "a :none-auth spec leaves config/runtime.exs untouched" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      refute Igniter.exists?(igniter, "config/runtime.exs")
+    end
+
+    test "a :hearth_domains opt-out (false) is left untouched" do
+      igniter =
+        test_project(
+          files: %{
+            "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
+            "config/config.exs" => "import Config\n\nconfig :test, :hearth_domains, false\n"
+          }
+        )
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      source = created_file(igniter, "config/config.exs")
+      assert source =~ "hearth_domains, false"
+      refute source =~ "PetstoreApi"
+    end
+
+    test "re-running keeps a single :hearth_domains entry" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      source = created_file(igniter, "config/config.exs")
+      occurrences = source |> String.split("PetstoreApi") |> length()
+      assert occurrences == 2
     end
   end
 

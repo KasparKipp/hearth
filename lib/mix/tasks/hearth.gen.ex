@@ -76,13 +76,13 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
 
     ## Pipeline status
 
-      * Available now — source recognition (URL / file / registry),
-        registry lookup, file-existence validation, install gating,
-        YAML/JSON decode, operation extraction + tag filtering, and
-        Layer 1/2/3 generation — raw client, behaviour, and Req
-        implementation (for file sources).
-      * Coming soon — Mox + config wiring, on-disk cache, HTTP fetcher
-        (for URL / registry sources).
+      * Available now (for file sources) — source recognition (URL /
+        file / registry), registry lookup, file-existence validation,
+        install gating, YAML/JSON decode, operation extraction + tag
+        filtering, Layer 1/2/3 generation, a Layer 1 auth test, and
+        Mox + config wiring.
+      * Coming soon — on-disk cache and HTTP fetcher (for URL /
+        registry sources).
 
     If your project is not yet set up (no `:hearth` in `.formatter.exs`
     or no `:hearth_domains` in `config/config.exs`), `hearth.gen` will
@@ -416,6 +416,7 @@ if Code.ensure_loaded?(Igniter) do
       layer2 = Hearth.Render.ModuleNames.layer2(names)
       layer3 = Hearth.Render.ModuleNames.layer3(names)
       layer1_test = Hearth.Render.ModuleNames.layer1_test(names)
+      mock = Hearth.Render.ModuleNames.mock(names)
 
       otp_app = Igniter.Project.Application.app_name(igniter)
       auth = Hearth.Spec.Auth.strategy(spec)
@@ -436,8 +437,7 @@ if Code.ensure_loaded?(Igniter) do
          Hearth.Render.Layer2.render(layer2, selected,
            metadata: spec_metadata(path, spec),
            otp_app: otp_app
-         ),
-         "behaviour, #{length(selected)} #{pluralize("callback", length(selected))}",
+         ), "behaviour, #{length(selected)} #{pluralize("callback", length(selected))}",
          :source_folder},
         {layer3, Hearth.Render.Layer3.render(layer3, layer2, layer1, selected),
          "Req implementation, #{length(selected)} #{pluralize("function", length(selected))}",
@@ -453,21 +453,27 @@ if Code.ensure_loaded?(Igniter) do
         end)
 
       igniter
-      # The generated Layer 1/3 reference Req at runtime. `req` rides
-      # into Hearth only transitively via the optional, dev-time
-      # `igniter` dep, so the consuming app needs it as a direct
-      # dependency of its own. Added here rather than in
+      # The generated code needs `req` at runtime and `mox` (test only)
+      # for the generated mock. Both ride into Hearth only transitively
+      # via the optional, dev-time `igniter` dep, so the consuming app
+      # needs them as direct deps of its own. Added here rather than in
       # `hearth.install` because it is the *generated code* that needs
-      # it. `on_exists: :skip` leaves a consumer's existing `req`
+      # them. `on_exists: :skip` leaves a consumer's existing dep
       # untouched — no prompt, no overwrite.
       #
       # `plug` (for the generated Layer 1 test) is deliberately NOT
       # added: `req` already declares it as an optional all-environment
       # dependency, so a consumer dep scoped `only: :test` would diverge
       # and break the build. The test self-guards on
-      # `Code.ensure_loaded?(Plug.Conn)` instead.
+      # `Code.ensure_loaded?(Plug.Conn)` instead. `mox` has no such
+      # parent declaration, so `only: :test` is safe for it.
       |> Igniter.Project.Deps.add_dep({:req, "~> 0.5"}, on_exists: :skip)
+      |> Igniter.Project.Deps.add_dep({:mox, "~> 1.0", only: [:test]}, on_exists: :skip)
       |> write_files(written)
+      |> wire_mock(mock, layer2)
+      |> patch_credential_config(otp_app, layer1, names[:integration], auth)
+      |> patch_impl_config(otp_app, layer2, mock)
+      |> patch_hearth_domains(otp_app, layer2)
       |> Igniter.add_notice(
         generated_notice(
           path,
@@ -476,9 +482,116 @@ if Code.ensure_loaded?(Igniter) do
           selected,
           Enum.map(written, fn {module, location, _source, label} ->
             {module, location, label}
-          end)
+          end),
+          wired_files(auth)
         )
       )
+    end
+
+    # Creates `test/support/mocks.ex` if absent, else appends one more
+    # guarded `Mox.defmock` line — idempotent: the mock module name is a
+    # unique marker, so a re-run for the same integration is a no-op.
+    defp wire_mock(igniter, mock, layer2) do
+      Igniter.create_or_update_file(
+        igniter,
+        "test/support/mocks.ex",
+        Hearth.Render.Mocks.render(mock, layer2),
+        fn source ->
+          content = Rewrite.Source.get(source, :content)
+
+          if String.contains?(content, inspect(mock)) do
+            source
+          else
+            appended =
+              (content <> "\n" <> Hearth.Render.Mocks.defmock_line(mock, layer2) <> "\n")
+              |> Code.format_string!()
+              |> IO.iodata_to_binary()
+              |> Kernel.<>("\n")
+
+            Rewrite.Source.update(source, :content, appended)
+          end
+        end
+      )
+    end
+
+    # The credential lives in `config/runtime.exs`, keyed by the Layer 1
+    # module (where `credential/1` reads it): prod raises if the env var
+    # is unset, dev falls back to a placeholder. Skipped when the spec
+    # declares no usable auth scheme.
+    defp patch_credential_config(igniter, _otp_app, _layer1, _integration, :none), do: igniter
+
+    defp patch_credential_config(igniter, _otp_app, _layer1, _integration, {:unsupported, _}),
+      do: igniter
+
+    defp patch_credential_config(igniter, otp_app, layer1, integration, _auth) do
+      env_var = String.upcase(Macro.underscore(integration)) <> "_API_KEY"
+
+      prod =
+        Sourceror.parse_string!(
+          ~s/System.get_env("#{env_var}") || raise("missing #{env_var} environment variable")/
+        )
+
+      dev = Sourceror.parse_string!(~s/System.get_env("#{env_var}") || "DEV_NO_#{env_var}"/)
+
+      igniter
+      |> Igniter.Project.Config.configure_runtime_env(
+        :prod,
+        otp_app,
+        [layer1, :api_key],
+        {:code, prod},
+        updater: &{:ok, &1}
+      )
+      |> Igniter.Project.Config.configure_runtime_env(
+        :dev,
+        otp_app,
+        [layer1, :api_key],
+        {:code, dev},
+        updater: &{:ok, &1}
+      )
+    end
+
+    # `config/test.exs` points the Layer 2 dispatcher at the Mox mock;
+    # prod/dev fall back to Layer 3 with no config. `updater` keeps an
+    # existing value on re-run.
+    defp patch_impl_config(igniter, otp_app, layer2, mock) do
+      Igniter.Project.Config.configure(
+        igniter,
+        "test.exs",
+        otp_app,
+        [layer2, :impl],
+        {:code, Sourceror.parse_string!(inspect(mock))},
+        updater: &{:ok, &1}
+      )
+    end
+
+    # Appends the Layer 2 module to `:hearth_domains`. `append_new_to_list`
+    # is idempotent, and returns `:error` (→ no-op) when the value is not
+    # a list — so an explicit `false` opt-out is left untouched.
+    defp patch_hearth_domains(igniter, otp_app, layer2) do
+      Igniter.Project.Config.configure(
+        igniter,
+        "config.exs",
+        otp_app,
+        [:hearth_domains],
+        {:code, Sourceror.parse_string!("[#{inspect(layer2)}]")},
+        updater: fn zipper ->
+          Igniter.Code.List.append_new_to_list(zipper, Sourceror.parse_string!(inspect(layer2)))
+        end
+      )
+    end
+
+    defp wired_files(auth) do
+      base = [
+        "test/support/mocks.ex",
+        "config/config.exs (:hearth_domains)",
+        "config/test.exs (impl)"
+      ]
+
+      case auth do
+        :none -> base
+        {:unsupported, _} -> base
+        _ -> base ++ ["config/runtime.exs (credential)"]
+      end
     end
 
     defp write_files(igniter, written) do
@@ -582,7 +695,7 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp generated_notice(path, spec, operations, selected, layers) do
+    defp generated_notice(path, spec, operations, selected, layers, wired) do
       summary = summarize(spec)
       tag_count = selected |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> length()
 
@@ -590,6 +703,8 @@ if Code.ensure_loaded?(Igniter) do
         Enum.map_join(layers, "\n", fn {module, location, label} ->
           "* generating #{location}\n      #{inspect(module)} — #{label}"
         end)
+
+      wired_lines = Enum.map_join(wired, "\n", &"* wiring #{&1}")
 
       """
       Spec loaded from #{path}.
@@ -601,8 +716,10 @@ if Code.ensure_loaded?(Igniter) do
 
       #{file_lines}
 
-      Set the integration's credential in config, then run the generated
-      Layer 1 test to confirm the auth scheme works.
+      #{wired_lines}
+
+      Business logic calls the behaviour directly — `<Integration>Api.<operation>(...)`.
+      Tests stub it with the generated Mox mock. Set the credential in config.
       """
     end
 

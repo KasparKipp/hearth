@@ -772,11 +772,39 @@ These were learned the hard way and must hold for future steps:
     renderers; Hearth does not compile-and-run generated code in its
     own suite.
 
+- **Step 5f — host wiring (dispatcher, Mox mock, config).** A
+  generated integration is now usable by the host app end to end.
+
+  - **Layer 2 is no longer a pure behaviour.** `Hearth.Render.Layer2`
+    emits, per operation, the `@callback` *and* a delegating `def`
+    (`def list_pets(opts \\ []), do: impl().list_pets(opts)`), plus an
+    `@otp_app` attribute and `defp impl, do:
+    Application.get_env(@otp_app, __MODULE__, [])[:impl] ||
+    __MODULE__.Req`. Business logic calls the `def` directly; the
+    default impl is Layer 3, so prod/dev need no config. `render/3`'s
+    third arg became an `opts` keyword (`:metadata`, `:otp_app`).
+  - **`Hearth.Render.Mocks`** renders `test/support/mocks.ex` — a flat
+    list of `Mox.defmock(<Mock>, for: <Layer2>)` lines. `mix hearth.gen`
+    adds `{:mox, "~> 1.0", only: [:test]}` to the consumer (`on_exists:
+    :skip`); `mox` is not an optional dependency of anything Hearth
+    pulls in, so `only: :test` is safe — unlike `plug`, it cannot
+    diverge. `ModuleNames.mock/1` → `<Layer2>.Mock`.
+  - **Config patches** (`hearth.gen`'s `wire_mock` / `patch_*`): the
+    credential goes to `config/runtime.exs` via `configure_runtime_env`
+    — prod `System.get_env("<INT>_API_KEY") || raise`, dev a
+    `"DEV_NO_…"` fallback — keyed by the Layer 1 module; skipped for
+    `:none` / `:unsupported` auth. `config/test.exs` gets
+    `impl: <Mock>`. `config/config.exs` `:hearth_domains` gains the
+    Layer 2 module via `Igniter.Code.List.append_new_to_list` — which
+    returns `:error` for a non-list, so a `false` opt-out is left
+    untouched, and is idempotent on re-run. `test/support/mocks.ex` is
+    appended idempotently (string-contains check on the mock name).
+  - `mix hearth.gen` is fully idempotent: re-running adds no duplicate
+    `defmock` or `:hearth_domains` entry, and `updater: &{:ok, &1}`
+    preserves existing credential/impl config.
+
 #### Pending
 
-- **Step 5f (next)** — Mox defmock + config wiring (`config/runtime.exs`
-  credential entries per the step-5d model, active-impl `:impl` config,
-  `:hearth_domains` append).
 - **Steps 4d–4f (deferred, parallel track)** — `Hearth.Spec.Cache`,
   `Hearth.Spec.Fetcher` (Req + cache; bundles the `latest`-resolution
   enhancement — TODO parked on the `latest` entry in
