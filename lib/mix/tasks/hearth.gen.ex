@@ -15,7 +15,7 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
 
     ## Usage
 
-        mix hearth.gen <source> [--integration <Name>] [--tag <Tag>] [--domain <Name>] [--n-operations <N>] [--refresh] [--yes]
+        mix hearth.gen <source> [--integration <Name>] [--tag <Tag>] [--domain <Name> | --no-domain] [--n-operations <N>] [--refresh] [--yes]
         mix hearth.gen --list                  # list shortcut names
         mix hearth.gen <name> --list           # list versions for a shortcut
 
@@ -54,6 +54,8 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         (`MyApp.Integrations.<Name>`); `--domain Billing` overrides it
         wholesale (`MyApp.Billing.<Name>`). You pick the layout —
         Hearth does not lock you into `Integrations`.
+      * `--no-domain` — drop the namespace segment entirely:
+        `MyApp.<Name>`. Takes precedence over `--domain`.
       * `--refresh` — for URL and registry sources, bypass the on-disk
         cache and re-fetch the spec. No-op for file sources.
       * `--tag <Tag>` — repeatable. Restrict generation to the named
@@ -119,6 +121,7 @@ if Code.ensure_loaded?(Igniter) do
         schema: [
           integration: :string,
           domain: :string,
+          no_domain: :boolean,
           refresh: :boolean,
           list: :boolean,
           tag: :keep,
@@ -675,10 +678,14 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
+    # `--no-domain` → `""` (the segment is dropped); `--domain X` → the
+    # camelized `X`; neither → `nil` (the `Integrations` default).
+    # `--no-domain` wins if both are given.
     defp domain_segment(igniter) do
-      case igniter.args.options[:domain] do
-        nil -> nil
-        domain -> Macro.camelize(domain)
+      cond do
+        igniter.args.options[:no_domain] -> ""
+        domain = igniter.args.options[:domain] -> Macro.camelize(domain)
+        true -> nil
       end
     end
 

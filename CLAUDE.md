@@ -142,9 +142,9 @@ without false positives from other `.Api` modules.
 
 The layout is `<App>.<Domain>.<Integration>` plus per-layer suffixes.
 The **domain** is the single namespace segment between the app and the
-integration. It **defaults to `Integrations`** and is overridden
-wholesale by `--domain` — Hearth does not lock you into a fixed naming
-pattern.
+integration. It **defaults to `Integrations`**, is overridden wholesale
+by `--domain`, and is dropped entirely by `--no-domain` — Hearth does
+not lock you into a fixed naming pattern.
 
 ```
 # Default — domain is `Integrations`
@@ -156,7 +156,10 @@ App.Integrations.Stripe.StripeApi.Mock   # Mox mock
 # --domain Billing — `Billing` replaces `Integrations`
 App.Billing.Stripe
 App.Billing.Stripe.StripeApi
-# ...same per-layer shape, your own namespace
+
+# --no-domain — no namespace segment at all
+App.Stripe
+App.Stripe.StripeApi
 ```
 
 Other styles available via `--style`:
@@ -166,9 +169,9 @@ Other styles available via `--style`:
 --style split    # App.…Stripe.Client / .Api / …    (explicit Client suffix)
 ```
 
-The integration name (`Stripe`) is required. `--domain` is optional —
-it defaults to `Integrations`. The OTP app name is auto-detected from
-`mix.exs`.
+The integration name (`Stripe`) is required. The domain is optional —
+it defaults to `Integrations`, `--domain <Name>` overrides it, and
+`--no-domain` drops it. The OTP app name is auto-detected from `mix.exs`.
 
 ---
 
@@ -240,7 +243,8 @@ The minimum useful surface:
       comment in the generated Layer 1.
 - [ ] **Verbose module style** as default. `--style {verbose|tight|split}`
       as a flag. `--domain <Name>` sets the namespace segment between the
-      app and the integration (default `Integrations`).
+      app and the integration (default `Integrations`); `--no-domain`
+      drops it.
 - [ ] **Ownership tokens** (`hearth:owned`, `hearth:collaborating`) honored on
       regeneration. No-token files overwrite silently.
 - [ ] **Idempotent config patches** to `config/config.exs`, `config/test.exs`,
@@ -619,8 +623,9 @@ These were learned the hard way and must hold for future steps:
 
   - `Hearth.Render.ModuleNames.layer2/1` derives the module name.
     Verbose style: `<App>.<Domain>.<Integration>.<Integration>Api`,
-    where the domain segment defaults to `Integrations` and `--domain`
-    overrides it wholesale. `--style` remains unwired.
+    where the domain segment defaults to `Integrations`, `--domain`
+    overrides it wholesale, and `--no-domain` drops it. `--style`
+    remains unwired.
   - `Hearth.Render.Layer2.render/3` builds the behaviour source — one
     `@callback` per selected operation. Path params become positional
     `String.t()` args (named via `Operation.sanitize_id/1`), query/body

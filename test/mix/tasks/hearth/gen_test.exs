@@ -945,6 +945,21 @@ defmodule Mix.Tasks.Hearth.GenTest do
                "defmodule Test.Billing.Petstore.PetstoreApi"
     end
 
+    test "--no-domain drops the namespace segment entirely" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore",
+          "--no-domain"
+        ])
+
+      path = "lib/test/petstore/petstore_api.ex"
+      assert_creates(igniter, path)
+      assert created_file(igniter, path) =~ "defmodule Test.Petstore.PetstoreApi"
+    end
+
     test "a file source without --integration halts with a helpful issue" do
       igniter =
         test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})

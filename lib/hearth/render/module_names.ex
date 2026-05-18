@@ -5,12 +5,13 @@ defmodule Hearth.Render.ModuleNames do
   #
   # The layout is `<App>.<Domain>.<Integration>` plus per-layer
   # suffixes. The **domain** is the single namespace segment between
-  # the app and the integration. It defaults to `Integrations` and is
-  # overridden wholesale by `--domain` — the user is never locked into
-  # a fixed naming pattern:
+  # the app and the integration. It defaults to `Integrations`, is
+  # overridden wholesale by `--domain`, and is dropped entirely by
+  # `--no-domain` — the user is never locked into a fixed pattern:
   #
-  #     <App>.Integrations.<Integration>      (no --domain — the default)
+  #     <App>.Integrations.<Integration>      (no flag — the default)
   #     <App>.Billing.<Integration>           (--domain Billing)
+  #     <App>.<Integration>                   (--no-domain)
   #
   # The behaviour module (Layer 2) repeats the integration name so it
   # greps cleanly: `…<Integration>.<Integration>Api`.
@@ -18,7 +19,8 @@ defmodule Hearth.Render.ModuleNames do
   # `--style {tight|split}` is a v1-scoped flag not yet wired.
   #
   # All inputs (`:app_module`, `:integration`, `:domain`) are
-  # already-camelized strings; `:domain` may be nil (→ `Integrations`).
+  # already-camelized strings; `:domain` may be nil (→ `Integrations`)
+  # or `""` (→ no domain segment).
 
   # Layer 1 — the raw Req client: <App>.<Domain>.<Integration>
   @spec layer1(keyword()) :: module()
@@ -60,9 +62,13 @@ defmodule Hearth.Render.ModuleNames do
   end
 
   # The shared `<App>.<Domain>.<Integration>` prefix. The domain
-  # segment defaults to `Integrations` when `--domain` is not given.
+  # segment defaults to `Integrations` when `--domain` is not given;
+  # an empty-string domain (`--no-domain`) drops the segment entirely.
   defp segments(opts) do
-    [Keyword.fetch!(opts, :app_module), opts[:domain] || "Integrations", integration(opts)]
+    domain = opts[:domain] || "Integrations"
+
+    [Keyword.fetch!(opts, :app_module), domain, integration(opts)]
+    |> Enum.reject(&(&1 == ""))
   end
 
   defp integration(opts), do: Keyword.fetch!(opts, :integration)

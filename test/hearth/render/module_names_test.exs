@@ -107,4 +107,16 @@ defmodule Hearth.Render.ModuleNamesTest do
                Module.concat(ModuleNames.layer1(opts), "ExternalTest")
     end
   end
+
+  describe "empty domain (--no-domain)" do
+    test "an empty-string domain drops the namespace segment entirely" do
+      opts = [app_module: "MyApp", integration: "Stripe", domain: ""]
+
+      assert ModuleNames.layer1(opts) == MyApp.Stripe
+      assert ModuleNames.layer2(opts) == MyApp.Stripe.StripeApi
+      assert ModuleNames.layer3(opts) == MyApp.Stripe.StripeApi.Req
+      assert ModuleNames.layer1_test(opts) == MyApp.StripeTest
+      assert ModuleNames.external_test(opts) == MyApp.StripeExternalTest
+    end
+  end
 end
