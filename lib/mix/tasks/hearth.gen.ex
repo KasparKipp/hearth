@@ -432,7 +432,11 @@ if Code.ensure_loaded?(Igniter) do
       sources = [
         {layer1, Hearth.Render.Layer1.render(layer1, otp_app, base_url(spec), prefix, auth),
          "raw Req client", :source_folder},
-        {layer2, Hearth.Render.Layer2.render(layer2, selected, spec_metadata(path, spec)),
+        {layer2,
+         Hearth.Render.Layer2.render(layer2, selected,
+           metadata: spec_metadata(path, spec),
+           otp_app: otp_app
+         ),
          "behaviour, #{length(selected)} #{pluralize("callback", length(selected))}",
          :source_folder},
         {layer3, Hearth.Render.Layer3.render(layer3, layer2, layer1, selected),

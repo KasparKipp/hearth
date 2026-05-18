@@ -43,6 +43,12 @@ defmodule Hearth.Render.ModuleNames do
     Module.concat(Enum.drop(segments(opts), -1) ++ ["#{integration(opts)}Test"])
   end
 
+  # Mock — the Mox double for Layer 2: <Layer2>.Mock
+  @spec mock(keyword()) :: module()
+  def mock(opts) do
+    Module.concat(segments(opts) ++ ["#{integration(opts)}Api", "Mock"])
+  end
+
   defp segments(opts) do
     [Keyword.fetch!(opts, :app_module), opts[:domain], "Integrations", integration(opts)]
     |> Enum.reject(&is_nil/1)

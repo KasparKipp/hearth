@@ -73,4 +73,16 @@ defmodule Hearth.Render.ModuleNamesTest do
       assert Module.concat(ModuleNames.layer2(opts), "Req") == ModuleNames.layer3(opts)
     end
   end
+
+  describe "mock/1" do
+    test "the Mox double is layer2 plus a Mock suffix" do
+      assert ModuleNames.mock(app_module: "MyApp", integration: "Stripe") ==
+               MyApp.Integrations.Stripe.StripeApi.Mock
+    end
+
+    test "mock nests under layer2, as a sibling of layer3" do
+      opts = [app_module: "MyApp", integration: "Stripe", domain: "Billing"]
+      assert Module.concat(ModuleNames.layer2(opts), "Mock") == ModuleNames.mock(opts)
+    end
+  end
 end

@@ -1,19 +1,27 @@
 defmodule Hearth.Render.Layer2 do
   @moduledoc false
 
-  # Renders the Layer 2 behaviour module — the contract every callsite
-  # depends on. One `@callback` per selected operation.
+  # Renders the Layer 2 module — the contract every callsite depends
+  # on. Per selected operation it emits a `@callback` *and* a
+  # delegating `def`: business logic calls the `def` directly, which
+  # routes through `impl/0` to the configured implementation (Layer 3
+  # in prod, a Mox mock in tests).
   #
   # Function shape (per the CLAUDE.md three-layer pattern):
   #
   #   * path params become positional args, in spec order, named with
-  #     the snake_case-sanitized param name, typed `String.t()`;
+  #     the snake_case-sanitized param name, typed `String.t()` on the
+  #     `@callback`;
   #   * query and body params funnel through a final `opts :: keyword()`;
   #   * every callback returns the generic
   #     `{:ok, Req.Response.t()} | {:error, Exception.t()}` — typed
   #     response structs from schemas are a later concern;
   #   * the operation's `summary` and `description` become a `@doc`
-  #     heredoc on the callback — summary first, description below.
+  #     heredoc on the `def` — summary first, description below.
+  #
+  # `impl/0` reads `Application.get_env(@otp_app, __MODULE__)[:impl]`,
+  # falling back to `__MODULE__.Req` (Layer 3) so prod/dev need no
+  # config; `config/test.exs` flips it to the Mox mock.
   #
   # The moduledoc closes with a markdown metadata footer — the source
   # the integration was generated from, plus the spec's `info` fields.
@@ -26,15 +34,22 @@ defmodule Hearth.Render.Layer2 do
 
   @return_type "{:ok, Req.Response.t()} | {:error, Exception.t()}"
 
-  @spec render(module(), [Operation.t()], map()) :: String.t()
-  def render(module, operations, metadata \\ %{}) when is_list(operations) do
+  @spec render(module(), [Operation.t()], keyword()) :: String.t()
+  def render(module, operations, opts \\ []) when is_list(operations) do
+    metadata = Keyword.get(opts, :metadata, %{})
+    otp_app = Keyword.get(opts, :otp_app, :my_app)
+
     """
     defmodule #{inspect(module)} do
       @moduledoc \"\"\"
       #{moduledoc(module, metadata)}
       \"\"\"
 
-      #{Enum.map_join(operations, "\n\n", &callback/1)}
+      @otp_app #{inspect(otp_app)}
+
+      #{Enum.map_join(operations, "\n\n", &operation/1)}
+
+      defp impl, do: Application.get_env(@otp_app, __MODULE__, [])[:impl] || __MODULE__.Req
     end
     """
     |> Code.format_string!()
@@ -97,8 +112,16 @@ defmodule Hearth.Render.Layer2 do
     end
   end
 
-  defp callback(%Operation{} = op) do
-    callback_doc(op) <> "@callback #{op.id}(#{arg_signature(op)}) :: #{@return_type}"
+  # Per operation: the `@callback` (the contract), then the `@doc` and
+  # the delegating `def` (the public entry point). The `@doc` sits on
+  # the `def`, not the `@callback`.
+  defp operation(%Operation{} = op) do
+    "@callback #{op.id}(#{arg_signature(op)}) :: #{@return_type}\n\n" <>
+      callback_doc(op) <> dispatcher(op)
+  end
+
+  defp dispatcher(%Operation{} = op) do
+    "def #{op.id}(#{def_signature(op)}), do: impl().#{op.id}(#{call_args(op)})"
   end
 
   # The operation's summary on the first line, its longer description
@@ -123,9 +146,22 @@ defmodule Hearth.Render.Layer2 do
     end
   end
 
+  # The `@callback` signature — path params typed `String.t()`.
   defp arg_signature(%Operation{path_params: params}) do
     path_args = Enum.map(List.wrap(params), &"#{param_name(&1)} :: String.t()")
     Enum.join(path_args ++ ["opts :: keyword()"], ", ")
+  end
+
+  # The `def` head — path param names, `opts` with a default.
+  defp def_signature(%Operation{path_params: params}) do
+    path_args = Enum.map(List.wrap(params), &param_name/1)
+    Enum.join(path_args ++ ["opts \\\\ []"], ", ")
+  end
+
+  # The arguments passed through to `impl()` — names only, no defaults.
+  defp call_args(%Operation{path_params: params}) do
+    path_args = Enum.map(List.wrap(params), &param_name/1)
+    Enum.join(path_args ++ ["opts"], ", ")
   end
 
   defp param_name(param) when is_map(param) do

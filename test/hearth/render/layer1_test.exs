@@ -25,7 +25,8 @@ defmodule Hearth.Render.Layer1Test do
     end
 
     test "API-key header auth sets the header from the credential" do
-      source = Layer1.render(MyApp.Api, :my_app, "https://x", "", {:api_key, :header, "X-API-Key"})
+      source =
+        Layer1.render(MyApp.Api, :my_app, "https://x", "", {:api_key, :header, "X-API-Key"})
 
       assert source =~ ~s|headers: [{"X-API-Key", credential(opts)}]|
       assert source =~ "defp credential(opts) do"

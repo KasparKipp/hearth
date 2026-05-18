@@ -19,12 +19,14 @@ defmodule Hearth.Render.Layer2Test do
 
     test "the moduledoc closes with a metadata footer of source and spec info" do
       source =
-        Layer2.render(MyApp.Api, [], %{
-          source: "priv/specs/ted-api.yaml",
-          title: "Public API Documentation",
-          version: "3.0.0",
-          openapi: "3.1.0"
-        })
+        Layer2.render(MyApp.Api, [],
+          metadata: %{
+            source: "priv/specs/ted-api.yaml",
+            title: "Public API Documentation",
+            version: "3.0.0",
+            openapi: "3.1.0"
+          }
+        )
 
       assert source =~ "## Source"
       assert source =~ ~s(* **Source:** `priv/specs/ted-api.yaml`)
@@ -35,10 +37,12 @@ defmodule Hearth.Render.Layer2Test do
 
     test "the spec description is included in the metadata footer when present" do
       source =
-        Layer2.render(MyApp.Api, [], %{
-          source: "spec.json",
-          description: "An API for managing things."
-        })
+        Layer2.render(MyApp.Api, [],
+          metadata: %{
+            source: "spec.json",
+            description: "An API for managing things."
+          }
+        )
 
       assert source =~ "An API for managing things."
     end
@@ -50,7 +54,7 @@ defmodule Hearth.Render.Layer2Test do
     end
 
     test "absent metadata fields are skipped, not rendered blank" do
-      source = Layer2.render(MyApp.Api, [], %{source: "spec.json", title: "Only Title"})
+      source = Layer2.render(MyApp.Api, [], metadata: %{source: "spec.json", title: "Only Title"})
 
       assert source =~ "* **Title:** Only Title"
       refute source =~ "**Version:**"
@@ -74,6 +78,28 @@ defmodule Hearth.Render.Layer2Test do
       assert source =~ "@callback show_pet(pet_id :: String.t(), opts :: keyword()) ::"
     end
 
+    test "each operation gets a delegating def routed through impl/0" do
+      source = Layer2.render(MyApp.Api, [op(id: "list_pets")])
+
+      assert source =~ "def list_pets(opts \\\\ []), do: impl().list_pets(opts)"
+    end
+
+    test "the delegating def's path-param args match the callback's" do
+      ops = [op(id: "show_pet", path_params: [%{"name" => "petId", "in" => "path"}])]
+      source = Layer2.render(MyApp.Api, ops)
+
+      assert source =~ "def show_pet(pet_id, opts \\\\ []), do: impl().show_pet(pet_id, opts)"
+    end
+
+    test "the module carries @otp_app and an impl/0 defaulting to Layer 3" do
+      source = Layer2.render(MyApp.Api, [op(id: "ping")], otp_app: :my_app)
+
+      assert source =~ "@otp_app :my_app"
+
+      assert source =~
+               "defp impl, do: Application.get_env(@otp_app, __MODULE__, [])[:impl] || __MODULE__.Req"
+    end
+
     test "multiple path params keep spec order" do
       ops = [
         op(
@@ -91,7 +117,7 @@ defmodule Hearth.Render.Layer2Test do
                "get_square(row :: String.t(), column :: String.t(), opts :: keyword())"
     end
 
-    test "the operation summary becomes a @doc heredoc on the callback" do
+    test "the operation summary becomes a @doc heredoc on the function" do
       source = Layer2.render(MyApp.Api, [op(id: "list_pets", summary: "List all pets")])
 
       assert source =~ ~s(@doc """)
