@@ -11,11 +11,12 @@ defmodule Hearth.Render.Layer1 do
   # Layer 3 (the behaviour implementation) dispatches through
   # `request/2` — it never touches `new/1` or `Req` directly.
   #
-  # The credential is read from application config keyed by the client
-  # module itself — `config :<otp_app>, <ClientModule>, api_key: "…"` —
-  # with a `:api_key` option on `new/1` as a per-call override. The
-  # config entry itself is wired by `mix hearth.install` / a later step;
-  # this module only reads it.
+  # The credential and the base URL are read from application config
+  # keyed by the client module itself — `config :<otp_app>,
+  # <ClientModule>, api_key: "…", base_url: "…"`. `:api_key` can also
+  # be passed to `new/1` as a per-call override; `:base_url` falls back
+  # to the `@base_url` compiled from the spec. The config entries are
+  # wired by `mix hearth.gen`; this module only reads them.
   #
   # Auth is rendered from the spec's security scheme:
   #
@@ -47,7 +48,7 @@ defmodule Hearth.Render.Layer1 do
       #{base_url_attr(base_url, path_prefix)}
 
       #{new_fun(auth)}
-      #{request_funs()}#{credential_fun(auth)}
+      #{request_funs()}#{base_url_helper()}#{credential_fun(auth)}
     end
     """
     |> Code.format_string!()
@@ -72,7 +73,7 @@ defmodule Hearth.Render.Layer1 do
     """
     @doc "Builds a configured Req request — bearer auth from config."
     def new(opts \\\\ []) do
-      Req.new(base_url: @base_url, auth: {:bearer, credential(opts)})
+      Req.new(base_url: base_url(), auth: {:bearer, credential(opts)})
       |> Req.merge(Keyword.delete(opts, :api_key))
     end
     """
@@ -82,7 +83,7 @@ defmodule Hearth.Render.Layer1 do
     """
     @doc "Builds a configured Req request — API-key header from config."
     def new(opts \\\\ []) do
-      Req.new(base_url: @base_url, headers: [{#{inspect(name)}, credential(opts)}])
+      Req.new(base_url: base_url(), headers: [{#{inspect(name)}, credential(opts)}])
       |> Req.merge(Keyword.delete(opts, :api_key))
     end
     """
@@ -92,7 +93,7 @@ defmodule Hearth.Render.Layer1 do
     """
     @doc "Builds a configured Req request — API-key query param from config."
     def new(opts \\\\ []) do
-      Req.new(base_url: @base_url, params: %{#{inspect(name)} => credential(opts)})
+      Req.new(base_url: base_url(), params: %{#{inspect(name)} => credential(opts)})
       |> Req.merge(Keyword.delete(opts, :api_key))
     end
     """
@@ -102,7 +103,7 @@ defmodule Hearth.Render.Layer1 do
     """
     @doc "Builds a configured Req request for the API."
     def new(opts \\\\ []) do
-      Req.new(base_url: @base_url) |> Req.merge(opts)
+      Req.new(base_url: base_url()) |> Req.merge(opts)
     end
     """
   end
@@ -114,7 +115,7 @@ defmodule Hearth.Render.Layer1 do
     # https://hexdocs.pm/req/Req.Steps.html
     @doc "Builds a configured Req request — auth not wired (see TODO above)."
     def new(opts \\\\ []) do
-      Req.new(base_url: @base_url) |> Req.merge(opts)
+      Req.new(base_url: base_url()) |> Req.merge(opts)
     end
     """
   end
@@ -126,6 +127,16 @@ defmodule Hearth.Render.Layer1 do
 
     @doc "Like `request/2`, but raises on error."
     def request!(url, opts \\\\ []), do: Req.request!(new(url: url), opts)
+    """
+  end
+
+  # The base URL is config-overridable (`config :<otp_app>, <Client>,
+  # base_url: "…"`), defaulting to the spec-derived `@base_url`. Lets
+  # `config/test.exs` point the external test at a non-prod server.
+  defp base_url_helper do
+    """
+
+    defp base_url, do: Application.get_env(@otp_app, __MODULE__, [])[:base_url] || @base_url
     """
   end
 

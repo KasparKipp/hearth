@@ -41,7 +41,7 @@ defmodule Hearth.Render.Layer1Test do
     test ":none auth produces a base-URL-only client and no credential reader" do
       source = Layer1.render(MyApp.Api, :my_app, "https://x", "", :none)
 
-      assert source =~ "Req.new(base_url: @base_url) |> Req.merge(opts)"
+      assert source =~ "Req.new(base_url: base_url()) |> Req.merge(opts)"
       refute source =~ "defp credential"
       assert source =~ "def new(opts \\\\ []) do"
     end
@@ -51,7 +51,7 @@ defmodule Hearth.Render.Layer1Test do
 
       assert source =~ "# TODO:"
       assert source =~ ~s("oauth2")
-      assert source =~ "Req.new(base_url: @base_url) |> Req.merge(opts)"
+      assert source =~ "Req.new(base_url: base_url()) |> Req.merge(opts)"
       refute source =~ "defp credential"
     end
 
@@ -62,6 +62,15 @@ defmodule Hearth.Render.Layer1Test do
         assert source =~ "def request(url, opts \\\\ []), do: Req.request(new(url: url), opts)"
         assert source =~ "def request!(url, opts \\\\ []), do: Req.request!(new(url: url), opts)"
       end
+    end
+
+    test "the base URL is config-overridable, falling back to @base_url" do
+      source = Layer1.render(MyApp.Api, :my_app, "https://x", "", :bearer)
+
+      assert source =~ "Req.new(base_url: base_url()"
+
+      assert source =~
+               "defp base_url, do: Application.get_env(@otp_app, __MODULE__, [])[:base_url] || @base_url"
     end
 
     test "a nil base URL leaves a TODO and a placeholder" do
