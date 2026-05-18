@@ -11,7 +11,7 @@ defmodule Hearth.Render.ModuleNamesTest do
 
     test "a domain segment slots in after the app" do
       assert ModuleNames.layer2(app_module: "MyApp", integration: "Stripe", domain: "Billing") ==
-               MyApp.Billing.Integrations.Stripe.StripeApi
+               MyApp.Billing.Stripe.StripeApi
     end
 
     test "an explicit nil domain is the same as omitting it" do
@@ -33,7 +33,7 @@ defmodule Hearth.Render.ModuleNamesTest do
 
     test "a domain segment slots in after the app" do
       assert ModuleNames.layer1(app_module: "MyApp", integration: "Stripe", domain: "Billing") ==
-               MyApp.Billing.Integrations.Stripe
+               MyApp.Billing.Stripe
     end
 
     test "layer1 is layer2's parent module" do
@@ -53,7 +53,7 @@ defmodule Hearth.Render.ModuleNamesTest do
                app_module: "MyApp",
                integration: "Stripe",
                domain: "Billing"
-             ) == MyApp.Billing.Integrations.StripeTest
+             ) == MyApp.Billing.StripeTest
     end
 
     test "it is a sibling of layer1, not a child of it" do
@@ -83,6 +83,28 @@ defmodule Hearth.Render.ModuleNamesTest do
     test "mock nests under layer2, as a sibling of layer3" do
       opts = [app_module: "MyApp", integration: "Stripe", domain: "Billing"]
       assert Module.concat(ModuleNames.layer2(opts), "Mock") == ModuleNames.mock(opts)
+    end
+  end
+
+  describe "external_test/1" do
+    test "the external test is a sibling of layer1 with an ExternalTest suffix" do
+      assert ModuleNames.external_test(app_module: "MyApp", integration: "Stripe") ==
+               MyApp.Integrations.StripeExternalTest
+    end
+
+    test "a domain segment slots in after the app" do
+      assert ModuleNames.external_test(
+               app_module: "MyApp",
+               integration: "Stripe",
+               domain: "Billing"
+             ) == MyApp.Billing.StripeExternalTest
+    end
+
+    test "it is a sibling of layer1, not a child of it" do
+      opts = [app_module: "MyApp", integration: "Stripe"]
+
+      refute ModuleNames.external_test(opts) ==
+               Module.concat(ModuleNames.layer1(opts), "ExternalTest")
     end
   end
 end

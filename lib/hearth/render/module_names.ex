@@ -3,26 +3,28 @@ defmodule Hearth.Render.ModuleNames do
 
   # Derives the module names for a generated integration.
   #
-  # Verbose style only for now — the behaviour module repeats the
-  # integration name so it greps cleanly:
+  # The layout is `<App>.<Domain>.<Integration>` plus per-layer
+  # suffixes. The **domain** is the single namespace segment between
+  # the app and the integration. It defaults to `Integrations` and is
+  # overridden wholesale by `--domain` — the user is never locked into
+  # a fixed naming pattern:
   #
-  #     <App>.Integrations.<Integration>.<Integration>Api
+  #     <App>.Integrations.<Integration>      (no --domain — the default)
+  #     <App>.Billing.<Integration>           (--domain Billing)
   #
-  # With `--domain Billing` a domain segment slots in after the app:
+  # The behaviour module (Layer 2) repeats the integration name so it
+  # greps cleanly: `…<Integration>.<Integration>Api`.
   #
-  #     <App>.Billing.Integrations.<Integration>.<Integration>Api
+  # `--style {tight|split}` is a v1-scoped flag not yet wired.
   #
-  # `--style {tight|split}` and `--no-integrations-segment` are
-  # v1-scoped flags not yet wired.
-  #
-  # All inputs (`:app_module`, `:integration`, `:domain`) are expected
-  # to be already-camelized strings.
+  # All inputs (`:app_module`, `:integration`, `:domain`) are
+  # already-camelized strings; `:domain` may be nil (→ `Integrations`).
 
-  # Layer 1 — the raw Req client: <App>.[<Domain>.]Integrations.<Integration>
+  # Layer 1 — the raw Req client: <App>.<Domain>.<Integration>
   @spec layer1(keyword()) :: module()
   def layer1(opts), do: Module.concat(segments(opts))
 
-  # Layer 2 — the behaviour: <App>.[<Domain>.]Integrations.<Integration>.<Integration>Api
+  # Layer 2 — the behaviour: <App>.<Domain>.<Integration>.<Integration>Api
   @spec layer2(keyword()) :: module()
   def layer2(opts) do
     Module.concat(segments(opts) ++ ["#{integration(opts)}Api"])
@@ -35,9 +37,9 @@ defmodule Hearth.Render.ModuleNames do
   end
 
   # Layer 1 test — a sibling of Layer 1, the integration name plus a
-  # `Test` suffix: <App>.[<Domain>.]Integrations.<Integration>Test.
-  # The `Test` suffix is load-bearing — `Igniter.Project.Module`
-  # routes a `…Test` module into `test/`.
+  # `Test` suffix: <App>.<Domain>.<Integration>Test. The `Test` suffix
+  # is load-bearing — `Igniter.Project.Module` routes a `…Test` module
+  # into `test/`.
   @spec layer1_test(keyword()) :: module()
   def layer1_test(opts) do
     Module.concat(Enum.drop(segments(opts), -1) ++ ["#{integration(opts)}Test"])
@@ -49,9 +51,18 @@ defmodule Hearth.Render.ModuleNames do
     Module.concat(segments(opts) ++ ["#{integration(opts)}Api", "Mock"])
   end
 
+  # External test — a sibling of Layer 1, the integration name plus an
+  # `ExternalTest` suffix: <App>.<Domain>.<Integration>ExternalTest.
+  # The `Test` suffix routes it into `test/` (see `layer1_test/1`).
+  @spec external_test(keyword()) :: module()
+  def external_test(opts) do
+    Module.concat(Enum.drop(segments(opts), -1) ++ ["#{integration(opts)}ExternalTest"])
+  end
+
+  # The shared `<App>.<Domain>.<Integration>` prefix. The domain
+  # segment defaults to `Integrations` when `--domain` is not given.
   defp segments(opts) do
-    [Keyword.fetch!(opts, :app_module), opts[:domain], "Integrations", integration(opts)]
-    |> Enum.reject(&is_nil/1)
+    [Keyword.fetch!(opts, :app_module), opts[:domain] || "Integrations", integration(opts)]
   end
 
   defp integration(opts), do: Keyword.fetch!(opts, :integration)

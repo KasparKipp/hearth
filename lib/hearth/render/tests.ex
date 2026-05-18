@@ -1,10 +1,14 @@
 defmodule Hearth.Render.Tests do
   @moduledoc false
 
-  # Renders test files for a generated integration. Currently one:
-  # the Layer 1 auth test — a `Req.Test`-plug ExUnit module that
-  # exercises the generated raw client and asserts the auth scheme
-  # attaches the right credential at request time.
+  # Renders test files for a generated integration. Two:
+  #
+  #   * `layer1/4` — the Layer 1 auth test, a `Req.Test`-plug ExUnit
+  #     module that asserts the auth scheme attaches the right
+  #     credential at request time;
+  #   * `external/6` — an `:external`-tagged scaffold of real HTTP calls
+  #     against the live API, one `test` per operation. Generated once
+  #     and never overwritten — the user carries on from it.
   #
   # The test runs through the real `request!/2` entry point. Because
   # `request!/2` does not thread caller opts into `new/1`, the
@@ -22,6 +26,7 @@ defmodule Hearth.Render.Tests do
   # `only: :test` would diverge from that and break the build.
 
   alias Hearth.Spec.Auth
+  alias Hearth.Spec.Operation
 
   @api_key "hearth-test-credential"
 
@@ -124,5 +129,89 @@ defmodule Hearth.Render.Tests do
       assert %Req.Response{status: 200} = @client.request!("/ping", plug: plug)
     end
     """
+  end
+
+  @doc """
+  Renders the external integration test — a scaffold of real HTTP calls.
+
+  One `test` per operation, calling Layer 3 (`<Layer2>.Req.<op>`)
+  directly: Layer 2's dispatcher routes to the Mox mock in `:test`, so
+  the external test bypasses it to reach the network. Tagged
+  `:external`. Generated once and never overwritten — `mix hearth.gen`
+  writes it with `on_exists: :skip`.
+  """
+  @spec external(module(), module(), module(), atom(), Auth.strategy(), [Operation.t()]) ::
+          String.t()
+  def external(test_module, layer2, layer1, otp_app, auth, operations) do
+    alias_name = layer2 |> Module.split() |> List.last()
+
+    """
+    defmodule #{inspect(test_module)} do
+      @moduledoc false
+
+      # Generated once by Hearth — a scaffold for real HTTP calls
+      # against the live API. Hearth never overwrites this file; edit
+      # it freely. Tagged `:external` and skipped by `mix test` — run
+      # it with `mix test --include external`.
+
+      use ExUnit.Case, async: #{external_async(auth)}
+
+      @moduletag :external
+
+      alias #{inspect(layer2)}
+      #{external_setup(auth, otp_app, layer1)}
+      #{Enum.map_join(operations, "\n\n", &external_op_test(&1, alias_name))}
+    end
+    """
+    |> Code.format_string!()
+    |> IO.iodata_to_binary()
+    |> Kernel.<>("\n")
+  end
+
+  defp external_async(:bearer), do: "false"
+  defp external_async({:api_key, _location, _name}), do: "false"
+  defp external_async(_auth), do: "true"
+
+  # Credentialed auth needs the key seeded into app config: `:test` env
+  # has none (`config/runtime.exs` only sets it for prod/dev).
+  defp external_setup(:bearer, otp_app, layer1), do: external_credential_setup(otp_app, layer1)
+
+  defp external_setup({:api_key, _location, _name}, otp_app, layer1),
+    do: external_credential_setup(otp_app, layer1)
+
+  defp external_setup(_auth, _otp_app, _layer1), do: ""
+
+  defp external_credential_setup(otp_app, layer1) do
+    env_var =
+      (layer1 |> Module.split() |> List.last() |> Macro.underscore() |> String.upcase()) <>
+        "_API_KEY"
+
+    """
+    @client #{inspect(layer1)}
+
+    setup do
+      Application.put_env(#{inspect(otp_app)}, @client,
+        api_key: System.get_env(#{inspect(env_var)}) || #{inspect("DEV_NO_" <> env_var)}
+      )
+
+      on_exit(fn -> Application.delete_env(#{inspect(otp_app)}, @client) end)
+      :ok
+    end
+    """
+  end
+
+  defp external_op_test(%Operation{} = op, alias_name) do
+    """
+    # TODO: replace the placeholder args/opts and assert on your use-case.
+    test "#{op.id} reaches the live API" do
+      assert {:ok, %Req.Response{}} = #{alias_name}.Req.#{op.id}(#{external_call_args(op)})
+    end
+    """
+    |> String.trim_trailing()
+  end
+
+  defp external_call_args(%Operation{path_params: params}) do
+    path_args = params |> List.wrap() |> Enum.map(fn _ -> ~s("TODO") end)
+    Enum.join(path_args ++ ["[]"], ", ")
   end
 end
