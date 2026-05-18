@@ -34,6 +34,15 @@ defmodule Hearth.Render.ModuleNames do
     Module.concat(segments(opts) ++ ["#{integration(opts)}Api", "Req"])
   end
 
+  # Layer 1 test — a sibling of Layer 1, the integration name plus a
+  # `Test` suffix: <App>.[<Domain>.]Integrations.<Integration>Test.
+  # The `Test` suffix is load-bearing — `Igniter.Project.Module`
+  # routes a `…Test` module into `test/`.
+  @spec layer1_test(keyword()) :: module()
+  def layer1_test(opts) do
+    Module.concat(Enum.drop(segments(opts), -1) ++ ["#{integration(opts)}Test"])
+  end
+
   defp segments(opts) do
     [Keyword.fetch!(opts, :app_module), opts[:domain], "Integrations", integration(opts)]
     |> Enum.reject(&is_nil/1)

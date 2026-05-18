@@ -50,6 +50,12 @@ defmodule Hearth.MixProject do
     [
       {:igniter, "~> 0.5", optional: true},
       {:yaml_elixir, "~> 2.0"},
+      # Referenced by generated code, not by Hearth itself — optional so
+      # they are not forced on consumers transitively. `req` is the
+      # runtime of the generated client; `plug` backs the `Req.Test`
+      # plug in the generated Layer 1 test.
+      {:req, "~> 0.5", optional: true},
+      {:plug, "~> 1.0", optional: true},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end

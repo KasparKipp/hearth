@@ -27,3 +27,4 @@ hearth-*.tar
 # Integrations generated locally for dev smoke-testing
 # (`mix hearth.gen <spec> --domain Generated`).
 /lib/hearth/generated/
+/test/hearth/generated/

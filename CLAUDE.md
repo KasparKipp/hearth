@@ -736,6 +736,42 @@ These were learned the hard way and must hold for future steps:
     a segment) and is computed over *all* extracted operations, not the
     `--tag`-selected subset, so it stays stable regardless of filtering.
 
+- **Step 5g — Layer 1 auth test generation.** `mix hearth.gen` now
+  writes a **fourth file** — `test/<app>/integrations/<name>_test.exs` —
+  a `Req.Test`-plug ExUnit module that exercises the generated raw
+  client and asserts the auth scheme attaches the right credential at
+  request time. Every integration ships with a runnable auth guarantee.
+
+  - `Hearth.Render.Tests.layer1/4` renders the test, branching on the
+    `Hearth.Spec.Auth.strategy/1` value: bearer → asserts the
+    `authorization: Bearer …` header; api-key header/query → asserts the
+    header (downcased) or query param; `:none` → asserts no auth header;
+    `{:unsupported, _}` → a smoke test plus a TODO. Bearer/api-key tests
+    seed the credential with `Application.put_env` in `setup` — needed
+    because `request!/2` does not thread caller opts into `new/1` — so
+    the file is `async: false`.
+  - `ModuleNames.layer1_test/1` derives the test module as a *sibling*
+    of Layer 1 with a `Test` suffix (`App.Integrations.StripeTest`); the
+    suffix routes it to `test/` via
+    `Igniter.Project.Module.proper_location/3` with `:test`. The gen
+    task's `sources` tuples now carry a location kind (`:source_folder`
+    / `:test`).
+  - **No `plug` dependency is added.** `Req.Test` needs Plug, but `req`
+    already declares `plug` as an *optional all-environment* dependency
+    — a consumer dep scoped `only: :test` diverges from that and breaks
+    the build. Instead the generated test file wraps its module in
+    `if Code.ensure_loaded?(Plug.Conn) do … end`: the file always
+    compiles, the test activates when `plug` is present (a Phoenix app
+    already has it; otherwise the consumer adds `{:plug, "~> 1.0"}` —
+    all envs, per its header comment). The gen task still adds
+    `{:req, "~> 0.5"}` (`on_exists: :skip`).
+  - Hearth's own `mix.exs` declares `req` and `plug` as `optional: true`
+    — for clarity (they document what generated code needs) and so
+    Hearth's dev smoke-tests can compile and run generated code. The
+    renderer is verified by string/golden tests like the other
+    renderers; Hearth does not compile-and-run generated code in its
+    own suite.
+
 #### Pending
 
 - **Step 5f (next)** — Mox defmock + config wiring (`config/runtime.exs`

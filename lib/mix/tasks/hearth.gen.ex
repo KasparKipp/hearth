@@ -415,6 +415,10 @@ if Code.ensure_loaded?(Igniter) do
       layer1 = Hearth.Render.ModuleNames.layer1(names)
       layer2 = Hearth.Render.ModuleNames.layer2(names)
       layer3 = Hearth.Render.ModuleNames.layer3(names)
+      layer1_test = Hearth.Render.ModuleNames.layer1_test(names)
+
+      otp_app = Igniter.Project.Application.app_name(igniter)
+      auth = Hearth.Spec.Auth.strategy(spec)
 
       # A leading path prefix shared by every operation (e.g. `/v3`) is
       # stripped from the operation paths and folded into Layer 1's base
@@ -422,24 +426,25 @@ if Code.ensure_loaded?(Igniter) do
       prefix = BasePath.common_prefix(operations)
       selected = BasePath.strip(selected, prefix)
 
+      # Each entry carries a location kind: `:source_folder` writes into
+      # `lib/`, `:test` into `test/` (the test module's `Test` suffix
+      # routes it there via `Igniter.Project.Module.proper_location/3`).
       sources = [
-        {layer1,
-         Hearth.Render.Layer1.render(
-           layer1,
-           Igniter.Project.Application.app_name(igniter),
-           base_url(spec),
-           prefix,
-           Hearth.Spec.Auth.strategy(spec)
-         ), "raw Req client"},
+        {layer1, Hearth.Render.Layer1.render(layer1, otp_app, base_url(spec), prefix, auth),
+         "raw Req client", :source_folder},
         {layer2, Hearth.Render.Layer2.render(layer2, selected, spec_metadata(path, spec)),
-         "behaviour, #{length(selected)} #{pluralize("callback", length(selected))}"},
+         "behaviour, #{length(selected)} #{pluralize("callback", length(selected))}",
+         :source_folder},
         {layer3, Hearth.Render.Layer3.render(layer3, layer2, layer1, selected),
-         "Req implementation, #{length(selected)} #{pluralize("function", length(selected))}"}
+         "Req implementation, #{length(selected)} #{pluralize("function", length(selected))}",
+         :source_folder},
+        {layer1_test, Hearth.Render.Tests.layer1(layer1_test, layer1, otp_app, auth),
+         "Layer 1 auth test", :test}
       ]
 
       written =
-        Enum.map(sources, fn {module, source, label} ->
-          location = Igniter.Project.Module.proper_location(igniter, module)
+        Enum.map(sources, fn {module, source, label, kind} ->
+          location = Igniter.Project.Module.proper_location(igniter, module, kind)
           {module, location, source, label}
         end)
 
@@ -447,10 +452,17 @@ if Code.ensure_loaded?(Igniter) do
       # The generated Layer 1/3 reference Req at runtime. `req` rides
       # into Hearth only transitively via the optional, dev-time
       # `igniter` dep, so the consuming app needs it as a direct
-      # dependency of its own. Added here (idempotently) rather than in
+      # dependency of its own. Added here rather than in
       # `hearth.install` because it is the *generated code* that needs
-      # it — `mix hearth.install` alone produces nothing that does.
-      |> Igniter.Project.Deps.add_dep({:req, "~> 0.5"})
+      # it. `on_exists: :skip` leaves a consumer's existing `req`
+      # untouched — no prompt, no overwrite.
+      #
+      # `plug` (for the generated Layer 1 test) is deliberately NOT
+      # added: `req` already declares it as an optional all-environment
+      # dependency, so a consumer dep scoped `only: :test` would diverge
+      # and break the build. The test self-guards on
+      # `Code.ensure_loaded?(Plug.Conn)` instead.
+      |> Igniter.Project.Deps.add_dep({:req, "~> 0.5"}, on_exists: :skip)
       |> write_files(written)
       |> Igniter.add_notice(
         generated_notice(
@@ -585,8 +597,8 @@ if Code.ensure_loaded?(Igniter) do
 
       #{file_lines}
 
-      Next pipeline stage: Layer 3 (implementation) and Mox wiring.
-      Not yet wired.
+      Set the integration's credential in config, then run the generated
+      Layer 1 test to confirm the auth scheme works.
       """
     end
 
