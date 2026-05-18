@@ -417,6 +417,19 @@ if Code.ensure_loaded?(Igniter) do
     defp write_layers(igniter, path, spec, operations, selected, integration) do
       names = module_names(igniter, integration)
       layer1 = Hearth.Render.ModuleNames.layer1(names)
+      layer1_location = Igniter.Project.Module.proper_location(igniter, layer1, :source_folder)
+
+      # `hearth.gen` only ever creates. If the integration's Layer 1
+      # module already exists, the integration is already generated —
+      # halt rather than overwrite files the developer may now own.
+      if Igniter.exists?(igniter, layer1_location) do
+        Igniter.add_issue(igniter, integration_exists_message(layer1, layer1_location))
+      else
+        render_layers(igniter, path, spec, operations, selected, names, layer1)
+      end
+    end
+
+    defp render_layers(igniter, path, spec, operations, selected, names, layer1) do
       layer2 = Hearth.Render.ModuleNames.layer2(names)
       layer3 = Hearth.Render.ModuleNames.layer3(names)
       layer1_test = Hearth.Render.ModuleNames.layer1_test(names)
@@ -855,6 +868,17 @@ if Code.ensure_loaded?(Igniter) do
 
       Business logic calls the behaviour directly — `<Integration>Api.<operation>(...)`.
       Tests stub it with the generated Mox mock. Set the credential in config.
+      """
+    end
+
+    defp integration_exists_message(layer1, location) do
+      """
+      hearth.gen: #{inspect(layer1)} already exists at #{location}.
+
+      `mix hearth.gen` only creates new integrations — it will not
+      overwrite an existing one. To regenerate this integration from an
+      updated spec, delete its generated files first, or edit them by
+      hand.
       """
     end
 

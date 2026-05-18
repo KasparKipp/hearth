@@ -881,6 +881,22 @@ These were learned the hard way and must hold for future steps:
     or validator without dropping 3.1 support. The CLAUDE.md non-goal
     stands; the prune works on raw maps.
 
+- **Step 6 — `mix hearth.gen` is create-only.** `gen` no longer
+  overwrites an existing integration. Before writing anything,
+  `write_layers/6` resolves the Layer 1 module's
+  `proper_location/3` and, if `Igniter.exists?/2` finds it, halts via
+  `Igniter.add_issue/2` ("`<Layer1>` already exists … `hearth.gen`
+  only creates"). On a fresh project the flow is unchanged — the body
+  past the preflight moved into `render_layers/7`.
+
+  Layer 1's file is the existence marker: if it is present the
+  integration is already generated. This makes a re-run of `gen` a
+  safe no-op-with-issue rather than a silent overwrite — the
+  "dangerous action" the owner flagged. Regenerating from an updated
+  spec is a future `mix hearth.regen` (ownership-token-aware); the
+  three `gen` re-run idempotency tests were removed, as `gen` re-runs
+  now halt — that idempotency property moves to `regen`.
+
 #### Pending
 
 - **Steps 4d–4f (deferred, parallel track)** — `Hearth.Spec.Cache`,

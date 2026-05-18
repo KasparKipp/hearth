@@ -566,17 +566,6 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert source =~ "Test.Integrations.Petstore.PetstoreApi.Mock"
       assert source =~ "Test.Integrations.Keyed.KeyedApi.Mock"
     end
-
-    test "re-running for the same integration does not duplicate the defmock" do
-      igniter =
-        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
-        |> gen("priv/specs/petstore.yaml", "Petstore")
-        |> gen("priv/specs/petstore.yaml", "Petstore")
-
-      source = created_file(igniter, "test/support/mocks.ex")
-      occurrences = source |> String.split("PetstoreApi.Mock") |> length()
-      assert occurrences == 2
-    end
   end
 
   describe "host wiring — config" do
@@ -653,25 +642,6 @@ defmodule Mix.Tasks.Hearth.GenTest do
       source = created_file(igniter, "config/config.exs")
       assert source =~ "hearth_domains, false"
       refute source =~ "PetstoreApi"
-    end
-
-    test "re-running keeps a single :hearth_domains entry" do
-      igniter =
-        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
-        |> Igniter.compose_task("hearth.gen", [
-          "priv/specs/petstore.yaml",
-          "--integration",
-          "Petstore"
-        ])
-        |> Igniter.compose_task("hearth.gen", [
-          "priv/specs/petstore.yaml",
-          "--integration",
-          "Petstore"
-        ])
-
-      source = created_file(igniter, "config/config.exs")
-      occurrences = source |> String.split("PetstoreApi") |> length()
-      assert occurrences == 2
     end
   end
 
@@ -832,18 +802,6 @@ defmodule Mix.Tasks.Hearth.GenTest do
       config = created_file(igniter, "config/config.exs")
       assert config =~ "# Hearth: alternate base URLs"
       assert config =~ ~s(base_url: "https://eu.acme.com")
-    end
-
-    test "re-running does not duplicate the alternates block" do
-      urls = ["https://api.acme.com", "https://eu.acme.com"]
-
-      igniter =
-        test_project(files: %{"priv/specs/m.json" => server_spec(urls)})
-        |> Igniter.compose_task("hearth.gen", ["priv/specs/m.json", "--integration", "Acme"])
-        |> Igniter.compose_task("hearth.gen", ["priv/specs/m.json", "--integration", "Acme"])
-
-      config = created_file(igniter, "config/config.exs")
-      assert length(String.split(config, "# Hearth: alternate base URLs")) == 2
     end
 
     test "extra non-prod servers become commented options in config/test.exs" do
@@ -1100,6 +1058,61 @@ defmodule Mix.Tasks.Hearth.GenTest do
                String.contains?(issue, "--integration is required") and
                  String.contains?(issue, "priv/specs/petstore.yaml")
              end)
+    end
+  end
+
+  describe "create-only — gen never overwrites" do
+    test "halts when the integration's Layer 1 module already exists" do
+      igniter =
+        test_project(
+          files: %{
+            "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
+            "lib/test/integrations/petstore.ex" =>
+              "defmodule Test.Integrations.Petstore do\nend\n"
+          }
+        )
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "Test.Integrations.Petstore already exists") and
+                 String.contains?(issue, "only creates")
+             end)
+
+      refute notice_text(igniter) =~ "Spec loaded"
+    end
+
+    test "a fresh project still generates" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert igniter.issues == []
+      assert_creates(igniter, "lib/test/integrations/petstore.ex")
+    end
+
+    test "re-running the same gen halts on the second run" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert Enum.any?(igniter.issues, &String.contains?(&1, "already exists"))
     end
   end
 
