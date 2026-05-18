@@ -856,6 +856,31 @@ These were learned the hard way and must hold for future steps:
     `Igniter.add_warning` for 0 servers and a notice for the
     all-non-prod fallback.
 
+- **Step 5j — pruned spec artifact.** `mix hearth.gen` now writes a
+  sixth file: `priv/hearth/<integration>.yaml` — the input spec pruned
+  to exactly the selected operations, the integration's versioned
+  source of truth (and a stable artifact for ownership-token regen to
+  diff against).
+
+  - `Hearth.Spec.Prune.prune/2` (pure, raw-map) keeps `info`/`servers`/
+    `security`/extensions untouched, filters `paths` to the selected
+    operations (path-item-level keys ride along), and filters
+    `components` to only the entries transitively reachable by `$ref`
+    from the kept paths — a reachability walk through
+    `allOf`/`anyOf`/`oneOf`, `items`, nested properties; **not** `$ref`
+    resolution/inlining. `securitySchemes` is kept whole. (TED + only
+    `search`: 11 paths → 1, 29 schemas → 13.)
+  - `Prune.to_yaml/1` encodes the result (`ymlr` — `yaml_elixir` only
+    reads), emitting the top-level keys in conventional order
+    (`openapi` → `info` → … → `paths` → `components`) by encoding each
+    key separately, since `ymlr` otherwise iterates a map in term
+    order. `on_exists: :overwrite` — re-derived each run.
+  - **`open_api_spex` was evaluated and rejected.** It has no
+    spec-pruning, and its decoder (`OpenApiSpex.OpenApi.from_map/1`)
+    *raises* on the OAS 3.1 fixture — so it cannot be Hearth's parser
+    or validator without dropping 3.1 support. The CLAUDE.md non-goal
+    stands; the prune works on raw maps.
+
 #### Pending
 
 - **Steps 4d–4f (deferred, parallel track)** — `Hearth.Spec.Cache`,

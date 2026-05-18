@@ -483,7 +483,10 @@ defmodule Mix.Tasks.Hearth.GenTest do
         ])
 
       source = created_file(igniter, "test/test/integrations/keyed_test.exs")
-      assert source =~ "Application.put_env(:test, @client, Keyword.put(previous, :api_key, @api_key))"
+
+      assert source =~
+               "Application.put_env(:test, @client, Keyword.put(previous, :api_key, @api_key))"
+
       assert source =~ ~s|Plug.Conn.get_req_header(conn, "x-api-key") == [@api_key]|
     end
 
@@ -741,6 +744,59 @@ defmodule Mix.Tasks.Hearth.GenTest do
       # the Layer 1 auth test is Hearth-owned — regenerated
       assert created_file(igniter, "test/test/integrations/petstore_test.exs") =~
                "if Code.ensure_loaded?(Plug.Conn) do"
+    end
+  end
+
+  describe "pruned spec artifact" do
+    test "writes a pruned spec to priv/hearth/<name>.yaml" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert_creates(igniter, "priv/hearth/petstore.yaml")
+      yaml = created_file(igniter, "priv/hearth/petstore.yaml")
+
+      assert {:ok, parsed} = YamlElixir.read_from_string(yaml)
+      assert parsed["openapi"]
+      assert Map.has_key?(parsed["paths"], "/pets")
+    end
+
+    test "--tag prunes the spec's paths to the selected operations" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore",
+          "--tag",
+          "pets:list_pets"
+        ])
+
+      parsed =
+        igniter
+        |> created_file("priv/hearth/petstore.yaml")
+        |> YamlElixir.read_from_string!()
+
+      # only list_pets survives — its sibling create_pets (POST /pets)
+      # and show_pet_by_id (/pets/{petId}) are pruned out
+      assert Map.keys(parsed["paths"]) == ["/pets"]
+      refute Map.has_key?(parsed["paths"]["/pets"], "post")
+    end
+
+    test "the notice lists the pruned spec" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert notice_text(igniter) =~ "priv/hearth/petstore.yaml"
     end
   end
 

@@ -28,3 +28,4 @@ hearth-*.tar
 # (`mix hearth.gen <spec> --domain Generated`).
 /lib/hearth/generated/
 /test/hearth/generated/
+/priv/hearth/

@@ -426,6 +426,11 @@ if Code.ensure_loaded?(Igniter) do
       otp_app = Igniter.Project.Application.app_name(igniter)
       auth = Hearth.Spec.Auth.strategy(spec)
 
+      # The pruned spec is built from `selected` *before* the path
+      # prefix is stripped — it must match the spec's original `paths`
+      # keys.
+      pruned_spec_yaml = spec |> Hearth.Spec.Prune.prune(selected) |> Hearth.Spec.Prune.to_yaml()
+
       # A leading path prefix shared by every operation (e.g. `/v3`) is
       # stripped from the operation paths and folded into Layer 1's base
       # URL — see `Hearth.Render.Layer1` for the base-URL side.
@@ -483,6 +488,7 @@ if Code.ensure_loaded?(Igniter) do
       |> Igniter.Project.Deps.add_dep({:req, "~> 0.5"}, on_exists: :skip)
       |> Igniter.Project.Deps.add_dep({:mox, "~> 1.0", only: [:test]}, on_exists: :skip)
       |> write_files(written)
+      |> write_pruned_spec(names[:integration], pruned_spec_yaml)
       |> wire_mock(mock, layer2)
       |> patch_test_helper()
       |> patch_credential_config(otp_app, layer1, names[:integration], auth)
@@ -500,10 +506,21 @@ if Code.ensure_loaded?(Igniter) do
           Enum.map(written, fn {module, location, _source, label, _on_exists} ->
             {module, location, label}
           end),
-          wired_files(auth)
+          wired_files(auth) ++ ["#{pruned_spec_path(names[:integration])} (pruned spec)"]
         )
       )
       |> fetch_deps_if_changed()
+    end
+
+    # The integration's versioned source: the input spec pruned to just
+    # the selected operations (and the components they reference),
+    # YAML-encoded. Re-derived each run — `on_exists: :overwrite`.
+    defp write_pruned_spec(igniter, integration, yaml) do
+      Igniter.create_new_file(igniter, pruned_spec_path(integration), yaml, on_exists: :overwrite)
+    end
+
+    defp pruned_spec_path(integration) do
+      "priv/hearth/#{Macro.underscore(integration)}.yaml"
     end
 
     # `config/test.exs` overrides Layer 1's base URL with a non-prod

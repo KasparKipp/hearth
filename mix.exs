@@ -50,6 +50,11 @@ defmodule Hearth.MixProject do
     [
       {:igniter, "~> 0.5", optional: true},
       {:yaml_elixir, "~> 2.0"},
+      # `ymlr` writes the pruned spec back out as YAML — `yaml_elixir`
+      # only reads. (`open_api_spex` was evaluated for parsing/
+      # validation and rejected: it has no spec-pruning, and its
+      # decoder raises on OAS 3.1 specs, which Hearth must support.)
+      {:ymlr, "~> 5.0"},
       # Referenced by generated code, not by Hearth itself — optional so
       # they are not forced on consumers transitively. `req` is the
       # runtime of the generated client; `plug` backs the `Req.Test`
