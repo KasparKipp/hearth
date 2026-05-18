@@ -43,10 +43,10 @@ $ mix hearth.gen priv/specs/stripe.yaml \
     --integration Stripe \
     --domain Billing
 
-* creating lib/app/billing/integrations/stripe.ex
-* creating lib/app/billing/integrations/stripe/stripe_api.ex
-* creating lib/app/billing/integrations/stripe/stripe_api/req.ex
-* creating test/app/billing/integrations/stripe/stripe_api_test.exs
+* creating lib/app/billing/stripe.ex
+* creating lib/app/billing/stripe/stripe_api.ex
+* creating lib/app/billing/stripe/stripe_api/req.ex
+* creating test/app/billing/stripe/stripe_api_test.exs
 * patching test/support/mocks.ex            (+1 line)
 * patching config/config.exs                (+3 lines)
 * patching config/test.exs                  (+2 lines)
@@ -55,7 +55,7 @@ $ mix hearth.gen priv/specs/stripe.yaml \
 
 Next steps:
   • set STRIPE_API_KEY in your environment
-  • run `mix test test/app/billing/integrations/stripe/stripe_api_test.exs`
+  • run `mix test test/app/billing/stripe/stripe_api_test.exs`
 ```
 
 Re-running the same command on an unchanged spec is a no-op. Re-running after a
@@ -140,20 +140,23 @@ Default style is **Verbose**: the behaviour module repeats the integration
 name. This is grep-friendly — you can search `StripeApi` and hit every callsite
 without false positives from other `.Api` modules.
 
+The layout is `<App>.<Domain>.<Integration>` plus per-layer suffixes.
+The **domain** is the single namespace segment between the app and the
+integration. It **defaults to `Integrations`** and is overridden
+wholesale by `--domain` — Hearth does not lock you into a fixed naming
+pattern.
+
 ```
-# Without --domain
+# Default — domain is `Integrations`
 App.Integrations.Stripe                  # Layer 1
 App.Integrations.Stripe.StripeApi        # Layer 2
 App.Integrations.Stripe.StripeApi.Req    # Layer 3
 App.Integrations.Stripe.StripeApi.Mock   # Mox mock
 
-# With --domain Billing
-App.Billing.Integrations.Stripe.StripeApi
-# ...same shape, deeper namespace
-
-# With --domain Billing --no-integrations-segment
+# --domain Billing — `Billing` replaces `Integrations`
+App.Billing.Stripe
 App.Billing.Stripe.StripeApi
-# drops the .Integrations segment for users who prefer flatter trees
+# ...same per-layer shape, your own namespace
 ```
 
 Other styles available via `--style`:
@@ -163,8 +166,9 @@ Other styles available via `--style`:
 --style split    # App.…Stripe.Client / .Api / …    (explicit Client suffix)
 ```
 
-The integration name (`Stripe`) is required. The domain (`Billing`) is
-optional. The OTP app name is auto-detected from `mix.exs`.
+The integration name (`Stripe`) is required. `--domain` is optional —
+it defaults to `Integrations`. The OTP app name is auto-detected from
+`mix.exs`.
 
 ---
 
@@ -234,8 +238,9 @@ The minimum useful surface:
 - [ ] **Bearer and API-key auth** auto-wired from `securitySchemes`. OAuth2
       leaves a `# TODO: implement OAuth2 token refresh as a request step.`
       comment in the generated Layer 1.
-- [ ] **Verbose module style** as default. `--style {verbose|tight|split}` and
-      `--no-integrations-segment` as flags.
+- [ ] **Verbose module style** as default. `--style {verbose|tight|split}`
+      as a flag. `--domain <Name>` sets the namespace segment between the
+      app and the integration (default `Integrations`).
 - [ ] **Ownership tokens** (`hearth:owned`, `hearth:collaborating`) honored on
       regeneration. No-token files overwrite silently.
 - [ ] **Idempotent config patches** to `config/config.exs`, `config/test.exs`,
@@ -613,9 +618,9 @@ These were learned the hard way and must hold for future steps:
   sources (a missing one halts with a helpful issue).
 
   - `Hearth.Render.ModuleNames.layer2/1` derives the module name.
-    Verbose style: `<App>.Integrations.<Integration>.<Integration>Api`;
-    `--domain Billing` slots a domain segment in after the app.
-    `--style` / `--no-integrations-segment` remain unwired.
+    Verbose style: `<App>.<Domain>.<Integration>.<Integration>Api`,
+    where the domain segment defaults to `Integrations` and `--domain`
+    overrides it wholesale. `--style` remains unwired.
   - `Hearth.Render.Layer2.render/3` builds the behaviour source — one
     `@callback` per selected operation. Path params become positional
     `String.t()` args (named via `Operation.sanitize_id/1`), query/body
@@ -802,6 +807,30 @@ These were learned the hard way and must hold for future steps:
   - `mix hearth.gen` is fully idempotent: re-running adds no duplicate
     `defmock` or `:hearth_domains` entry, and `updater: &{:ok, &1}`
     preserves existing credential/impl config.
+
+- **Step 5h — external integration test.** `mix hearth.gen` now writes
+  a **fifth file** — `test/<app>/integrations/<name>_external_test.exs`
+  — a scaffold of real HTTP calls against the live API for introspecting
+  the integration and validating use-cases.
+
+  - `Hearth.Render.Tests.external/6` renders an `@moduletag :external`
+    ExUnit module with one `test` per operation. Each calls **Layer 3
+    directly** (`<Layer2>.Req.<op>`) — not Layer 2, whose dispatcher
+    routes to the Mox mock in `:test`. Path params become `"TODO"`
+    placeholder args; every test has a `# TODO` and a baseline
+    `assert {:ok, %Req.Response{}} = …`. Credentialed auth gets a
+    `setup` seeding the key from `<INT>_API_KEY` (`:test` env has no
+    credential — `config/runtime.exs` only sets it for prod/dev) →
+    `async: false`; `:none`/`:unsupported` → no setup, `async: true`.
+    `ModuleNames.external_test/1` → `<Integration>ExternalTest`.
+  - **Ownership: user-owned scaffold.** Unlike the other four files
+    (`:overwrite`), the external test is written with `on_exists:
+    :skip` — generated once, never overwritten, the user carries on
+    from it. The `sources` tuple grew a per-file `on_exists` element.
+  - `patch_test_helper/1` adds `ExUnit.configure(exclude: [:external])`
+    to `test/test_helper.exs` (idempotent) — `:external` tests are
+    opt-in: `mix test` skips them, `mix test --include external` runs
+    them.
 
 #### Pending
 

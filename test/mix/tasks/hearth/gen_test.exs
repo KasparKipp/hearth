@@ -664,6 +664,78 @@ defmodule Mix.Tasks.Hearth.GenTest do
     end
   end
 
+  describe "external integration test generation" do
+    @external_path "test/test/integrations/petstore_external_test.exs"
+
+    test "writes an :external-tagged test, one test per operation" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert_creates(igniter, @external_path)
+      source = created_file(igniter, @external_path)
+      assert source =~ "defmodule Test.Integrations.PetstoreExternalTest do"
+      assert source =~ "@moduletag :external"
+      assert source =~ ~s(test "list_pets reaches the live API" do)
+      # calls Layer 3 (.Req) directly, bypassing the mock-routed dispatcher
+      assert source =~ "PetstoreApi.Req.list_pets("
+    end
+
+    test "patches test_helper.exs to exclude :external by default" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert created_file(igniter, "test/test_helper.exs") =~
+               "ExUnit.configure(exclude: [:external])"
+    end
+
+    test "the notice lists the external test" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      notice = notice_text(igniter)
+      assert notice =~ @external_path
+      assert notice =~ "external integration test"
+    end
+
+    test "an edited external test is NOT overwritten on re-run; the auth test IS" do
+      edited = "defmodule Test.Integrations.PetstoreExternalTest do\n  # user edited\nend\n"
+
+      igniter =
+        test_project(
+          files: %{
+            "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
+            @external_path => edited
+          }
+        )
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      # external test is user-owned — on_exists: :skip leaves the edit
+      assert created_file(igniter, @external_path) =~ "# user edited"
+      # the Layer 1 auth test is Hearth-owned — regenerated
+      assert created_file(igniter, "test/test/integrations/petstore_test.exs") =~
+               "if Code.ensure_loaded?(Plug.Conn) do"
+    end
+  end
+
   describe "shared base path" do
     @versioned_spec JSON.encode!(%{
                       "openapi" => "3.0.0",
@@ -847,7 +919,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
       refute source =~ "@callback show_pet_by_id("
     end
 
-    test "--domain nests the module and file path under the domain" do
+    test "--domain replaces the default Integrations segment" do
       igniter =
         test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
         |> Igniter.compose_task("hearth.gen", [
@@ -858,11 +930,11 @@ defmodule Mix.Tasks.Hearth.GenTest do
           "Billing"
         ])
 
-      path = "lib/test/billing/integrations/petstore/petstore_api.ex"
+      path = "lib/test/billing/petstore/petstore_api.ex"
       assert_creates(igniter, path)
 
       assert created_file(igniter, path) =~
-               "defmodule Test.Billing.Integrations.Petstore.PetstoreApi"
+               "defmodule Test.Billing.Petstore.PetstoreApi"
     end
 
     test "a file source without --integration halts with a helpful issue" do

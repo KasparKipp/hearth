@@ -49,10 +49,11 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
       * `--integration <Name>` — module name for the generated integration
         (e.g. `Stripe`, `Acme`). Required for file and URL sources;
         auto-derived from the registry entry when using a registry name.
-      * `--domain <Name>` — optional domain segment under your app's
-        namespace. With `--domain Billing`, the integration is generated
-        at `MyApp.Billing.Integrations.<Name>` instead of
-        `MyApp.Integrations.<Name>`. (See "Module layout" in the README.)
+      * `--domain <Name>` — the single namespace segment between your
+        app and the integration. Defaults to `Integrations`
+        (`MyApp.Integrations.<Name>`); `--domain Billing` overrides it
+        wholesale (`MyApp.Billing.<Name>`). You pick the layout —
+        Hearth does not lock you into `Integrations`.
       * `--refresh` — for URL and registry sources, bypass the on-disk
         cache and re-fetch the spec. No-op for file sources.
       * `--tag <Tag>` — repeatable. Restrict generation to the named
@@ -416,6 +417,7 @@ if Code.ensure_loaded?(Igniter) do
       layer2 = Hearth.Render.ModuleNames.layer2(names)
       layer3 = Hearth.Render.ModuleNames.layer3(names)
       layer1_test = Hearth.Render.ModuleNames.layer1_test(names)
+      external_test = Hearth.Render.ModuleNames.external_test(names)
       mock = Hearth.Render.ModuleNames.mock(names)
 
       otp_app = Igniter.Project.Application.app_name(igniter)
@@ -427,29 +429,35 @@ if Code.ensure_loaded?(Igniter) do
       prefix = BasePath.common_prefix(operations)
       selected = BasePath.strip(selected, prefix)
 
-      # Each entry carries a location kind: `:source_folder` writes into
-      # `lib/`, `:test` into `test/` (the test module's `Test` suffix
-      # routes it there via `Igniter.Project.Module.proper_location/3`).
+      # Each entry carries a location kind (`:source_folder` → `lib/`,
+      # `:test` → `test/`, routed by the `Test` suffix via
+      # `Igniter.Project.Module.proper_location/3`) and an `on_exists`
+      # policy. Layer 1/2/3 and the auth test are Hearth-owned —
+      # `:overwrite` regenerates them. The external test is a user-owned
+      # scaffold — `:skip` never touches it after first generation.
       sources = [
         {layer1, Hearth.Render.Layer1.render(layer1, otp_app, base_url(spec), prefix, auth),
-         "raw Req client", :source_folder},
+         "raw Req client", :source_folder, :overwrite},
         {layer2,
          Hearth.Render.Layer2.render(layer2, selected,
            metadata: spec_metadata(path, spec),
            otp_app: otp_app
          ), "behaviour, #{length(selected)} #{pluralize("callback", length(selected))}",
-         :source_folder},
+         :source_folder, :overwrite},
         {layer3, Hearth.Render.Layer3.render(layer3, layer2, layer1, selected),
          "Req implementation, #{length(selected)} #{pluralize("function", length(selected))}",
-         :source_folder},
+         :source_folder, :overwrite},
         {layer1_test, Hearth.Render.Tests.layer1(layer1_test, layer1, otp_app, auth),
-         "Layer 1 auth test", :test}
+         "Layer 1 auth test", :test, :overwrite},
+        {external_test,
+         Hearth.Render.Tests.external(external_test, layer2, layer1, otp_app, auth, selected),
+         "external integration test", :test, :skip}
       ]
 
       written =
-        Enum.map(sources, fn {module, source, label, kind} ->
+        Enum.map(sources, fn {module, source, label, kind, on_exists} ->
           location = Igniter.Project.Module.proper_location(igniter, module, kind)
-          {module, location, source, label}
+          {module, location, source, label, on_exists}
         end)
 
       igniter
@@ -471,6 +479,7 @@ if Code.ensure_loaded?(Igniter) do
       |> Igniter.Project.Deps.add_dep({:mox, "~> 1.0", only: [:test]}, on_exists: :skip)
       |> write_files(written)
       |> wire_mock(mock, layer2)
+      |> patch_test_helper()
       |> patch_credential_config(otp_app, layer1, names[:integration], auth)
       |> patch_impl_config(otp_app, layer2, mock)
       |> patch_hearth_domains(otp_app, layer2)
@@ -480,11 +489,35 @@ if Code.ensure_loaded?(Igniter) do
           spec,
           operations,
           selected,
-          Enum.map(written, fn {module, location, _source, label} ->
+          Enum.map(written, fn {module, location, _source, label, _on_exists} ->
             {module, location, label}
           end),
           wired_files(auth)
         )
+      )
+    end
+
+    # `:external`-tagged tests hit the real network — make them opt-in
+    # by excluding the `:external` tag in `test/test_helper.exs`. The
+    # `exclude: [:external]` substring is its own idempotency marker.
+    defp patch_test_helper(igniter) do
+      Igniter.create_or_update_file(
+        igniter,
+        "test/test_helper.exs",
+        "ExUnit.start()\nExUnit.configure(exclude: [:external])\n",
+        fn source ->
+          content = Rewrite.Source.get(source, :content)
+
+          if String.contains?(content, "exclude: [:external]") do
+            source
+          else
+            Rewrite.Source.update(
+              source,
+              :content,
+              content <> "\nExUnit.configure(exclude: [:external])\n"
+            )
+          end
+        end
       )
     end
 
@@ -583,6 +616,7 @@ if Code.ensure_loaded?(Igniter) do
     defp wired_files(auth) do
       base = [
         "test/support/mocks.ex",
+        "test/test_helper.exs (:external exclude)",
         "config/config.exs (:hearth_domains)",
         "config/test.exs (impl)"
       ]
@@ -595,8 +629,8 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     defp write_files(igniter, written) do
-      Enum.reduce(written, igniter, fn {_module, location, source, _label}, acc ->
-        Igniter.create_new_file(acc, location, source, on_exists: :overwrite)
+      Enum.reduce(written, igniter, fn {_module, location, source, _label, on_exists}, acc ->
+        Igniter.create_new_file(acc, location, source, on_exists: on_exists)
       end)
     end
 
