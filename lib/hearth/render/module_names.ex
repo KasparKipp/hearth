@@ -72,4 +72,36 @@ defmodule Hearth.Render.ModuleNames do
   end
 
   defp integration(opts), do: Keyword.fetch!(opts, :integration)
+
+  # Derives every layer module for an already-generated integration
+  # from its Layer 1 module alone — the integration name is the
+  # module's last segment, and the layout below it is fixed. This is
+  # the inverse of building from `[:app_module, :domain, :integration]`
+  # and is what `mix hearth.regen` uses: the user names the Layer 1
+  # module, everything else follows.
+  @spec from_layer1(module()) :: %{
+          integration: String.t(),
+          layer1: module(),
+          layer2: module(),
+          layer3: module(),
+          layer1_test: module(),
+          external_test: module(),
+          mock: module()
+        }
+  def from_layer1(layer1) when is_atom(layer1) do
+    segments = Module.split(layer1)
+    integration = List.last(segments)
+    parent = Enum.drop(segments, -1)
+    api = "#{integration}Api"
+
+    %{
+      integration: integration,
+      layer1: layer1,
+      layer2: Module.concat(segments ++ [api]),
+      layer3: Module.concat(segments ++ [api, "Req"]),
+      layer1_test: Module.concat(parent ++ ["#{integration}Test"]),
+      external_test: Module.concat(parent ++ ["#{integration}ExternalTest"]),
+      mock: Module.concat(segments ++ [api, "Mock"])
+    }
+  end
 end

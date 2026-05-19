@@ -391,12 +391,20 @@ if Code.ensure_loaded?(Igniter) do
       # the full list of `--tag` values.
       tag_values = igniter.args.options[:tag] || []
 
-      case resolve_selection(igniter, operations, tag_values) do
-        {:ok, selected} ->
-          generate(igniter, path, spec, operations, selected)
+      with :ok <- validate_n_operations(igniter),
+           {:ok, selected} <- resolve_selection(igniter, operations, tag_values) do
+        generate(igniter, path, spec, operations, selected)
+      else
+        {:error, message} -> Igniter.add_issue(igniter, message)
+        {:halt, message} -> Igniter.add_issue(igniter, message)
+      end
+    end
 
-        {:halt, message} ->
-          Igniter.add_issue(igniter, message)
+    defp validate_n_operations(igniter) do
+      case igniter.args.options[:n_operations] do
+        nil -> :ok
+        n when n >= 1 -> :ok
+        n -> {:error, "hearth.gen: --n-operations must be a positive integer, got #{n}."}
       end
     end
 
@@ -405,28 +413,84 @@ if Code.ensure_loaded?(Igniter) do
     # render Layer 1 (raw client), Layer 2 (behaviour), and Layer 3
     # (Req implementation) to disk.
     defp generate(igniter, path, spec, operations, selected) do
+      with {:ok, integration} <- fetch_integration(igniter, path),
+           :ok <- validate_domain(igniter) do
+        write_layers(igniter, path, spec, operations, selected, integration)
+      else
+        {:error, message} -> Igniter.add_issue(igniter, message)
+      end
+    end
+
+    defp fetch_integration(igniter, path) do
       case igniter.args.options[:integration] do
         nil ->
-          Igniter.add_issue(igniter, missing_integration_message(path))
+          {:error, missing_integration_message(path)}
 
-        integration ->
-          write_layers(igniter, path, spec, operations, selected, integration)
+        name ->
+          if valid_segment?(name),
+            do: {:ok, name},
+            else: {:error, bad_segment("--integration", name)}
       end
+    end
+
+    defp validate_domain(igniter) do
+      case igniter.args.options[:domain] do
+        nil ->
+          :ok
+
+        domain ->
+          if valid_segment?(domain), do: :ok, else: {:error, bad_segment("--domain", domain)}
+      end
+    end
+
+    # A `--integration` / `--domain` value must camelize to a single
+    # Elixir alias segment — a letter then letters/digits, no spaces,
+    # dots or empty. snake_case input is fine (`Macro.camelize` folds
+    # it). This catches names that would otherwise crash the renderers
+    # or generate corrupt module paths.
+    defp valid_segment?(name) when is_binary(name) do
+      Regex.match?(~r/^[A-Z][A-Za-z0-9]*$/, Macro.camelize(name))
     end
 
     defp write_layers(igniter, path, spec, operations, selected, integration) do
       names = module_names(igniter, integration)
       layer1 = Hearth.Render.ModuleNames.layer1(names)
-      layer1_location = Igniter.Project.Module.proper_location(igniter, layer1, :source_folder)
 
-      # `hearth.gen` only ever creates. If the integration's Layer 1
-      # module already exists, the integration is already generated —
-      # halt rather than overwrite files the developer may now own.
-      if Igniter.exists?(igniter, layer1_location) do
-        Igniter.add_issue(igniter, integration_exists_message(layer1, layer1_location))
-      else
-        render_layers(igniter, path, spec, operations, selected, names, layer1)
+      # `hearth.gen` only ever creates. *Every* generated artifact is
+      # checked — a partial deletion (e.g. only Layer 1 removed) must
+      # still halt, never silently clobber the surviving files.
+      case existing_artifacts(igniter, names) do
+        [] ->
+          render_layers(igniter, path, spec, operations, selected, names, layer1)
+
+        existing ->
+          Igniter.add_issue(igniter, integration_exists_message(layer1, existing))
       end
+    end
+
+    # The paths of every file `gen` would create for this integration
+    # that already exist on disk.
+    defp existing_artifacts(igniter, names) do
+      igniter
+      |> artifact_locations(names)
+      |> Enum.filter(&Igniter.exists?(igniter, &1))
+    end
+
+    defp artifact_locations(igniter, names) do
+      modules = [
+        {Hearth.Render.ModuleNames.layer1(names), :source_folder},
+        {Hearth.Render.ModuleNames.layer2(names), :source_folder},
+        {Hearth.Render.ModuleNames.layer3(names), :source_folder},
+        {Hearth.Render.ModuleNames.layer1_test(names), :test},
+        {Hearth.Render.ModuleNames.external_test(names), :test}
+      ]
+
+      module_paths =
+        Enum.map(modules, fn {module, kind} ->
+          Igniter.Project.Module.proper_location(igniter, module, kind)
+        end)
+
+      module_paths ++ [pruned_spec_path(names[:integration])]
     end
 
     defp render_layers(igniter, path, spec, operations, selected, names, layer1) do
@@ -798,7 +862,7 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp resolve_selection(_igniter, operations, tag_values) do
+    defp resolve_selection(igniter, operations, tag_values) do
       with {:ok, filter} <- Filter.parse(tag_values),
            [_first | _rest] = selected <- Filter.apply(operations, filter) do
         {:ok, selected}
@@ -807,9 +871,11 @@ if Code.ensure_loaded?(Igniter) do
           {:halt, "hearth.gen: #{reason}"}
 
         [] ->
+          source = igniter.args.positional[:source]
+
           {:halt,
            "hearth.gen: no operations matched the --tag filter. " <>
-             "Run `mix hearth.gen <source> --list` to see the available tags."}
+             "Run `mix hearth.gen #{source} --list` to see this spec's tags."}
       end
     end
 
@@ -871,14 +937,30 @@ if Code.ensure_loaded?(Igniter) do
       """
     end
 
-    defp integration_exists_message(layer1, location) do
+    defp integration_exists_message(layer1, existing) do
+      files = Enum.map_join(existing, "\n", &"  * #{&1}")
+
       """
-      hearth.gen: #{inspect(layer1)} already exists at #{location}.
+      hearth.gen: #{inspect(layer1)} already exists.
+
+      These generated files are present:
+
+      #{files}
 
       `mix hearth.gen` only creates new integrations — it will not
-      overwrite an existing one. To regenerate this integration from an
-      updated spec, delete its generated files first, or edit them by
-      hand.
+      overwrite. Use `mix hearth.regen #{inspect(layer1)}` to
+      regenerate from the pruned spec, or delete all of the files
+      above to start over.
+      """
+    end
+
+    defp bad_segment(flag, value) do
+      """
+      hearth.gen: #{flag} #{inspect(value)} is not a valid module name.
+
+      It must be a single Elixir alias segment — a letter followed by
+      letters or digits, with no spaces or dots (e.g. `Stripe`,
+      `SendGrid`). snake_case is accepted too (`send_grid` → `SendGrid`).
       """
     end
 

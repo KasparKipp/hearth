@@ -108,6 +108,39 @@ defmodule Hearth.Render.ModuleNamesTest do
     end
   end
 
+  describe "from_layer1/1" do
+    test "derives every layer module from the Layer 1 module" do
+      names = ModuleNames.from_layer1(MyApp.Integrations.Stripe)
+
+      assert names.integration == "Stripe"
+      assert names.layer1 == MyApp.Integrations.Stripe
+      assert names.layer2 == MyApp.Integrations.Stripe.StripeApi
+      assert names.layer3 == MyApp.Integrations.Stripe.StripeApi.Req
+      assert names.layer1_test == MyApp.Integrations.StripeTest
+      assert names.external_test == MyApp.Integrations.StripeExternalTest
+      assert names.mock == MyApp.Integrations.Stripe.StripeApi.Mock
+    end
+
+    test "it is the inverse of building from app/domain/integration" do
+      opts = [app_module: "MyApp", integration: "Stripe", domain: "Billing"]
+      names = ModuleNames.from_layer1(ModuleNames.layer1(opts))
+
+      assert names.layer2 == ModuleNames.layer2(opts)
+      assert names.layer3 == ModuleNames.layer3(opts)
+      assert names.layer1_test == ModuleNames.layer1_test(opts)
+      assert names.external_test == ModuleNames.external_test(opts)
+      assert names.mock == ModuleNames.mock(opts)
+    end
+
+    test "works for a --no-domain layout" do
+      names = ModuleNames.from_layer1(MyApp.Stripe)
+
+      assert names.integration == "Stripe"
+      assert names.layer2 == MyApp.Stripe.StripeApi
+      assert names.layer1_test == MyApp.StripeTest
+    end
+  end
+
   describe "empty domain (--no-domain)" do
     test "an empty-string domain drops the namespace segment entirely" do
       opts = [app_module: "MyApp", integration: "Stripe", domain: ""]

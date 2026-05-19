@@ -692,29 +692,6 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert notice =~ @external_path
       assert notice =~ "external integration test"
     end
-
-    test "an edited external test is NOT overwritten on re-run; the auth test IS" do
-      edited = "defmodule Test.Integrations.PetstoreExternalTest do\n  # user edited\nend\n"
-
-      igniter =
-        test_project(
-          files: %{
-            "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
-            @external_path => edited
-          }
-        )
-        |> Igniter.compose_task("hearth.gen", [
-          "priv/specs/petstore.yaml",
-          "--integration",
-          "Petstore"
-        ])
-
-      # external test is user-owned — on_exists: :skip leaves the edit
-      assert created_file(igniter, @external_path) =~ "# user edited"
-      # the Layer 1 auth test is Hearth-owned — regenerated
-      assert created_file(igniter, "test/test/integrations/petstore_test.exs") =~
-               "if Code.ensure_loaded?(Plug.Conn) do"
-    end
   end
 
   describe "pruned spec artifact" do
@@ -950,6 +927,23 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert Enum.any?(igniter.issues, &String.contains?(&1, "no operations matched"))
       refute notice_text(igniter) =~ "generating"
     end
+
+    test "the no-match hint names the actual spec path, not a `<source>` placeholder" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore",
+          "--tag",
+          "NoSuchTag"
+        ])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "priv/specs/petstore.yaml --list") and
+                 not String.contains?(issue, "<source>")
+             end)
+    end
   end
 
   describe "Layer 2 generation" do
@@ -1085,6 +1079,29 @@ defmodule Mix.Tasks.Hearth.GenTest do
       refute notice_text(igniter) =~ "Spec loaded"
     end
 
+    test "halts on a partial deletion — only Layer 2 left, Layer 1 gone" do
+      igniter =
+        test_project(
+          files: %{
+            "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
+            "lib/test/integrations/petstore/petstore_api.ex" =>
+              "defmodule Test.Integrations.Petstore.PetstoreApi do\nend\n"
+          }
+        )
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "Test.Integrations.Petstore already exists") and
+                 String.contains?(issue, "petstore/petstore_api.ex")
+             end)
+
+      refute notice_text(igniter) =~ "Spec loaded"
+    end
+
     test "a fresh project still generates" do
       igniter =
         test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
@@ -1113,6 +1130,83 @@ defmodule Mix.Tasks.Hearth.GenTest do
         ])
 
       assert Enum.any?(igniter.issues, &String.contains?(&1, "already exists"))
+    end
+  end
+
+  describe "--integration / --domain validation" do
+    defp gen_with(args) do
+      test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+      |> Igniter.compose_task("hearth.gen", ["priv/specs/petstore.yaml" | args])
+    end
+
+    for bad <- ["Foo Bar", "123", "", "Foo.Bar"] do
+      test "rejects --integration #{inspect(bad)} with a clear issue, no crash" do
+        igniter = gen_with(["--integration", unquote(bad)])
+
+        assert Enum.any?(igniter.issues, fn issue ->
+                 String.contains?(issue, "--integration") and
+                   String.contains?(issue, "not a valid module name")
+               end)
+
+        refute notice_text(igniter) =~ "Spec loaded"
+      end
+    end
+
+    test "rejects a malformed --domain" do
+      igniter = gen_with(["--integration", "Petstore", "--domain", "bad value"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "--domain") and
+                 String.contains?(issue, "not a valid module name")
+             end)
+    end
+
+    test "accepts a snake_case --integration, camelizing it" do
+      igniter = gen_with(["--integration", "send_grid"])
+
+      assert igniter.issues == []
+      assert_creates(igniter, "lib/test/integrations/send_grid.ex")
+
+      assert created_file(igniter, "lib/test/integrations/send_grid.ex") =~
+               "defmodule Test.Integrations.SendGrid do"
+    end
+  end
+
+  describe "--n-operations validation" do
+    for bad <- ["-5", "0"] do
+      test "rejects --n-operations #{bad}" do
+        igniter =
+          test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+          |> Igniter.compose_task("hearth.gen", [
+            "priv/specs/petstore.yaml",
+            "--integration",
+            "Petstore",
+            "--n-operations",
+            unquote(bad)
+          ])
+
+        assert Enum.any?(
+                 igniter.issues,
+                 &String.contains?(&1, "--n-operations must be a positive integer")
+               )
+
+        refute notice_text(igniter) =~ "Spec loaded"
+      end
+    end
+
+    test "accepts a positive --n-operations" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore",
+          "--n-operations",
+          "3"
+        ])
+
+      assert igniter.issues == []
+      assert notice_text(igniter) =~ "Selected 3 of 3 operations"
     end
   end
 

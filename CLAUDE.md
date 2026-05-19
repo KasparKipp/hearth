@@ -114,7 +114,8 @@ pointer to the install instructions.
 | Task                | Status     | Purpose                                                                    |
 | ------------------- | ---------- | -------------------------------------------------------------------------- |
 | `mix hearth.install`| in progress| One-time per-project setup (formatter imports, `:hearth_domains` config). |
-| `mix hearth.gen`    | planned    | Generate the three-layer integration from an OpenAPI spec.                |
+| `mix hearth.gen`    | in progress| Generate the three-layer integration from an OpenAPI spec (create-only). |
+| `mix hearth.regen`  | in progress| Regenerate an existing integration from its pruned spec, ownership-aware. |
 
 ### `:hearth_domains` config
 
@@ -896,6 +897,37 @@ These were learned the hard way and must hold for future steps:
   spec is a future `mix hearth.regen` (ownership-token-aware); the
   three `gen` re-run idempotency tests were removed, as `gen` re-runs
   now halt — that idempotency property moves to `regen`.
+
+- **Step 7 — `mix hearth.regen` + ownership tokens.** `gen` creates;
+  `regen` updates. The new task `mix hearth.regen <Layer1Module>`
+  (e.g. `MyApp.Integrations.Stripe`) regenerates an existing
+  integration from its pruned spec.
+
+  - `Hearth.Fs.Ownership.classify/1` (pure) reads a file's content
+    and returns `:owned | :collaborating | :none` — whole-file
+    word-boundary regex match on the `hearth:owned` /
+    `hearth:collaborating` moduledoc tokens; `:owned` wins if both
+    are present.
+  - `Hearth.Render.ModuleNames.from_layer1/1` derives every layer
+    module (`layer2`, `layer3`, `layer1_test`, `external_test`,
+    `mock`) and the integration name from the Layer 1 module alone —
+    the inverse of building from `[:app_module, :domain,
+    :integration]`. `regen` needs only the Layer 1 module name; the
+    fixed layout below it follows.
+  - `Mix.Tasks.Hearth.Regen` reads `priv/hearth/<integration>.yaml`
+    (the pruned spec `gen` wrote), re-derives `Auth` / `Servers` /
+    `BasePath` / operations from it, and re-renders the three layers
+    + auth test. Per `:tracked` file: `:owned` → skip, `:none` →
+    silent overwrite, `:collaborating` → per-file `Mix.shell().yes?`
+    prompt (`--yes` / test mode auto-accept). The external test is a
+    `:scaffold` — created if absent, never overwritten. A missing
+    pruned spec or a bare invocation halts with a helpful issue.
+  - **Scope: `regen` refreshes code only.** It does not re-run config
+    patches (`impl`, `:hearth_domains`, credential, base-URL) or
+    rewrite the pruned spec — those are `gen`'s, idempotent, and
+    already in place. To pull in upstream spec changes, edit the
+    pruned spec and re-run `regen`. A future `hearth.sync` (deferred)
+    would refresh the pruned spec from an upstream source.
 
 #### Pending
 
