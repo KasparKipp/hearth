@@ -104,6 +104,7 @@ if Code.ensure_loaded?(Igniter) do
 
     use Igniter.Mix.Task
 
+    alias Hearth.Fs.Content
     alias Hearth.Spec.BasePath
     alias Hearth.Spec.Filter
     alias Hearth.Spec.Loader
@@ -365,20 +366,13 @@ if Code.ensure_loaded?(Igniter) do
       with format when format in [:yaml, :json] <- Loader.sniff(path),
            true <- Igniter.exists?(igniter, path) or :missing,
            igniter = Igniter.include_existing_file(igniter, path),
-           {:ok, bytes} <- read_rewrite_content(igniter, path),
+           {:ok, bytes} <- Content.read(igniter, path),
            {:ok, spec} <- Loader.decode(bytes, format) do
         {:ok, igniter, spec}
       else
         :unknown -> {:error, unsupported_format_message(path)}
         :missing -> {:error, file_not_found_message(path)}
         {:error, reason} -> {:error, decode_failed_message(path, reason)}
-      end
-    end
-
-    defp read_rewrite_content(igniter, path) do
-      case Rewrite.source(igniter.rewrite, path) do
-        {:ok, source} -> {:ok, Rewrite.Source.get(source, :content)}
-        :error -> {:error, :file_not_in_rewrite}
       end
     end
 

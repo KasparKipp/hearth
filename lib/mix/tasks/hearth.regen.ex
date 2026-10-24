@@ -55,6 +55,7 @@ if Code.ensure_loaded?(Igniter) do
 
     use Igniter.Mix.Task
 
+    alias Hearth.Fs.Content
     alias Hearth.Fs.Ownership
     alias Hearth.Render.ModuleNames
     alias Hearth.Spec.Auth
@@ -91,7 +92,7 @@ if Code.ensure_loaded?(Igniter) do
 
       with true <- Igniter.exists?(igniter, spec_path) or :missing,
            igniter = Igniter.include_existing_file(igniter, spec_path),
-           {:ok, bytes} <- read_rewrite(igniter, spec_path),
+           {:ok, bytes} <- Content.read(igniter, spec_path),
            {:ok, spec} <- Loader.decode(bytes, :yaml) do
         render(igniter, names, spec_path, spec)
       else
@@ -168,12 +169,15 @@ if Code.ensure_loaded?(Igniter) do
       if Igniter.exists?(igniter, location) do
         igniter = Igniter.include_existing_file(igniter, location)
 
-        apply_token(
-          igniter,
-          location,
-          content,
-          Ownership.classify(read_rewrite!(igniter, location))
-        )
+        # Fail closed: a file whose ownership token can't be read is
+        # skipped, never overwritten — it may be `hearth:owned`.
+        case Content.read(igniter, location) do
+          {:ok, existing} ->
+            apply_token(igniter, location, content, Ownership.classify(existing))
+
+          {:error, _reason} ->
+            {igniter, {location, :unreadable}}
+        end
       else
         {Igniter.create_new_file(igniter, location, content), {location, :created}}
       end
@@ -204,20 +208,6 @@ if Code.ensure_loaded?(Igniter) do
     defp accept?(igniter, location) do
       igniter.args.options[:yes] || igniter.assigns[:test_mode?] ||
         Mix.shell().yes?("hearth.regen: #{location} is hearth:collaborating — regenerate it?")
-    end
-
-    defp read_rewrite(igniter, path) do
-      case Rewrite.source(igniter.rewrite, path) do
-        {:ok, source} -> {:ok, Rewrite.Source.get(source, :content)}
-        :error -> {:error, :file_not_in_rewrite}
-      end
-    end
-
-    defp read_rewrite!(igniter, path) do
-      case read_rewrite(igniter, path) do
-        {:ok, content} -> content
-        {:error, _} -> ""
-      end
     end
 
     defp metadata(spec_path, spec) do
@@ -257,6 +247,9 @@ if Code.ensure_loaded?(Igniter) do
       do: "* skipping #{location} (hearth:collaborating, declined)"
 
     defp result_line(:kept, location), do: "* keeping #{location} (user-owned scaffold)"
+
+    defp result_line(:unreadable, location),
+      do: "* skipping #{location} (could not read it to check its ownership token)"
 
     defp format_reason(%{__exception__: true} = ex), do: Exception.message(ex)
     defp format_reason(reason), do: inspect(reason)
