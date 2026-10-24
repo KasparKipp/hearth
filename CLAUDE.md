@@ -929,6 +929,20 @@ These were learned the hard way and must hold for future steps:
     pruned spec and re-run `regen`. A future `hearth.sync` (deferred)
     would refresh the pruned spec from an upstream source.
 
+- **Step 8 — `usage-rules.md`.** Top-level consumer-facing guide
+  (the `usage_rules` hex convention from the Ash team): how a
+  downstream agent should use Hearth — the three tasks, the
+  create-only contract, the ownership tokens, the pruned-spec
+  source-of-truth, the Mox test seam, the `:external` opt-in tag,
+  and a "common pitfalls" list. Already wired into the hex package
+  via `mix.exs:40-41` (`package.files`); only the file itself was
+  missing. A lock-in test (`test/usage_rules_test.exs`) asserts
+  the file exists and contains the load-bearing terms so a future
+  edit cannot silently strip a section a consumer's agent relies
+  on. The `usage_rules` *config-discovery mechanism* (a `mix.exs`
+  function exposing library defaults) stays unused — Hearth has
+  no config to default beyond what already lives in app config.
+
 #### Pending
 
 - **Steps 4d–4f (deferred, parallel track)** — `Hearth.Spec.Cache`,
