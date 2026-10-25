@@ -77,8 +77,8 @@ defmodule Hearth.Render.ModuleNames do
   # from its Layer 1 module alone — the integration name is the
   # module's last segment, and the layout below it is fixed. This is
   # the inverse of building from `[:app_module, :domain, :integration]`
-  # and is what `mix hearth.regen` uses: the user names the Layer 1
-  # module, everything else follows.
+  # and is what `mix hearth.regen` uses: the pruned spec records the
+  # Layer 1 module (`x-hearth.module`), everything else follows.
   @spec from_layer1(module()) :: %{
           integration: String.t(),
           layer1: module(),
@@ -104,4 +104,28 @@ defmodule Hearth.Render.ModuleNames do
       mock: Module.concat(segments ++ [api, "Mock"])
     }
   end
+
+  # A name that must camelize to a single Elixir alias segment — a
+  # `--integration` / `--domain` value for `gen`, an integration name
+  # for `regen`: a letter then letters/digits, no spaces, dots or
+  # empty. snake_case input is fine (`Macro.camelize` folds it).
+  @spec valid_segment?(String.t()) :: boolean()
+  def valid_segment?(name) when is_binary(name) do
+    Regex.match?(~r/^[A-Z][A-Za-z0-9]*$/, Macro.camelize(name))
+  end
+
+  # Parses a dotted module name as written in the pruned spec's
+  # `x-hearth.module` — a user-editable file, so validated: every
+  # segment a proper alias (no lowercase, no empty segments). A
+  # leading `Elixir.` is tolerated.
+  @spec parse(term()) :: {:ok, module()} | :error
+  def parse(name) when is_binary(name) do
+    segments = name |> String.replace_prefix("Elixir.", "") |> String.split(".")
+
+    if Enum.all?(segments, &Regex.match?(~r/^[A-Z][A-Za-z0-9_]*$/, &1)),
+      do: {:ok, Module.concat(segments)},
+      else: :error
+  end
+
+  def parse(_name), do: :error
 end

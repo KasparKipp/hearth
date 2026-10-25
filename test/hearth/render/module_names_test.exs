@@ -152,4 +152,40 @@ defmodule Hearth.Render.ModuleNamesTest do
       assert ModuleNames.external_test(opts) == MyApp.StripeExternalTest
     end
   end
+
+  describe "valid_segment?/1" do
+    test "accepts a single alias segment, camelized or snake_case" do
+      assert ModuleNames.valid_segment?("Stripe")
+      assert ModuleNames.valid_segment?("SendGrid")
+      assert ModuleNames.valid_segment?("send_grid")
+      assert ModuleNames.valid_segment?("petstore")
+    end
+
+    test "rejects dots, spaces, a leading digit and the empty string" do
+      refute ModuleNames.valid_segment?("MyApp.Stripe")
+      refute ModuleNames.valid_segment?("send grid")
+      refute ModuleNames.valid_segment?("1password")
+      refute ModuleNames.valid_segment?("")
+    end
+  end
+
+  describe "parse/1" do
+    test "parses a dotted alias into a module" do
+      assert ModuleNames.parse("MyApp.Integrations.Stripe") == {:ok, MyApp.Integrations.Stripe}
+    end
+
+    test "tolerates a leading Elixir. prefix" do
+      assert ModuleNames.parse("Elixir.MyApp.Stripe") == {:ok, MyApp.Stripe}
+    end
+
+    test "rejects lowercase, empty segments and non-strings" do
+      assert ModuleNames.parse("foo") == :error
+      assert ModuleNames.parse("my_app.integrations.stripe") == :error
+      assert ModuleNames.parse("MyApp..Stripe") == :error
+      assert ModuleNames.parse("MyApp.") == :error
+      assert ModuleNames.parse("") == :error
+      assert ModuleNames.parse(nil) == :error
+      assert ModuleNames.parse(42) == :error
+    end
+  end
 end

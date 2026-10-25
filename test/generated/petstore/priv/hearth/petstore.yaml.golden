@@ -120,4 +120,5 @@ components:
       type: array
 x-hearth:
   base_path: ''
+  module: Test.Integrations.Petstore
   source: priv/specs/petstore-3.0.yaml

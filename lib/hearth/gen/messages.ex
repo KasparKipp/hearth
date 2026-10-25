@@ -127,11 +127,14 @@ defmodule Hearth.Gen.Messages do
     #{files}
 
     `mix hearth.gen` only creates new integrations — it will not
-    overwrite. Use `mix hearth.regen #{inspect(layer1)}` to
+    overwrite. Use `mix hearth.regen #{regen_name(layer1)}` to
     regenerate from the pruned spec, or delete all of the files
     above to start over.
     """
   end
+
+  # The integration name `regen` takes: Layer 1's last segment.
+  defp regen_name(layer1), do: layer1 |> Module.split() |> List.last() |> Macro.underscore()
 
   def bad_segment(flag, value) do
     """

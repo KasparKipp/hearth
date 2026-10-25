@@ -18,7 +18,7 @@ defmodule Hearth do
     * `mix hearth.install` — one-time project setup.
     * `mix hearth.gen` — generate an integration from a spec file
       (create-only).
-    * `mix hearth.regen` — regenerate an integration from its pruned spec,
+    * `mix hearth.regen` — regenerate integrations from their pruned specs,
       honouring `hearth:owned` / `hearth:collaborating` ownership tokens.
 
   Run `mix help hearth.gen` for the full option list.

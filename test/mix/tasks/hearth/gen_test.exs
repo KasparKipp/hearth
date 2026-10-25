@@ -1165,7 +1165,8 @@ defmodule Mix.Tasks.Hearth.GenTest do
 
       assert Enum.any?(igniter.issues, fn issue ->
                String.contains?(issue, "Test.Integrations.Petstore already exists") and
-                 String.contains?(issue, "only creates")
+                 String.contains?(issue, "only creates") and
+                 String.contains?(issue, "mix hearth.regen petstore")
              end)
 
       refute notice_text(igniter) =~ "Spec loaded"

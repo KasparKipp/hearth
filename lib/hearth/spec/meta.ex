@@ -11,9 +11,12 @@ defmodule Hearth.Spec.Meta do
   #     URL (and into the `config/test.exs` base URL). Recomputed from
   #     the subset, it can come out longer and desync from that config.
   #   * `source` — the spec gen was run on, shown in Layer 2's moduledoc.
+  #   * `module` — the integration's Layer 1 module. `regen` derives
+  #     every other module from it, so the domain gen chose survives.
   #
   # Readers return `nil` when the block is absent (an integration
-  # generated before it existed) or malformed; callers fall back.
+  # generated before it existed) or malformed. `regen` falls back for
+  # `base_path` and `source`, and halts without `module`.
 
   @key "x-hearth"
 
@@ -21,7 +24,8 @@ defmodule Hearth.Spec.Meta do
   def put(spec, opts) when is_map(spec) do
     Map.put(spec, @key, %{
       "base_path" => Keyword.fetch!(opts, :base_path),
-      "source" => Keyword.fetch!(opts, :source)
+      "source" => Keyword.fetch!(opts, :source),
+      "module" => Keyword.fetch!(opts, :module)
     })
   end
 
@@ -30,6 +34,9 @@ defmodule Hearth.Spec.Meta do
 
   @spec source(map()) :: String.t() | nil
   def source(spec), do: string_field(spec, "source")
+
+  @spec module(map()) :: String.t() | nil
+  def module(spec), do: string_field(spec, "module")
 
   defp string_field(spec, field) do
     case spec do

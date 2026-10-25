@@ -2,11 +2,11 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
   @moduledoc false
 
   def short_doc do
-    "Regenerates a Hearth integration from its pruned spec. Requires igniter to run."
+    "Regenerates Hearth integrations from their pruned specs. Requires igniter to run."
   end
 
   def example do
-    "mix hearth.regen MyApp.Integrations.Stripe"
+    "mix hearth.regen stripe"
   end
 
   def long_doc do
@@ -15,16 +15,22 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
 
     ## Usage
 
-        mix hearth.regen <Layer1Module> [--yes]
+        mix hearth.regen <integration>[,<integration>...] [--yes]
+        mix hearth.regen --all [--yes]
 
-    `<Layer1Module>` is the integration's raw-client module — the one
-    `mix hearth.gen` created without an `Api` suffix, e.g.
-    `MyApp.Integrations.Stripe`. Every other layer is derived from it.
+    `<integration>` is the name the integration was generated with
+    (`mix hearth.gen … --integration Stripe`). `stripe` and `Stripe`
+    both read `priv/hearth/stripe.yaml`. Separate several names with
+    commas. `--all` regenerates every pruned spec under
+    `priv/hearth/`. With neither, the task halts.
 
-    Regeneration reads the integration's pruned spec at
-    `priv/hearth/<integration>.yaml` (written by `mix hearth.gen`) and
-    re-renders the three layers and the auth test. The external test
-    is a user-owned scaffold — it is never overwritten.
+    Regeneration reads the integration's pruned spec (written by
+    `mix hearth.gen`) and re-renders the three layers and the auth
+    test. The spec's `x-hearth.module` names the Layer 1 module; every
+    other layer is derived from it. The external test is a user-owned
+    scaffold — it is never overwritten.
+
+    If any named integration can't be regenerated, nothing is written.
 
     ## Ownership tokens
 
@@ -41,6 +47,7 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
 
     ## Options
 
+      * `--all` — regenerate every integration under `priv/hearth/`.
       * `--yes` — non-interactive: accept every `hearth:collaborating`
         prompt.
     """
@@ -66,14 +73,16 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Spec.Operation
     alias Hearth.Spec.Servers
 
+    @spec_dir "priv/hearth"
+
     @impl Igniter.Mix.Task
     def info(_argv, _composing_task) do
       %Igniter.Mix.Task.Info{
         group: :hearth,
-        schema: [yes: :boolean],
+        schema: [all: :boolean, yes: :boolean],
         # Optional so a bare `mix hearth.regen` halts with a
         # task-specific message rather than Igniter's generic error.
-        positional: [{:integration, optional: true}],
+        positional: [{:integrations, optional: true}],
         installs: [],
         example: __MODULE__.Docs.example()
       }
@@ -81,31 +90,86 @@ if Code.ensure_loaded?(Igniter) do
 
     @impl Igniter.Mix.Task
     def igniter(igniter) do
-      case igniter.args.positional[:integration] do
-        nil -> Igniter.add_issue(igniter, missing_integration_message())
-        arg -> regen(igniter, arg)
+      case spec_paths(igniter) do
+        {:ok, igniter, paths} -> Enum.reduce(paths, igniter, &regen(&2, &1))
+        {:error, message} -> Igniter.add_issue(igniter, message)
       end
     end
 
-    defp regen(igniter, arg) do
-      layer1 = Module.concat(String.split(arg, "."))
-      names = ModuleNames.from_layer1(layer1)
-      spec_path = Manifest.pruned_spec_path(names.integration)
+    # `--all` → every pruned spec under `priv/hearth/`; otherwise the
+    # comma-separated integration names, each mapped to its pruned spec.
+    defp spec_paths(igniter) do
+      case {igniter.args.positional[:integrations], igniter.args.options[:all]} do
+        {nil, true} -> all_spec_paths(igniter)
+        {nil, _} -> {:error, missing_integration_message()}
+        {_names, true} -> {:error, names_and_all_message()}
+        {names, _} -> named_spec_paths(igniter, names)
+      end
+    end
 
+    defp all_spec_paths(igniter) do
+      igniter = Igniter.include_glob(igniter, Path.join(@spec_dir, "*.yaml"))
+
+      paths =
+        igniter.rewrite
+        |> Rewrite.paths()
+        |> Enum.filter(&(Path.dirname(&1) == @spec_dir and Path.extname(&1) == ".yaml"))
+        |> Enum.sort()
+
+      case paths do
+        [] -> {:error, no_specs_message()}
+        paths -> {:ok, igniter, paths}
+      end
+    end
+
+    defp named_spec_paths(igniter, arg) do
+      names =
+        arg
+        |> String.split(",")
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+
+      case {names, Enum.reject(names, &ModuleNames.valid_segment?/1)} do
+        {[], _} ->
+          {:error, missing_integration_message()}
+
+        {names, []} ->
+          paths = Enum.map(names, &Manifest.pruned_spec_path(Macro.camelize(&1)))
+          {:ok, igniter, Enum.uniq(paths)}
+
+        {_names, bad} ->
+          {:error, bad_names_message(bad)}
+      end
+    end
+
+    defp regen(igniter, spec_path) do
       with true <- Igniter.exists?(igniter, spec_path) or :missing,
            igniter = Igniter.include_existing_file(igniter, spec_path),
            {:ok, bytes} <- Content.read(igniter, spec_path),
-           {:ok, spec} <- Loader.decode(bytes, :yaml) do
-        render(igniter, names, spec_path, spec)
+           {:ok, spec} <- Loader.decode(bytes, :yaml),
+           {:ok, layer1} <- layer1(spec) do
+        render(igniter, ModuleNames.from_layer1(layer1), spec_path, spec)
       else
         :missing ->
-          Igniter.add_issue(igniter, missing_spec_message(names.integration, spec_path))
+          Igniter.add_issue(igniter, missing_spec_message(spec_path))
+
+        {:bad_module, value} ->
+          Igniter.add_issue(igniter, bad_module_message(spec_path, value))
 
         {:error, reason} ->
           Igniter.add_issue(
             igniter,
             "hearth.regen: failed to parse #{spec_path}: #{format_reason(reason)}"
           )
+      end
+    end
+
+    defp layer1(spec) do
+      value = Meta.module(spec)
+
+      case ModuleNames.parse(value) do
+        {:ok, layer1} -> {:ok, layer1}
+        :error -> {:bad_module, value}
       end
     end
 
@@ -250,12 +314,54 @@ if Code.ensure_loaded?(Igniter) do
 
     defp missing_integration_message do
       """
-      hearth.regen: name the integration's Layer 1 module.
+      hearth.regen: name the integrations to regenerate, or pass --all.
 
-        mix hearth.regen MyApp.Integrations.Stripe
+        mix hearth.regen stripe
+        mix hearth.regen stripe,send_grid
+        mix hearth.regen --all
 
-      That is the raw-client module `mix hearth.gen` created (no `Api`
-      suffix). Every other layer is derived from it.
+      An integration's name is the `--integration` it was generated
+      with; its pruned spec lives at #{@spec_dir}/<name>.yaml.
+      """
+    end
+
+    defp names_and_all_message do
+      """
+      hearth.regen: pass integration names or --all, not both.
+      """
+    end
+
+    defp no_specs_message do
+      """
+      hearth.regen: no pruned specs under #{@spec_dir}/ to regenerate.
+
+      `mix hearth.gen` writes one per integration.
+      """
+    end
+
+    defp bad_names_message(bad) do
+      names = Enum.map_join(bad, ", ", &inspect/1)
+
+      """
+      hearth.regen: #{names} is not an integration name.
+
+      Use the name the integration was generated with — a single
+      alias segment, e.g. `stripe` or `SendGrid` — not its module.
+      Separate several names with commas.
+      """
+    end
+
+    defp bad_module_message(spec_path, value) do
+      found = if value, do: " (found #{inspect(value)})", else: ""
+
+      """
+      hearth.regen: #{spec_path} has no valid `x-hearth.module`#{found}.
+
+      It must name the integration's Layer 1 module — the raw client
+      `mix hearth.gen` created — so every other layer can be derived:
+
+        x-hearth:
+          module: MyApp.Integrations.Stripe
       """
     end
 
@@ -277,7 +383,9 @@ if Code.ensure_loaded?(Igniter) do
       """
     end
 
-    defp missing_spec_message(integration, spec_path) do
+    defp missing_spec_message(spec_path) do
+      integration = spec_path |> Path.basename(".yaml") |> Macro.camelize()
+
       """
       hearth.regen: no pruned spec for #{integration} at #{spec_path}.
 

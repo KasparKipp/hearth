@@ -50,11 +50,12 @@ the pruned spec, wires the Mox mock and config, and prints every file it
 touched. It is **create-only**: re-running it on an existing integration halts.
 
 ```bash
-$ mix hearth.regen MyApp.Billing.Stripe
+$ mix hearth.regen stripe          # or stripe,send_grid — or --all
 ```
 
-`regen` re-renders the integration from its pruned spec, honouring ownership
-tokens. Running it straight after `gen` is a no-op. To pull in spec changes,
+`regen` re-renders integrations from their pruned specs, honouring ownership
+tokens. It takes integration names (the `--integration` value), never modules:
+each pruned spec records its Layer 1 module in `x-hearth.module`. Running it straight after `gen` is a no-op. To pull in spec changes,
 edit `priv/hearth/stripe.yaml` and re-run `regen`.
 
 Only local spec files generate code today. URL and registry sources are
@@ -111,7 +112,7 @@ with it) is wrapped in the same `if Code.ensure_loaded?(Igniter)` guard —
 | -------------------- | --------------------------------------------------------------------------- |
 | `mix hearth.install` | One-time per-project setup (formatter import, `:hearth_domains` config).    |
 | `mix hearth.gen`     | Generate the three-layer integration from an OpenAPI spec. Create-only.     |
-| `mix hearth.regen`   | Regenerate an existing integration from its pruned spec, ownership-aware.   |
+| `mix hearth.regen`   | Regenerate integrations from their pruned specs, ownership-aware.           |
 
 ### `:hearth_domains` config
 
@@ -127,9 +128,9 @@ config :my_app, :hearth_domains, [
 ```
 
 Set the value to `false` to opt out of tracking (`gen` leaves a non-list
-untouched). The list is meant to drive a future `mix hearth.regen --all`.
-Open question before that lands: `regen` keys on the Layer 1 module, the list
-holds Layer 2 — pick one.
+untouched). `mix hearth.regen --all` does not read it — it walks
+`priv/hearth/`, where each pruned spec names its own Layer 1 module. Open
+question: does the list still earn its keep?
 
 ---
 
@@ -470,11 +471,15 @@ What exists, condensed. The blow-by-blow is in git history.
 - **Pruned spec** — `Prune.prune/2` keeps the selected paths and the
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
   with conventional top-level key order, plus an `x-hearth` block
-  (`base_path`, `source`).
-- **`hearth.regen`** — derives every module from the Layer 1 name, reads the
-  pruned spec, takes `base_path` / `source` from `x-hearth` (recomputes if
-  absent; halts if a path falls outside the recorded base path), and renders
-  the same `Manifest`. Refreshes code only — never config or the pruned spec.
+  (`module`, `base_path`, `source`).
+- **`hearth.regen`** — takes comma-separated integration names (each must be a
+  single alias segment; `stripe` → `priv/hearth/stripe.yaml`) or `--all`
+  (every `priv/hearth/*.yaml`); neither, or both, halts. Per spec: derives
+  every module from `x-hearth.module` (halts if missing or not a module name),
+  takes `base_path` / `source` from `x-hearth` (recomputes if absent; halts if
+  a path falls outside the recorded base path), and renders the same
+  `Manifest`. Any failure halts the whole run. Refreshes code only — never
+  config or the pruned spec.
 
 ---
 
@@ -530,7 +535,6 @@ Learned the hard way; every change must keep them:
   - auth corner cases — does a query API key survive a caller's `params:`
     (`Req.merge`)? A per-call `api_key:` through Layer 2/3 reaches
     `Req.request/2` as an unknown option;
-  - `regen` doesn't validate its module argument;
   - `gen` doesn't add `test/support` to the consumer's `elixirc_paths(:test)`;
   - `Ownership.classify/1` scans the whole file, not just the `@moduledoc`;
   - `gen_test.exs` (~1500 lines) wants splitting by concern.
