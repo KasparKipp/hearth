@@ -9,19 +9,14 @@ defmodule Hearth.MixProject do
       version: @version,
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
-      elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
       package: package(),
-      deps: deps()
+      docs: docs(),
+      deps: deps(),
+      name: "Hearth",
+      description: "Mix tasks that generate three-layer Req HTTP clients from OpenAPI specs.",
+      source_url: "https://github.com/KasparKipp/hearth"
     ]
-  end
-
-  defp elixirc_paths(:test) do
-    elixirc_paths(:dev) ++ ["test/support"]
-  end
-
-  defp elixirc_paths(_env) do
-    ["lib"]
   end
 
   # Run "mix help compile.app" to learn about applications.
@@ -40,8 +35,16 @@ defmodule Hearth.MixProject do
       files: ~w(lib .formatter.exs mix.exs README* LICENSE*
       CHANGELOG* usage-rules.md),
       links: %{
-        "GitHub" => "https://github.com/todo-project/hearth"
+        "GitHub" => "https://github.com/KasparKipp/hearth"
       }
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      source_ref: "v#{@version}",
+      extras: ["README.md", "usage-rules.md", "LICENSE"]
     ]
   end
 
@@ -62,7 +65,8 @@ defmodule Hearth.MixProject do
       # mock, is added straight to the consumer by `mix hearth.gen`.)
       {:req, "~> 0.5", optional: true},
       {:plug, "~> 1.0", optional: true},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
   end
 

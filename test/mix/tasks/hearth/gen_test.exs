@@ -1532,16 +1532,18 @@ defmodule Mix.Tasks.Hearth.GenTest do
   end
 
   describe "consumer-facing docs" do
-    test "notice does not point consumers at Hearth's internal CLAUDE.md" do
+    test "notice does not point consumers at Hearth's internal docs" do
       igniter =
         test_project()
         |> Igniter.compose_task("hearth.gen", ["stripe"])
 
+      refute notice_text(igniter) =~ "AGENTS.md"
       refute notice_text(igniter) =~ "CLAUDE.md"
     end
 
-    test "long_doc does not leak internal step numbers or CLAUDE.md" do
+    test "long_doc does not leak internal step numbers or docs" do
       doc = Mix.Tasks.Hearth.Gen.Docs.long_doc()
+      refute doc =~ "AGENTS.md"
       refute doc =~ "CLAUDE.md"
       refute doc =~ ~r/step \d/i
     end

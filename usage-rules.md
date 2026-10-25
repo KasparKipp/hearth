@@ -8,18 +8,19 @@ follow the conventions below and the generated code stays clean.
 
 ## Setup
 
-Add to `mix.exs`:
+With Igniter (recommended):
+
+    mix igniter.install hearth
+
+Or manually — add to `mix.exs`:
 
     {:hearth, "~> 0.0", only: [:dev, :test], runtime: false},
     {:igniter, "~> 0.5", only: [:dev, :test]}
 
-Hearth's tasks run on Igniter, which Hearth declares as an optional
-dependency — without `igniter` in your deps the tasks only print an
-install hint.
-
-`mix hearth.gen` auto-runs `mix hearth.install` on a fresh project
-(formatter import + `:hearth_domains` config). On an already-installed
-project the install step is silent.
+then run `mix deps.get` and `mix hearth.install` (formatter import +
+`:hearth_domains` config). Hearth's tasks run on Igniter, which Hearth
+declares as an optional dependency — without `igniter` in your deps the
+tasks only print an install hint.
 
 ## Generate an integration
 
