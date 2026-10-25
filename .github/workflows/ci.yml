@@ -12,8 +12,10 @@ env:
   MIX_ENV: test
 
 jobs:
+  # Mirrors `mix precommit` in check mode: `deps.unlock --check-unused`
+  # and `format --check-formatted` instead of the fixing variants.
   lint:
-    name: Format, credo, strict compile
+    name: Checks (format, compile, credo, audits)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,9 +33,12 @@ jobs:
           key: lint-${{ hashFiles('mix.lock') }}
 
       - run: mix deps.get
+      - run: mix deps.unlock --check-unused
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
       - run: mix credo --strict
+      - run: mix deps.audit
+      - run: mix hex.audit
 
   test:
     name: Test (Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }})
@@ -45,9 +50,11 @@ jobs:
           # Minimum supported (mix.exs: elixir ~> 1.18)
           - elixir: "1.18"
             otp: "27"
-          # Latest
+            coverage: false
+          # Latest — also exports coverage for the CRAP check
           - elixir: "1.20"
             otp: "29"
+            coverage: true
     steps:
       - uses: actions/checkout@v4
 
@@ -64,4 +71,12 @@ jobs:
           key: test-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('mix.lock') }}
 
       - run: mix deps.get
+
       - run: mix test
+        if: ${{ !matrix.coverage }}
+
+      - run: mix test --cover --export-coverage default
+        if: ${{ matrix.coverage }}
+
+      - run: mix crap
+        if: ${{ matrix.coverage }}

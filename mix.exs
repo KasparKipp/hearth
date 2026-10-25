@@ -19,6 +19,12 @@ defmodule Hearth.MixProject do
     ]
   end
 
+  def cli do
+    [
+      preferred_envs: [precommit: :test]
+    ]
+  end
+
   # Run "mix help compile.app" to learn about applications.
   def application do
     [
@@ -65,14 +71,27 @@ defmodule Hearth.MixProject do
       # mock, is added straight to the consumer by `mix hearth.gen`.)
       {:req, "~> 0.5", optional: true},
       {:plug, "~> 1.0", optional: true},
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:ex_crap, "~> 0.1", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
   end
 
   defp aliases do
     [
-      credo: "credo --strict"
+      precommit: [
+        "compile --warnings-as-errors",
+        "deps.unlock --unused",
+        "format",
+        "credo --strict",
+        # Security: scan locked deps for known CVEs and retired packages.
+        "deps.audit",
+        fn _ -> Mix.ensure_application!(:hex) end,
+        "hex.audit",
+        "test --cover --export-coverage default",
+        "crap"
+      ]
     ]
   end
 end
