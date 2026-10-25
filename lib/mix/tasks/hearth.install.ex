@@ -51,6 +51,8 @@ if Code.ensure_loaded?(Igniter) do
       %Igniter.Mix.Task.Info{
         group: :hearth,
         schema: [yes: :boolean],
+        only: [:dev, :test],
+        dep_opts: [runtime: false],
         installs: [],
         example: __MODULE__.Docs.example()
       }

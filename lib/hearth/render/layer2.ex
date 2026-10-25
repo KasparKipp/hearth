@@ -7,7 +7,7 @@ defmodule Hearth.Render.Layer2 do
   # routes through `impl/0` to the configured implementation (Layer 3
   # in prod, a Mox mock in tests).
   #
-  # Function shape (per the CLAUDE.md three-layer pattern):
+  # Function shape (per the AGENTS.md three-layer pattern):
   #
   #   * path params become positional args, in spec order, named with
   #     the snake_case-sanitized param name, typed `String.t()` on the

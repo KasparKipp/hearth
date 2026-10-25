@@ -5,6 +5,17 @@ defmodule Mix.Tasks.Hearth.InstallTest do
 
   defp notice_text(igniter), do: Enum.join(igniter.notices, "\n\n")
 
+  describe "mix igniter.install hearth" do
+    # `igniter.install` reads these from the installer's info/2 and sets
+    # them on the dep it adds — Hearth is a dev/test-time generator.
+    test "adds the dep as only: [:dev, :test], runtime: false" do
+      info = Mix.Tasks.Hearth.Install.info([], nil)
+
+      assert info.only == [:dev, :test]
+      assert info.dep_opts == [runtime: false]
+    end
+  end
+
   describe "formatter" do
     test "adds :hearth to import_deps in .formatter.exs" do
       test_project()
