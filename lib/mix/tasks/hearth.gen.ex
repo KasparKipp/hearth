@@ -434,8 +434,8 @@ if Code.ensure_loaded?(Igniter) do
         |> Hearth.Spec.Prune.to_yaml()
 
       entry =
-        [module: names.layer1, source: path, base_path: prefix] ++
-          Hearth.Spec.Selection.describe(operations, selected)
+        [module: names.layer1, source: path, source_sha256: source_sha256(igniter, path)] ++
+          [base_path: prefix] ++ Hearth.Spec.Selection.describe(operations, selected)
 
       selected = BasePath.strip(selected, prefix)
       pruned_spec_path = Manifest.pruned_spec_path(names.integration)
@@ -480,6 +480,13 @@ if Code.ensure_loaded?(Igniter) do
             ["#{pruned_spec_path} (pruned spec)", ".hearth.exs (integration entry)"]
         )
       )
+    end
+
+    # Lets `mix hearth.diff` say "the source hasn't changed since gen".
+    # The spec is already in the Rewrite — `decode_file/2` read it.
+    defp source_sha256(igniter, path) do
+      {:ok, bytes} = Content.read(igniter, path)
+      Hearth.Integration.Reprune.sha256(bytes)
     end
 
     # Tracked files are Hearth-owned (`:overwrite`); the scaffold — the

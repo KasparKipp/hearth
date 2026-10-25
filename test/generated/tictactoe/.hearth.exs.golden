@@ -5,6 +5,7 @@
     tictactoe: [
       module: Test.Integrations.Tictactoe,
       source: "priv/specs/tictactoe-3.1.yaml",
+      source_sha256: "772a199c00079409660f84ef7746f3f5f6cb3250945732bedd3529ff913d85d3",
       base_path: "",
       tags: [Gameplay: :all]
     ]

@@ -300,9 +300,12 @@ defmodule Mix.Tasks.Hearth.Gen.WiringTest do
       assert {:ok, [pet_store: entry]} =
                igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
 
+      sha = :sha256 |> :crypto.hash(@petstore_3_0_yaml) |> Base.encode16(case: :lower)
+
       assert entry == [
                module: Test.Billing.PetStore,
                source: "priv/specs/petstore.yaml",
+               source_sha256: sha,
                base_path: "",
                tags: [pets: :all]
              ]

@@ -73,6 +73,60 @@ defmodule Hearth.Spec.Selection do
   @spec select([Operation.t()], rule()) :: [Operation.t()]
   def select(operations, rule), do: Enum.filter(operations, &selected?(&1, rule))
 
+  # Rewrites `rule`'s `include:` / `exclude:` lists for operations the
+  # source renamed: an operation at the same method + path in `current`
+  # (the pruned spec's) and `source` under a different name. Without it
+  # an upstream operationId rename drops a partly selected operation.
+  @spec carry_renames(rule(), [Operation.t()], [Operation.t()]) :: rule()
+  def carry_renames(rule, current, source) do
+    source_names = Map.new(source, &{key(&1), name(&1)})
+
+    renames =
+      for op <- current,
+          new_name = source_names[key(op)],
+          new_name && new_name != name(op),
+          into: %{},
+          do: {name(op), new_name}
+
+    if renames == %{} do
+      rule
+    else
+      %{
+        rule
+        | tags: Map.new(rule.tags, fn {tag, state} -> {tag, rename(state, renames)} end),
+          untagged: rename(rule.untagged, renames)
+      }
+    end
+  end
+
+  defp rename(state, renames) when is_list(state) do
+    Enum.map(state, fn {list, ids} -> {list, Enum.map(ids, &Map.get(renames, &1, &1))} end)
+  end
+
+  defp rename(state, _renames), do: state
+
+  # Operations in a spec that `rule` doesn't select and doesn't mention:
+  # under a tag it doesn't know, unlisted under a partly selected tag,
+  # or untagged with no `untagged:` decision. New upstream operations,
+  # for `mix hearth.diff` to report. A `:none` tag or an `exclude:` entry
+  # is a decision already made, so those stay quiet.
+  @spec unlisted([Operation.t()], rule()) :: [Operation.t()]
+  def unlisted(operations, rule) do
+    Enum.filter(operations, fn op ->
+      not selected?(op, rule) and Enum.any?(states_for(op, rule), &undecided?(&1, op))
+    end)
+  end
+
+  defp states_for(%Operation{tags: []}, rule), do: [rule.untagged]
+  defp states_for(op, rule), do: Enum.map(op.tags, &Map.get(rule.tags, &1))
+
+  defp undecided?(nil, _op), do: true
+
+  defp undecided?(state, op) when is_list(state),
+    do: name(op) not in (state[:include] ++ state[:exclude])
+
+  defp undecided?(_state, _op), do: false
+
   # Where the pruned spec's operations disagree with `rule` — what plain
   # `regen` can see without the source. A partly selected tag rewritten
   # as `:all` leaves no trace here; reading the source catches that.
