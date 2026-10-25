@@ -935,7 +935,7 @@ These were learned the hard way and must hold for future steps:
   create-only contract, the ownership tokens, the pruned-spec
   source-of-truth, the Mox test seam, the `:external` opt-in tag,
   and a "common pitfalls" list. Already wired into the hex package
-  via `mix.exs:40-41` (`package.files`); only the file itself was
+  via `package.files` in `mix.exs`; only the file itself was
   missing. A lock-in test (`test/usage_rules_test.exs`) asserts
   the file exists and contains the load-bearing terms so a future
   edit cannot silently strip a section a consumer's agent relies

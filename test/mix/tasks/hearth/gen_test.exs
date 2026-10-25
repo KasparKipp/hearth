@@ -1467,8 +1467,39 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert doc =~ "## Options"
       assert doc =~ "--integration"
       assert doc =~ "--domain"
-      assert doc =~ "--refresh"
+      assert doc =~ "--no-domain"
+      assert doc =~ "--tag"
+      assert doc =~ "--n-operations"
+      assert doc =~ "--list"
       assert doc =~ "--yes"
+    end
+
+    test "long_doc does not advertise --refresh, which has no fetcher behind it" do
+      refute Mix.Tasks.Hearth.Gen.Docs.long_doc() =~ "--refresh"
+    end
+
+    test "--refresh is not an accepted option" do
+      schema = Mix.Tasks.Hearth.Gen.info([], nil).schema
+      refute Keyword.has_key?(schema, :refresh)
+    end
+
+    test "long_doc says only file sources generate code today" do
+      doc = Mix.Tasks.Hearth.Gen.Docs.long_doc()
+      assert doc =~ "Only local file sources generate code today"
+      refute doc =~ "Required for file and URL sources"
+    end
+
+    test "long_doc --list text covers file sources" do
+      doc = Mix.Tasks.Hearth.Gen.Docs.long_doc()
+      refute doc =~ "Non-registry sources"
+      assert doc =~ "mix hearth.gen priv/specs/petstore.yaml --list"
+    end
+
+    test "long_doc pipeline status lists every generated artifact and regen" do
+      doc = Mix.Tasks.Hearth.Gen.Docs.long_doc()
+      assert doc =~ "external integration test"
+      assert doc =~ "pruned spec"
+      assert doc =~ "mix hearth.regen"
     end
 
     test "long_doc registry example uses a real name, not a placeholder" do

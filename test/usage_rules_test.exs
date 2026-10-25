@@ -10,10 +10,6 @@ defmodule Hearth.UsageRulesTest do
   @path "usage-rules.md"
   @content File.read!(@path)
 
-  test "ships at the repo root" do
-    assert File.exists?(@path)
-  end
-
   test "documents the three Mix tasks" do
     assert @content =~ "mix hearth.install"
     assert @content =~ "mix hearth.gen"
@@ -43,5 +39,37 @@ defmodule Hearth.UsageRulesTest do
   test "documents the :external opt-in test tag" do
     assert @content =~ ":external"
     assert @content =~ "mix test --include external"
+  end
+
+  test "says only local spec files generate code today" do
+    assert @content =~ "Only local spec files generate code today"
+    refute @content =~ "HTTP fetcher coming soon"
+  end
+
+  test "setup tells consumers to add igniter, an optional dependency of Hearth" do
+    assert @content =~ ~s({:igniter, "~> 0.5", only: [:dev, :test]})
+  end
+
+  test "shows valid :hearth_domains config syntax" do
+    assert @content =~ "hearth_domains: []"
+    refute @content =~ "hearth_domains, []"
+  end
+
+  test "does not call :hearth_domains 'the registry' (that is the shortcut registry)" do
+    refute @content =~ "The registry — `:hearth_domains`"
+  end
+
+  test "start-over instructions do not assume the default Integrations domain" do
+    refute @content =~ "lib/<app>/integrations/<int>*"
+    refute @content =~ "test/<app>/integrations/<int>*"
+  end
+
+  test "describes --n-operations as the generate-everything bypass" do
+    refute @content =~ "tag-less subset"
+    assert @content =~ "--n-operations"
+  end
+
+  test "warns that owning Layer 2 can desync it from a regenerated Layer 3" do
+    assert @content =~ "out of sync"
   end
 end

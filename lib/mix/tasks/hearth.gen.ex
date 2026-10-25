@@ -15,19 +15,24 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
 
     ## Usage
 
-        mix hearth.gen <source> [--integration <Name>] [--tag <Tag>] [--domain <Name> | --no-domain] [--n-operations <N>] [--refresh] [--yes]
+        mix hearth.gen <source> --integration <Name> [--tag <Tag>] [--domain <Name> | --no-domain] [--n-operations <N>] [--yes]
         mix hearth.gen --list                  # list shortcut names
         mix hearth.gen <name> --list           # list versions for a shortcut
+        mix hearth.gen <file> --list           # list a spec file's tags
 
     ## Source modes
 
-        # Local file
+    Only local file sources generate code today. URL and registry
+    sources are recognized and validated, but generating from them
+    needs the HTTP fetcher, which is coming soon.
+
+        # Local file — generates the integration
         mix hearth.gen priv/specs/petstore.yaml --integration Petstore
 
-        # URL
+        # URL — recognized; generation coming soon
         mix hearth.gen https://example.com/openapi.json --integration Acme
 
-        # Registry shortcut — curated name resolves to a canonical URL
+        # Registry shortcut — resolves to a canonical URL; generation coming soon
         mix hearth.gen stripe
 
     ## Registry shortcuts
@@ -47,8 +52,7 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
     ## Options
 
       * `--integration <Name>` — module name for the generated integration
-        (e.g. `Stripe`, `Acme`). Required for file and URL sources;
-        auto-derived from the registry entry when using a registry name.
+        (e.g. `Stripe`, `Acme`). Required for file sources.
       * `--domain <Name>` — the single namespace segment between your
         app and the integration. Defaults to `Integrations`
         (`MyApp.Integrations.<Name>`); `--domain Billing` overrides it
@@ -56,8 +60,6 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         Hearth does not lock you into `Integrations`.
       * `--no-domain` — drop the namespace segment entirely:
         `MyApp.<Name>`. Takes precedence over `--domain`.
-      * `--refresh` — for URL and registry sources, bypass the on-disk
-        cache and re-fetch the spec. No-op for file sources.
       * `--tag <Tag>` — repeatable. Restrict generation to the named
         OpenAPI tag. `--tag "Customers"` takes every operation under
         that tag; `--tag "Subscriptions:create_sub,list_sub"` narrows
@@ -68,11 +70,13 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         the task halts with a tag-discovery listing instead of
         generating everything. Pass the spec's actual operation count
         to bypass the gate.
-      * `--list` — introspect the registry and exit. Without a source,
-        prints the shortcut names. With a registry shortcut as the
-        source (e.g. `mix hearth.gen stripe --list`), prints the
-        available versions for that shortcut. Non-registry sources
-        produce an error. Install is never run under `--list`.
+      * `--list` — introspect and exit, generating nothing. Without a
+        source, prints the registry shortcut names. With a shortcut
+        (`mix hearth.gen stripe --list`), prints its versions. With a
+        file (`mix hearth.gen priv/specs/petstore.yaml --list`), prints
+        the spec's tags and a ready-to-edit `--tag` command. A URL
+        source errors until the fetcher lands. Install is never run
+        under `--list`.
       * `--yes` — non-interactive mode. Skips the prompt to run
         `mix hearth.install` on a fresh project and accepts any other
         confirmations.
@@ -80,10 +84,12 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
     ## Pipeline status
 
       * Available now (for file sources) — source recognition (URL /
-        file / registry), registry lookup, file-existence validation,
-        install gating, YAML/JSON decode, operation extraction + tag
-        filtering, Layer 1/2/3 generation, a Layer 1 auth test, and
-        Mox + config wiring.
+        file / registry), registry lookup, install gating, YAML/JSON
+        decode, operation extraction + tag filtering, Layer 1/2/3
+        generation, a Layer 1 auth test, an external integration test
+        scaffold, the pruned spec at `priv/hearth/<name>.yaml`, and
+        Mox + config wiring. Update a generated integration with
+        `mix hearth.regen` — `hearth.gen` only creates.
       * Coming soon — on-disk cache and HTTP fetcher (for URL /
         registry sources).
 
@@ -123,7 +129,6 @@ if Code.ensure_loaded?(Igniter) do
           integration: :string,
           domain: :string,
           no_domain: :boolean,
-          refresh: :boolean,
           list: :boolean,
           tag: :keep,
           n_operations: :integer,

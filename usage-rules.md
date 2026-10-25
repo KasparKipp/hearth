@@ -10,7 +10,12 @@ follow the conventions below and the generated code stays clean.
 
 Add to `mix.exs`:
 
-    {:hearth, "~> 0.0", only: [:dev, :test], runtime: false}
+    {:hearth, "~> 0.0", only: [:dev, :test], runtime: false},
+    {:igniter, "~> 0.5", only: [:dev, :test]}
+
+Hearth's tasks run on Igniter, which Hearth declares as an optional
+dependency — without `igniter` in your deps the tasks only print an
+install hint.
 
 `mix hearth.gen` auto-runs `mix hearth.install` on a fresh project
 (formatter import + `:hearth_domains` config). On an already-installed
@@ -18,15 +23,15 @@ project the install step is silent.
 
 ## Generate an integration
 
-    mix hearth.gen <source> --integration <Name>
+    mix hearth.gen <spec-file> --integration <Name>
 
-`<source>` is one of:
+Only local spec files generate code today: `priv/specs/stripe.yaml`
+(`.yaml`, `.yml`, or `.json`). URL sources and registry shortcuts
+(`stripe`, `stripe@latest`) are recognized but do not generate yet —
+they need the HTTP fetcher, which is coming soon.
 
-* a local file path: `priv/specs/stripe.yaml`
-* a URL: `https://example.com/openapi.json` (HTTP fetcher coming soon)
-* a curated registry shortcut: `stripe`, optionally pinned (`stripe@latest`)
-
-`<Name>` is the integration's module name. It becomes:
+`<Name>` is the integration's module name. With the default domain
+it becomes:
 
     <App>.Integrations.<Name>             # Layer 1 (raw Req client)
     <App>.Integrations.<Name>.<Name>Api   # Layer 2 (behaviour + dispatcher)
@@ -43,21 +48,24 @@ Other flags worth knowing:
   (`<App>.<Name>`).
 * `--tag "<Tag>"` (repeatable) — restrict to a tag, optionally with
   a comma-separated operationId list (`--tag "Customers:create,list"`).
-* `--n-operations <N>` — raise the default 25-op gate when
-  generating a tag-less subset of a large spec.
+* `--n-operations <N>` — without `--tag`, a spec with more than 25
+  operations halts with a tag listing. Pass the spec's operation
+  count to generate everything anyway.
+* `mix hearth.gen <spec-file> --list` — print the spec's tags and a
+  ready-to-edit `--tag` command, without generating anything.
 
 `gen` writes five code files (Layer 1/2/3 + auth test + external
 test scaffold), the pruned spec at `priv/hearth/<int>.yaml`, the
-Mox `defmock`, and idempotent config patches.
+Mox `defmock`, and idempotent config patches. Its output lists every
+file it created.
 
 ## `gen` is create-only
 
 `mix hearth.gen` halts if **any** of the integration's generated
 files already exist. **Do not re-run `gen` to update an
 integration** — use `mix hearth.regen` instead. To start over,
-delete every file under `lib/<app>/integrations/<int>*`,
-`test/<app>/integrations/<int>*`, and `priv/hearth/<int>.yaml`,
-then re-run `gen`.
+delete the generated files `gen` listed (the halt message names the
+ones still present) and `priv/hearth/<int>.yaml`, then re-run `gen`.
 
 ## Update an integration with `regen`
 
@@ -110,6 +118,9 @@ The Mox mock is pre-wired:
 
 In a test:
 
+    import Mox
+    alias MyApp.Integrations.Stripe.StripeApi
+
     expect(StripeApi.Mock, :list_customers, fn _opts ->
       {:ok, %Req.Response{status: 200, body: %{"data" => []}}}
     end)
@@ -119,9 +130,9 @@ default. Run live calls with:
 
     mix test --include external
 
-## The registry — `:hearth_domains`
+## Tracked integrations — `:hearth_domains`
 
-`hearth.install` initializes `config :<app>, hearth_domains, []`.
+`hearth.install` initializes `config :<app>, hearth_domains: []`.
 Each `gen` appends the new Layer 2 module. Set the value to `false`
 to opt out of tracking.
 
@@ -133,6 +144,9 @@ to opt out of tracking.
   mock.
 * **Hand-edited a generated file? Add `hearth:owned`** before the
   next `regen`, or your changes will be overwritten.
+* **Owning Layer 2 freezes its callbacks.** `regen` still rewrites
+  Layer 3 from the spec, so the two can fall out of sync when
+  operations change. Own both, or neither.
 * **Edit `priv/hearth/<int>.yaml` to pull spec changes** — not the
   upstream spec path you originally passed to `gen`.
 * **Set the credential** — for an authenticated spec, `gen` wires
