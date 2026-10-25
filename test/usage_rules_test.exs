@@ -43,6 +43,10 @@ defmodule Hearth.UsageRulesTest do
     refute @content =~ "mix hearth.regen <App>"
   end
 
+  test "documents moving an integration with --module" do
+    assert @content =~ "mix hearth.regen stripe --module MyApp.Payments.Stripe"
+  end
+
   test "documents the Mox test seam at <Layer2>.Mock" do
     assert @content =~ "Mox"
     assert @content =~ ".Mock"

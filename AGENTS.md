@@ -394,6 +394,8 @@ lib/
     gen/
       messages.ex              # gen's user-facing text, tag discovery
       patches.ex               # deps, mock, test_helper, config (Igniter-guarded)
+    regen/
+      messages.ex              # regen's user-facing text
     fs/
       ownership.ex             # hearth:owned / hearth:collaborating
       content.ex               # read through Igniter's Rewrite (Igniter-guarded)
@@ -479,7 +481,12 @@ What exists, condensed. The blow-by-blow is in git history.
   takes `base_path` / `source` from `x-hearth` (recomputes if absent; halts if
   a path falls outside the recorded base path), and renders the same
   `Manifest`. Any failure halts the whole run. Refreshes code only — never
-  config or the pruned spec.
+  config or the pruned spec — except under `--module <Layer1>`: exactly one
+  name, module must end in it. It creates the new modules (halts if any
+  exist; the old ones are untouched), rewrites only the `module:` value in the
+  pruned spec (`Meta.replace_module/3`, re-encodes as a fallback), and wires
+  config via `Patches.wire/2` with `replaces:` — the old Layer 2 is swapped
+  for the new one in `:hearth_domains` (in place; appended if absent).
 
 ---
 

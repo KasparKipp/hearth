@@ -168,6 +168,213 @@ defmodule Mix.Tasks.Hearth.RegenTest do
     end
   end
 
+  describe "--module" do
+    @billing_layer1 "lib/test/billing/petstore.ex"
+
+    defp gen_petstore do
+      test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+      |> Igniter.compose_task("hearth.gen", [
+        "priv/specs/petstore.yaml",
+        "--integration",
+        "Petstore"
+      ])
+      |> apply_igniter!()
+    end
+
+    # The :hearth_domains list with whitespace stripped — the formatter
+    # may wrap it.
+    defp hearth_domains(igniter) do
+      [_, list] =
+        Regex.run(~r/hearth_domains:\s*(\[[^\]]*\])/, created_file(igniter, "config/config.exs"))
+
+      String.replace(list, ~r/\s+/, "")
+    end
+
+    defp move_petstore(igniter),
+      do: regen(igniter, ["petstore", "--module", "Test.Billing.Petstore"])
+
+    test "regenerates into the new module and leaves the old one untouched" do
+      igniter = gen_petstore() |> move_petstore()
+
+      assert_creates(igniter, @billing_layer1)
+      assert_creates(igniter, "lib/test/billing/petstore/petstore_api.ex")
+      assert_creates(igniter, "lib/test/billing/petstore/petstore_api/req.ex")
+      assert_creates(igniter, "test/test/billing/petstore_test.exs")
+      assert_creates(igniter, "test/test/billing/petstore_external_test.exs")
+      assert created_file(igniter, @billing_layer1) =~ "defmodule Test.Billing.Petstore do"
+
+      assert_unchanged(igniter, [@layer1, @layer2, @layer3, @external])
+    end
+
+    test "points x-hearth.module at the new module, changing nothing else in the spec" do
+      gen = gen_petstore()
+      {:ok, before} = Rewrite.source(gen.rewrite, "priv/hearth/petstore.yaml")
+      before = Rewrite.Source.get(before, :content)
+
+      after_move = gen |> move_petstore() |> created_file("priv/hearth/petstore.yaml")
+
+      assert after_move ==
+               String.replace(
+                 before,
+                 "module: Test.Integrations.Petstore",
+                 "module: Test.Billing.Petstore"
+               )
+    end
+
+    test "wires the new module's mock and config like gen does" do
+      igniter = gen_petstore() |> move_petstore()
+
+      assert created_file(igniter, "test/support/mocks.ex") =~
+               "Mox.defmock(Test.Billing.Petstore.PetstoreApi.Mock,"
+
+      test_config = created_file(igniter, "config/test.exs")
+      assert test_config =~ "impl: Test.Billing.Petstore.PetstoreApi.Mock"
+      assert test_config =~ "impl: Test.Integrations.Petstore.PetstoreApi.Mock"
+    end
+
+    test "replaces the old Layer 2 in :hearth_domains, in place" do
+      config = """
+      import Config
+      config :test, hearth_domains: [Test.A.AApi, Test.Integrations.Petstore.PetstoreApi, Test.Z.ZApi]
+      """
+
+      igniter =
+        test_project(
+          files: %{"priv/hearth/petstore.yaml" => @petstore_pruned, "config/config.exs" => config}
+        )
+        |> move_petstore()
+
+      assert hearth_domains(igniter) ==
+               "[Test.A.AApi,Test.Billing.Petstore.PetstoreApi,Test.Z.ZApi]"
+    end
+
+    test "appends to :hearth_domains when the old Layer 2 isn't listed" do
+      config = """
+      import Config
+      config :test, hearth_domains: [Test.A.AApi]
+      """
+
+      igniter =
+        test_project(
+          files: %{"priv/hearth/petstore.yaml" => @petstore_pruned, "config/config.exs" => config}
+        )
+        |> move_petstore()
+
+      assert hearth_domains(igniter) == "[Test.A.AApi,Test.Billing.Petstore.PetstoreApi]"
+    end
+
+    test "leaves a false :hearth_domains opt-out alone" do
+      config = """
+      import Config
+      config :test, :hearth_domains, false
+      """
+
+      source =
+        test_project(
+          files: %{"priv/hearth/petstore.yaml" => @petstore_pruned, "config/config.exs" => config}
+        )
+        |> move_petstore()
+        |> created_file("config/config.exs")
+
+      assert source =~ "hearth_domains, false"
+      refute source =~ "PetstoreApi"
+    end
+
+    test "doesn't duplicate a new Layer 2 that is already listed" do
+      config = """
+      import Config
+      config :test,
+        hearth_domains: [Test.Integrations.Petstore.PetstoreApi, Test.Billing.Petstore.PetstoreApi]
+      """
+
+      igniter =
+        test_project(
+          files: %{"priv/hearth/petstore.yaml" => @petstore_pruned, "config/config.exs" => config}
+        )
+        |> move_petstore()
+
+      assert hearth_domains(igniter) == "[Test.Billing.Petstore.PetstoreApi]"
+    end
+
+    test "the notice says the old module was left in place" do
+      notice = gen_petstore() |> move_petstore() |> notice_text()
+
+      assert notice =~ "Test.Integrations.Petstore"
+      assert notice =~ "Test.Billing.Petstore"
+      assert notice =~ @layer1
+    end
+
+    test "a later regen refreshes the new module and is a no-op" do
+      gen_petstore()
+      |> move_petstore()
+      |> apply_igniter!()
+      |> regen()
+      |> assert_unchanged()
+    end
+
+    test "the current module is a plain regen" do
+      gen_petstore()
+      |> regen(["petstore", "--module", "Test.Integrations.Petstore"])
+      |> assert_unchanged()
+    end
+
+    test "halts when the new module's files already exist" do
+      igniter =
+        test_project(
+          files: %{
+            "priv/hearth/petstore.yaml" => @petstore_pruned,
+            @billing_layer1 => "defmodule Test.Billing.Petstore do\nend\n"
+          }
+        )
+        |> move_petstore()
+
+      assert has_issue?(igniter, ["Test.Billing.Petstore already exists", @billing_layer1])
+    end
+
+    test "updates a module written in a form the line edit can't match" do
+      pruned = @petstore_3_0_yaml <> "\nx-hearth: {\"module\": \"Test.Integrations.Petstore\"}\n"
+
+      {:ok, spec} =
+        test_project(files: %{"priv/hearth/petstore.yaml" => pruned})
+        |> move_petstore()
+        |> created_file("priv/hearth/petstore.yaml")
+        |> YamlElixir.read_from_string()
+
+      assert spec["x-hearth"]["module"] == "Test.Billing.Petstore"
+    end
+
+    test "needs exactly one integration" do
+      files = %{
+        "priv/hearth/petstore.yaml" => @petstore_pruned,
+        "priv/hearth/shop.yaml" => @shop_pruned
+      }
+
+      for argv <- [
+            ["petstore,shop", "--module", "Test.Billing.Petstore"],
+            ["--all", "--module", "Test.Billing.Petstore"]
+          ] do
+        igniter = test_project(files: files) |> regen(argv)
+        assert has_issue?(igniter, ["--module", "exactly one integration"])
+      end
+    end
+
+    test "rejects a value that isn't a module name" do
+      igniter =
+        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_pruned})
+        |> regen(["petstore", "--module", "test.billing.petstore"])
+
+      assert has_issue?(igniter, ["--module", "\"test.billing.petstore\""])
+    end
+
+    test "rejects a module that renames the integration" do
+      igniter =
+        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_pruned})
+        |> regen(["petstore", "--module", "Test.Billing.PetstoreV2"])
+
+      assert has_issue?(igniter, ["Test.Billing.PetstoreV2", "must end in Petstore"])
+    end
+  end
+
   describe "x-hearth.module" do
     test "names the Layer 1 module, keeping the domain gen chose" do
       pruned = @petstore_3_0_yaml <> "\nx-hearth:\n  module: Test.Billing.Petstore\n"

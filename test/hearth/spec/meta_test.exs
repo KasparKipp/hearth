@@ -37,4 +37,37 @@ defmodule Hearth.Spec.MetaTest do
       assert Meta.base_path(%{"x-hearth" => "nope"}) == nil
     end
   end
+
+  describe "replace_module/3" do
+    defp replace(yaml),
+      do: Meta.replace_module(yaml, YamlElixir.read_from_string!(yaml), "App.New")
+
+    test "edits only the module value in a block-style x-hearth" do
+      yaml = "# kept\nopenapi: 3.0.0\nx-hearth:\n  base_path: ''\n  module: App.Old\n"
+
+      assert replace(yaml) ==
+               "# kept\nopenapi: 3.0.0\nx-hearth:\n  base_path: ''\n  module: App.New\n"
+    end
+
+    test "keeps flow style and quotes" do
+      assert replace("x-hearth: {module: 'App.Old', source: s.yaml}\n") ==
+               "x-hearth: {module: 'App.New', source: s.yaml}\n"
+    end
+
+    test "leaves a longer module name alone" do
+      yaml = "info: {description: 'module: App.Old.Thing'}\nx-hearth:\n  module: App.Old\n"
+
+      assert replace(yaml) ==
+               "info: {description: 'module: App.Old.Thing'}\nx-hearth:\n  module: App.New\n"
+    end
+
+    test "re-encodes when the value can't be matched exactly once" do
+      yaml = "info: {description: 'module: App.Old'}\nx-hearth:\n  module: App.Old\n"
+
+      assert yaml |> replace() |> YamlElixir.read_from_string!() == %{
+               "info" => %{"description" => "module: App.Old"},
+               "x-hearth" => %{"module" => "App.New"}
+             }
+    end
+  end
 end

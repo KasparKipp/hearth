@@ -82,6 +82,16 @@ versioned source of truth) and re-renders the three layers plus the
 auth test. If any named integration fails, nothing is written. It does **not** re-run config patches or rewrite the
 pruned spec.
 
+To move one integration into a new namespace:
+
+    mix hearth.regen stripe --module MyApp.Payments.Stripe
+
+The module must end in the integration name. `--module` creates the
+new modules (halting if any exist), points `x-hearth.module` at them,
+wires their mock and config, and swaps the old Layer 2 for the new one
+in `:hearth_domains`. The old modules and their other config stay
+untouched — delete them once callers use the new module.
+
 To pull in upstream spec changes, edit `priv/hearth/<int>.yaml` and
 re-run `regen`.
 

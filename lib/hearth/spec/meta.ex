@@ -38,6 +38,20 @@ defmodule Hearth.Spec.Meta do
   @spec module(map()) :: String.t() | nil
   def module(spec), do: string_field(spec, "module")
 
+  # Points `x-hearth.module` at `module` in the pruned spec's YAML
+  # text, editing only that value so hand-edits and formatting
+  # survive. When the current value can't be matched exactly once (an
+  # unusual quoting style), the decoded spec is re-encoded instead.
+  @spec replace_module(String.t(), map(), String.t()) :: String.t()
+  def replace_module(yaml, spec, module) do
+    regex = ~r/(\bmodule:[ \t]*["']?)#{Regex.escape(module(spec) || "")}(?![\w.])/
+
+    case Regex.scan(regex, yaml) do
+      [_] -> Regex.replace(regex, yaml, "\\1#{module}")
+      _ -> spec |> put_in([@key, "module"], module) |> Hearth.Spec.Prune.to_yaml()
+    end
+  end
+
   defp string_field(spec, field) do
     case spec do
       %{@key => %{^field => value}} when is_binary(value) -> value

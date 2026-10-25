@@ -33,7 +33,9 @@ if Code.ensure_loaded?(Igniter) do
     # Applies every host-project patch, in a fixed order (the order
     # determines the layout of the patched config files). `ctx` carries
     # `:otp_app`, `:names` (a `ModuleNames.from_layer1/1` map), `:auth`,
-    # `:servers`, and `:prefix`.
+    # `:servers`, and `:prefix`. An optional `:replaces` (the Layer 2
+    # module of the integration being moved by `regen --module`) is
+    # swapped out of `:hearth_domains` for the new one.
     @spec wire(Igniter.t(), map()) :: Igniter.t()
     def wire(igniter, ctx) do
       %{otp_app: otp_app, names: names, auth: auth, servers: servers, prefix: prefix} = ctx
@@ -44,7 +46,7 @@ if Code.ensure_loaded?(Igniter) do
       |> patch_credential_config(otp_app, names.layer1, names.integration, auth)
       |> patch_impl_config(otp_app, names.layer2, names.mock)
       |> patch_base_url_config(otp_app, names.layer1, servers, prefix)
-      |> patch_hearth_domains(otp_app, names.layer2)
+      |> patch_hearth_domains(otp_app, names.layer2, ctx[:replaces])
       |> patch_base_url_alternates(otp_app, names.layer1, servers, prefix)
       |> warn_servers(otp_app, names.layer1, servers)
     end
@@ -237,7 +239,9 @@ if Code.ensure_loaded?(Igniter) do
     # Appends the Layer 2 module to `:hearth_domains`. `append_new_to_list`
     # is idempotent, and returns `:error` (→ no-op) when the value is not
     # a list — so an explicit `false` opt-out is left untouched.
-    defp patch_hearth_domains(igniter, otp_app, layer2) do
+    defp patch_hearth_domains(igniter, otp_app, layer2, replaces) do
+      new = Sourceror.parse_string!(inspect(layer2))
+
       Igniter.Project.Config.configure(
         igniter,
         "config.exs",
@@ -245,9 +249,25 @@ if Code.ensure_loaded?(Igniter) do
         [:hearth_domains],
         {:code, Sourceror.parse_string!("[#{inspect(layer2)}]")},
         updater: fn zipper ->
-          Igniter.Code.List.append_new_to_list(zipper, Sourceror.parse_string!(inspect(layer2)))
+          with {:ok, zipper} <- drop_replaced(zipper, replaces, new) do
+            Igniter.Code.List.append_new_to_list(zipper, new)
+          end
         end
       )
+    end
+
+    # The moved integration's old Layer 2 takes the new one's place in
+    # the list — or is just removed when the new one is already listed.
+    # Not listed: the new one is appended.
+    defp drop_replaced(zipper, nil, _new), do: {:ok, zipper}
+
+    defp drop_replaced(zipper, replaces, new) do
+      old? = &Igniter.Code.Common.nodes_equal?(&1, Sourceror.parse_string!(inspect(replaces)))
+      new? = &Igniter.Code.Common.nodes_equal?(&1, new)
+
+      if Igniter.Code.List.find_list_item_index(zipper, new?),
+        do: Igniter.Code.List.remove_from_list(zipper, old?),
+        else: Igniter.Code.List.replace_in_list(zipper, old?, new)
     end
 
     def wired_files(auth) do

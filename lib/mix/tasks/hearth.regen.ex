@@ -17,6 +17,7 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
 
         mix hearth.regen <integration>[,<integration>...] [--yes]
         mix hearth.regen --all [--yes]
+        mix hearth.regen <integration> --module <Layer1Module> [--yes]
 
     `<integration>` is the name the integration was generated with
     (`mix hearth.gen … --integration Stripe`). `stripe` and `Stripe`
@@ -31,6 +32,17 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
     scaffold — it is never overwritten.
 
     If any named integration can't be regenerated, nothing is written.
+
+    ## Moving an integration
+
+    `--module` regenerates exactly one integration into a new
+    namespace — `mix hearth.regen stripe --module MyApp.Payments.Stripe`.
+    The module must end in the integration name. It creates the new
+    modules (halting if any exist), points `x-hearth.module` at them,
+    and wires the new mock and config like `mix hearth.gen` — swapping
+    the old Layer 2 for the new one in `:hearth_domains`. The old
+    modules and their other config are left untouched: delete them
+    once callers have switched.
 
     ## Ownership tokens
 
@@ -48,6 +60,8 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
     ## Options
 
       * `--all` — regenerate every integration under `priv/hearth/`.
+      * `--module <Layer1Module>` — move one integration into a new
+        namespace (see above).
       * `--yes` — non-interactive: accept every `hearth:collaborating`
         prompt.
     """
@@ -64,7 +78,9 @@ if Code.ensure_loaded?(Igniter) do
 
     alias Hearth.Fs.Content
     alias Hearth.Fs.Ownership
+    alias Hearth.Gen.Patches
     alias Hearth.Integration.Manifest
+    alias Hearth.Regen.Messages
     alias Hearth.Render.ModuleNames
     alias Hearth.Spec.Auth
     alias Hearth.Spec.BasePath
@@ -79,7 +95,7 @@ if Code.ensure_loaded?(Igniter) do
     def info(_argv, _composing_task) do
       %Igniter.Mix.Task.Info{
         group: :hearth,
-        schema: [all: :boolean, yes: :boolean],
+        schema: [all: :boolean, module: :string, yes: :boolean],
         # Optional so a bare `mix hearth.regen` halts with a
         # task-specific message rather than Igniter's generic error.
         positional: [{:integrations, optional: true}],
@@ -90,8 +106,10 @@ if Code.ensure_loaded?(Igniter) do
 
     @impl Igniter.Mix.Task
     def igniter(igniter) do
-      case spec_paths(igniter) do
-        {:ok, igniter, paths} -> Enum.reduce(paths, igniter, &regen(&2, &1))
+      with {:ok, igniter, paths} <- spec_paths(igniter),
+           {:ok, target} <- target_module(igniter, paths) do
+        Enum.reduce(paths, igniter, &regen(&2, &1, target))
+      else
         {:error, message} -> Igniter.add_issue(igniter, message)
       end
     end
@@ -101,8 +119,8 @@ if Code.ensure_loaded?(Igniter) do
     defp spec_paths(igniter) do
       case {igniter.args.positional[:integrations], igniter.args.options[:all]} do
         {nil, true} -> all_spec_paths(igniter)
-        {nil, _} -> {:error, missing_integration_message()}
-        {_names, true} -> {:error, names_and_all_message()}
+        {nil, _} -> {:error, Messages.missing_integration_message()}
+        {_names, true} -> {:error, Messages.names_and_all_message()}
         {names, _} -> named_spec_paths(igniter, names)
       end
     end
@@ -117,7 +135,7 @@ if Code.ensure_loaded?(Igniter) do
         |> Enum.sort()
 
       case paths do
-        [] -> {:error, no_specs_message()}
+        [] -> {:error, Messages.no_specs_message()}
         paths -> {:ok, igniter, paths}
       end
     end
@@ -131,30 +149,66 @@ if Code.ensure_loaded?(Igniter) do
 
       case {names, Enum.reject(names, &ModuleNames.valid_segment?/1)} do
         {[], _} ->
-          {:error, missing_integration_message()}
+          {:error, Messages.missing_integration_message()}
 
         {names, []} ->
           paths = Enum.map(names, &Manifest.pruned_spec_path(Macro.camelize(&1)))
           {:ok, igniter, Enum.uniq(paths)}
 
         {_names, bad} ->
-          {:error, bad_names_message(bad)}
+          {:error, Messages.bad_names_message(bad)}
       end
     end
 
-    defp regen(igniter, spec_path) do
+    # `--module` moves exactly one integration into a new namespace. The
+    # last segment must stay the integration name, so the pruned spec
+    # path and every derived module name stay consistent.
+    defp target_module(igniter, paths) do
+      module = igniter.args.options[:module]
+
+      cond do
+        is_nil(module) ->
+          {:ok, nil}
+
+        igniter.args.options[:all] || length(paths) != 1 ->
+          {:error, Messages.module_needs_one_message()}
+
+        true ->
+          parse_target(module, hd(paths))
+      end
+    end
+
+    defp parse_target(value, spec_path) do
+      integration = spec_path |> Path.basename(".yaml") |> Macro.camelize()
+
+      with {:ok, module} <- ModuleNames.parse(value),
+           true <- List.last(Module.split(module)) == integration do
+        {:ok, module}
+      else
+        :error -> {:error, Messages.bad_target_message(value)}
+        false -> {:error, Messages.target_rename_message(value, integration)}
+      end
+    end
+
+    defp regen(igniter, spec_path, target) do
       with true <- Igniter.exists?(igniter, spec_path) or :missing,
            igniter = Igniter.include_existing_file(igniter, spec_path),
            {:ok, bytes} <- Content.read(igniter, spec_path),
            {:ok, spec} <- Loader.decode(bytes, :yaml),
            {:ok, layer1} <- layer1(spec) do
-        render(igniter, ModuleNames.from_layer1(layer1), spec_path, spec)
+        names = ModuleNames.from_layer1(layer1)
+
+        if target in [nil, layer1] do
+          render(igniter, names, spec_path, spec)
+        else
+          move(igniter, names, ModuleNames.from_layer1(target), {spec_path, bytes, spec})
+        end
       else
         :missing ->
-          Igniter.add_issue(igniter, missing_spec_message(spec_path))
+          Igniter.add_issue(igniter, Messages.missing_spec_message(spec_path))
 
         {:bad_module, value} ->
-          Igniter.add_issue(igniter, bad_module_message(spec_path, value))
+          Igniter.add_issue(igniter, Messages.bad_module_message(spec_path, value))
 
         {:error, reason} ->
           Igniter.add_issue(
@@ -173,6 +227,48 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
+    # `--module`: render the integration into the new module, point the
+    # pruned spec at it, and wire its mock and config the way `gen`
+    # does. Like `gen`, it only creates. The old module's files and
+    # config are left in place for the user to remove once callers
+    # have switched.
+    defp move(igniter, old, new, {spec_path, bytes, spec}) do
+      case existing_files(igniter, new) do
+        [] ->
+          yaml = Meta.replace_module(bytes, spec, inspect(new.layer1))
+
+          igniter
+          |> render(new, spec_path, spec)
+          |> Igniter.create_new_file(spec_path, yaml, on_exists: :overwrite)
+          |> Patches.wire(Map.put(wiring(igniter, new, spec), :replaces, old.layer2))
+          |> Igniter.add_notice(
+            Messages.moved_notice(old, new, spec_path, existing_files(igniter, old))
+          )
+
+        existing ->
+          Igniter.add_issue(igniter, Messages.target_exists_message(new.layer1, existing))
+      end
+    end
+
+    defp existing_files(igniter, names) do
+      names
+      |> Manifest.modules()
+      |> Enum.map(fn {module, kind} ->
+        Igniter.Project.Module.proper_location(igniter, module, kind)
+      end)
+      |> Enum.filter(&Igniter.exists?(igniter, &1))
+    end
+
+    defp wiring(igniter, names, spec) do
+      %{
+        otp_app: Igniter.Project.Application.app_name(igniter),
+        names: names,
+        auth: Auth.strategy(spec),
+        servers: Servers.resolve(spec),
+        prefix: prefix(spec, Operation.extract(spec))
+      }
+    end
+
     # The base path comes from the pruned spec's `x-hearth` block — the
     # prefix `gen` folded into Layer 1 and `config/test.exs`. Recomputing
     # it from the pruned subset can yield a longer prefix and desync
@@ -181,14 +277,19 @@ if Code.ensure_loaded?(Igniter) do
     # halt then, rather than strip the wrong segments.
     defp render(igniter, names, spec_path, spec) do
       operations = Operation.extract(spec)
-      prefix = Meta.base_path(spec) || BasePath.common_prefix(operations)
+      prefix = prefix(spec, operations)
 
       if BasePath.prefix_of_all?(operations, prefix) do
         render_layers(igniter, names, spec_path, spec, operations, prefix)
       else
-        Igniter.add_issue(igniter, base_path_mismatch_message(spec_path, prefix, operations))
+        Igniter.add_issue(
+          igniter,
+          Messages.base_path_mismatch_message(spec_path, prefix, operations)
+        )
       end
     end
+
+    defp prefix(spec, operations), do: Meta.base_path(spec) || BasePath.common_prefix(operations)
 
     defp render_layers(igniter, names, spec_path, spec, operations, prefix) do
       otp_app = Igniter.Project.Application.app_name(igniter)
@@ -215,7 +316,7 @@ if Code.ensure_loaded?(Igniter) do
           {acc, [result | results]}
         end)
 
-      Igniter.add_notice(igniter, regen_notice(names, spec_path, Enum.reverse(results)))
+      Igniter.add_notice(igniter, Messages.regen_notice(names, spec_path, Enum.reverse(results)))
     end
 
     defp regen_file(igniter, %{module: module, content: content, kind: kind, policy: :scaffold}) do
@@ -282,119 +383,8 @@ if Code.ensure_loaded?(Igniter) do
       Manifest.metadata(Meta.source(spec) || spec_path, spec)
     end
 
-    defp regen_notice(names, spec_path, results) do
-      lines =
-        Enum.map_join(results, "\n", fn {location, action} -> result_line(action, location) end)
-
-      """
-      Regenerated #{inspect(names.layer1)} from #{spec_path}.
-
-      #{lines}
-
-      Files with no ownership token are overwritten; `hearth:owned`
-      files are skipped. Edit the pruned spec and re-run to pull in
-      upstream changes.
-      """
-    end
-
-    defp result_line(:regenerated, location), do: "* regenerating #{location}"
-    defp result_line(:created, location), do: "* creating #{location}"
-    defp result_line(:owned, location), do: "* skipping #{location} (hearth:owned)"
-
-    defp result_line(:declined, location),
-      do: "* skipping #{location} (hearth:collaborating, declined)"
-
-    defp result_line(:kept, location), do: "* keeping #{location} (user-owned scaffold)"
-
-    defp result_line(:unreadable, location),
-      do: "* skipping #{location} (could not read it to check its ownership token)"
-
     defp format_reason(%{__exception__: true} = ex), do: Exception.message(ex)
     defp format_reason(reason), do: inspect(reason)
-
-    defp missing_integration_message do
-      """
-      hearth.regen: name the integrations to regenerate, or pass --all.
-
-        mix hearth.regen stripe
-        mix hearth.regen stripe,send_grid
-        mix hearth.regen --all
-
-      An integration's name is the `--integration` it was generated
-      with; its pruned spec lives at #{@spec_dir}/<name>.yaml.
-      """
-    end
-
-    defp names_and_all_message do
-      """
-      hearth.regen: pass integration names or --all, not both.
-      """
-    end
-
-    defp no_specs_message do
-      """
-      hearth.regen: no pruned specs under #{@spec_dir}/ to regenerate.
-
-      `mix hearth.gen` writes one per integration.
-      """
-    end
-
-    defp bad_names_message(bad) do
-      names = Enum.map_join(bad, ", ", &inspect/1)
-
-      """
-      hearth.regen: #{names} is not an integration name.
-
-      Use the name the integration was generated with — a single
-      alias segment, e.g. `stripe` or `SendGrid` — not its module.
-      Separate several names with commas.
-      """
-    end
-
-    defp bad_module_message(spec_path, value) do
-      found = if value, do: " (found #{inspect(value)})", else: ""
-
-      """
-      hearth.regen: #{spec_path} has no valid `x-hearth.module`#{found}.
-
-      It must name the integration's Layer 1 module — the raw client
-      `mix hearth.gen` created — so every other layer can be derived:
-
-        x-hearth:
-          module: MyApp.Integrations.Stripe
-      """
-    end
-
-    defp base_path_mismatch_message(spec_path, prefix, operations) do
-      outside =
-        operations
-        |> Enum.reject(&BasePath.prefix_of_all?([&1], prefix))
-        |> Enum.map_join("\n", &"  * #{&1.path}")
-
-      """
-      hearth.regen: #{spec_path} has paths outside its recorded base path #{prefix}:
-
-      #{outside}
-
-      The base path is folded into the generated client's base URL and
-      into `config/test.exs`. Either move these paths under #{prefix},
-      or lower `x-hearth.base_path` in #{spec_path} to a prefix every
-      path shares — and update the `base_url` config to match.
-      """
-    end
-
-    defp missing_spec_message(spec_path) do
-      integration = spec_path |> Path.basename(".yaml") |> Macro.camelize()
-
-      """
-      hearth.regen: no pruned spec for #{integration} at #{spec_path}.
-
-      `mix hearth.regen` regenerates from the pruned spec that
-      `mix hearth.gen` writes. Generate the integration first:
-
-        mix hearth.gen <source> --integration #{integration}
-      """
-    end
   end
 else
   defmodule Mix.Tasks.Hearth.Regen do
