@@ -5,7 +5,8 @@
     tictactoe: [
       module: Test.Integrations.Tictactoe,
       source: "priv/specs/tictactoe-3.1.yaml",
-      base_path: ""
+      base_path: "",
+      tags: [Gameplay: :all]
     ]
   ]
 ]

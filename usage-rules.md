@@ -113,7 +113,12 @@ keyed by its snake_case name:
         stripe: [
           module: MyApp.Integrations.Stripe,
           source: "priv/specs/stripe.yaml",
-          base_path: "/v1"
+          base_path: "/v1",
+          tags: [
+            Customers: [include: ["GetCustomers"], exclude: ["DeleteCustomersCustomer"]],
+            Subscriptions: :all,
+            Invoices: :none
+          ]
         ]
       ]
     ]
@@ -124,6 +129,9 @@ keyed by its snake_case name:
 * `base_path` — the path prefix `gen` folded into the client's base
   URL. A new path in the pruned spec must sit under it — `regen` halts
   otherwise.
+* `tags` — every tag in the source spec and what `gen` selected from
+  it: `:all`, `:none`, or `include:` / `exclude:` lists of
+  operationIds. Operations without a tag go under `untagged:`.
 
 Commit it alongside `priv/hearth/`. The pruned spec itself is plain
 OpenAPI.

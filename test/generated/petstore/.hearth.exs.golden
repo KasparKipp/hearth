@@ -5,7 +5,8 @@
     petstore: [
       module: Test.Integrations.Petstore,
       source: "priv/specs/petstore-3.0.yaml",
-      base_path: ""
+      base_path: "",
+      tags: [pets: :all]
     ]
   ]
 ]

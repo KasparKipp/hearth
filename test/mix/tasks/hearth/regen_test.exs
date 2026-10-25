@@ -561,7 +561,8 @@ defmodule Mix.Tasks.Hearth.RegenTest do
       assert entry == [
                module: Test.Integrations.Shop,
                source: "priv/specs/shop.json",
-               base_path: "/v1"
+               base_path: "/v1",
+               tags: [Customers: :all, Orders: :none]
              ]
 
       refute created_file(igniter, "priv/hearth/shop.yaml") =~ "x-hearth"

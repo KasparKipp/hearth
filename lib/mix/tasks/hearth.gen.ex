@@ -432,13 +432,16 @@ if Code.ensure_loaded?(Igniter) do
       # The pruned spec is built from `selected` *before* the path
       # prefix is stripped — it must match the spec's original `paths`
       # keys. The `.hearth.exs` entry records the module, source and
-      # prefix so `regen` reproduces them rather than recomputing.
+      # prefix so `regen` reproduces them rather than recomputing, and
+      # which tags and operations were selected and which left out.
       pruned_spec_yaml =
         spec
         |> Hearth.Spec.Prune.prune(selected)
         |> Hearth.Spec.Prune.to_yaml()
 
-      entry = [module: names.layer1, source: path, base_path: prefix]
+      entry =
+        [module: names.layer1, source: path, base_path: prefix] ++
+          Hearth.Spec.Selection.describe(operations, selected)
 
       selected = BasePath.strip(selected, prefix)
       pruned_spec_path = Manifest.pruned_spec_path(names.integration)

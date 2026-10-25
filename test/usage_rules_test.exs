@@ -36,6 +36,8 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ ".hearth.exs"
     assert @content =~ "base_path"
     assert @content =~ "`module`"
+    assert @content =~ "`tags`"
+    assert @content =~ "untagged:"
     refute @content =~ "x-hearth"
   end
 

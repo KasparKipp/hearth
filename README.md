@@ -30,7 +30,7 @@ and idempotent config patches:
 | `….PetstoreApi.Mock`              | Mox mock, wired in `config/test.exs`                        |
 | `PetstoreTest`, `PetstoreExternalTest` | `Req.Test` auth test; opt-in `:external` live-API tests |
 | `priv/hearth/petstore.yaml`       | the spec pruned to your operations — regen's source of truth |
-| `.hearth.exs`                     | one entry per integration: its module, source and base path |
+| `.hearth.exs`                     | one entry per integration: module, source, base path, and the tags and operations selected |
 
 ## Installation
 

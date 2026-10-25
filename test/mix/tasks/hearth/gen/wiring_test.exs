@@ -303,8 +303,30 @@ defmodule Mix.Tasks.Hearth.Gen.WiringTest do
       assert entry == [
                module: Test.Billing.PetStore,
                source: "priv/specs/petstore.yaml",
-               base_path: ""
+               base_path: "",
+               tags: [pets: :all]
              ]
+    end
+
+    test "records which tags and operations --tag included, and which it left out" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore",
+          "--tag",
+          "pets:listPets"
+        ])
+
+      content = created_file(igniter, ".hearth.exs")
+      assert {:ok, [petstore: entry]} = Hearth.Config.parse(content)
+
+      assert entry[:tags] == [
+               pets: [include: ["listPets"], exclude: ["createPets", "showPetById"]]
+             ]
+
+      assert content =~ ~s|include: ["listPets"]|
     end
 
     test "keeps the project's other entries" do

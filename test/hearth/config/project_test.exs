@@ -85,6 +85,20 @@ defmodule Hearth.Config.ProjectTest do
     end
   end
 
+  describe "put_integration/3 with a selection" do
+    test "writes tag names that aren't plain atoms as quoted keys" do
+      tags = [
+        "Customer Accounts": [include: ["listAccounts"], exclude: ["deleteAccount"]],
+        pets: :all
+      ]
+
+      igniter = Project.put_integration(test_project(), :stripe, @stripe ++ [tags: tags])
+
+      assert content(igniter) =~ ~s|"Customer Accounts": [|
+      assert integrations(igniter) == [stripe: @stripe ++ [tags: tags]]
+    end
+  end
+
   describe "put_module/3" do
     test "changes only the entry's module" do
       igniter =

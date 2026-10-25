@@ -379,6 +379,7 @@ lib/
       servers.ex               # servers → default / test base URLs
       base_path.ex             # shared path prefix (stops at templated segments)
       prune.ex                 # spec → pruned spec + YAML encoding
+      selection.ex             # the tags / operations gen selected, for .hearth.exs
     render/                    # pure: data → source strings
       module_names.ex          # every layer's module from Layer 1
       layer1.ex  layer2.ex  layer3.ex
@@ -482,7 +483,11 @@ What exists, condensed. The blow-by-blow is in git history.
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
   with conventional top-level key order. Plain OpenAPI — no Hearth block.
 - **`.hearth.exs`** — `[integrations: [<snake_name>: [module:, source:,
-  base_path:]]]`, evaluated like `.formatter.exs` (`Hearth.Config.parse/1`).
+  base_path:, tags:]]]`, evaluated like `.formatter.exs` (`Hearth.Config.parse/1`).
+  `tags:` (`Hearth.Spec.Selection.describe/2`) lists every tag in the source
+  spec in first-seen order as `:all`, `:none` or `include:` / `exclude:`
+  operationId lists; untagged operations go under `untagged:` (omitted when
+  there are none). Recorded for drift checks; regen doesn't read it yet.
   gen writes the entry (`Hearth.Config.Project.put_integration/3`, created
   from a template when missing); writes are Sourceror keyword edits that keep
   the user's comments and other entries.
