@@ -283,6 +283,61 @@ defmodule Mix.Tasks.Hearth.Gen.WiringTest do
     end
   end
 
+  describe ".hearth.exs entry" do
+    test "records the module, source and base path under the integration's key" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "PetStore",
+          "--domain",
+          "Billing"
+        ])
+
+      assert_creates(igniter, ".hearth.exs")
+
+      assert {:ok, [pet_store: entry]} =
+               igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
+
+      assert entry == [
+               module: Test.Billing.PetStore,
+               source: "priv/specs/petstore.yaml",
+               base_path: ""
+             ]
+    end
+
+    test "keeps the project's other entries" do
+      igniter =
+        test_project(
+          files: %{
+            "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
+            ".hearth.exs" => "[integrations: [stripe: [module: Test.Integrations.Stripe]]]"
+          }
+        )
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert {:ok, [stripe: _, petstore: _]} =
+               igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
+    end
+
+    test "the notice lists .hearth.exs" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert notice_text(igniter) =~ ".hearth.exs"
+    end
+  end
+
   describe "create-only — gen never overwrites" do
     test "halts when the integration's Layer 1 module already exists" do
       igniter =

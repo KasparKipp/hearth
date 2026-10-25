@@ -21,14 +21,16 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
 
     `<integration>` is the name the integration was generated with
     (`mix hearth.gen … --integration Stripe`). `stripe` and `Stripe`
-    both read `priv/hearth/stripe.yaml`. Separate several names with
-    commas. `--all` regenerates every pruned spec under
-    `priv/hearth/`. With neither, the task halts.
+    both name the `stripe:` entry in `.hearth.exs` and read
+    `priv/hearth/stripe.yaml`. Separate several names with commas.
+    `--all` regenerates every integration in `.hearth.exs`. With
+    neither, the task halts.
 
     Regeneration reads the integration's pruned spec (written by
     `mix hearth.gen`) and re-renders the three layers and the auth
-    test. The spec's `x-hearth.module` names the Layer 1 module; every
-    other layer is derived from it. The external test is a user-owned
+    test. The `.hearth.exs` entry's `module:` names the Layer 1
+    module; every other layer is derived from it. Its `base_path:`
+    and `source:` reproduce what `gen` chose. The external test is a user-owned
     scaffold — it is never overwritten.
 
     If any named integration can't be regenerated, nothing is written.
@@ -38,8 +40,8 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
     `--module` regenerates exactly one integration into a new
     namespace — `mix hearth.regen stripe --module MyApp.Payments.Stripe`.
     The module must end in the integration name. It creates the new
-    modules (halting if any exist), points `x-hearth.module` at them,
-    and wires the new mock and config like `mix hearth.gen`. The old
+    modules (halting if any exist), points the `.hearth.exs` entry at
+    them, and wires the new mock and config like `mix hearth.gen`. The old
     modules and their config are left untouched: delete them once
     callers have switched.
 
@@ -64,7 +66,7 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
 
     ## Options
 
-      * `--all` — regenerate every integration under `priv/hearth/`.
+      * `--all` — regenerate every integration in `.hearth.exs`.
       * `--module <Layer1Module>` — move one integration into a new
         namespace (see above).
       * `--remove-old` — with `--module`, remove the old module too.
@@ -82,6 +84,8 @@ if Code.ensure_loaded?(Igniter) do
 
     use Igniter.Mix.Task
 
+    alias Hearth.Config
+    alias Hearth.Config.Project
     alias Hearth.Fs.Content
     alias Hearth.Fs.Ownership
     alias Hearth.Integration.Manifest
@@ -91,11 +95,8 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Spec.Auth
     alias Hearth.Spec.BasePath
     alias Hearth.Spec.Loader
-    alias Hearth.Spec.Meta
     alias Hearth.Spec.Operation
     alias Hearth.Spec.Servers
-
-    @spec_dir "priv/hearth"
 
     @impl Igniter.Mix.Task
     def info(_argv, _composing_task) do
@@ -112,64 +113,58 @@ if Code.ensure_loaded?(Igniter) do
 
     @impl Igniter.Mix.Task
     def igniter(igniter) do
-      with {:ok, igniter, paths} <- spec_paths(igniter),
-           {:ok, target} <- target_module(igniter, paths) do
-        Enum.reduce(paths, igniter, &regen(&2, &1, target))
+      with {:ok, igniter, integrations} <- Project.read(igniter),
+           {:ok, selected} <- select(igniter, integrations),
+           {:ok, target} <- target_module(igniter, selected) do
+        Enum.reduce(selected, igniter, &regen(&2, &1, target))
       else
         {:error, message} -> Igniter.add_issue(igniter, message)
       end
     end
 
-    # `--all` → every pruned spec under `priv/hearth/`; otherwise the
-    # comma-separated integration names, each mapped to its pruned spec.
-    defp spec_paths(igniter) do
+    # `--all` → every integration in `.hearth.exs`; otherwise the
+    # comma-separated names, each of which must have an entry. Returns
+    # `{key, entry}` pairs.
+    defp select(igniter, integrations) do
       case {igniter.args.positional[:integrations], igniter.args.options[:all]} do
-        {nil, true} -> all_spec_paths(igniter)
+        {nil, true} -> all(integrations)
         {nil, _} -> {:error, Messages.missing_integration_message()}
         {_names, true} -> {:error, Messages.names_and_all_message()}
-        {names, _} -> named_spec_paths(igniter, names)
+        {names, _} -> named(integrations, names)
       end
     end
 
-    defp all_spec_paths(igniter) do
-      igniter = Igniter.include_glob(igniter, Path.join(@spec_dir, "*.yaml"))
+    defp all([]), do: {:error, Messages.no_integrations_message()}
+    defp all(integrations), do: {:ok, integrations}
 
-      paths =
-        igniter.rewrite
-        |> Rewrite.paths()
-        |> Enum.filter(&(Path.dirname(&1) == @spec_dir and Path.extname(&1) == ".yaml"))
-        |> Enum.sort()
-
-      case paths do
-        [] -> {:error, Messages.no_specs_message()}
-        paths -> {:ok, igniter, paths}
-      end
-    end
-
-    defp named_spec_paths(igniter, arg) do
+    defp named(integrations, arg) do
       names =
         arg
         |> String.split(",")
         |> Enum.map(&String.trim/1)
         |> Enum.reject(&(&1 == ""))
 
-      case {names, Enum.reject(names, &ModuleNames.valid_segment?/1)} do
-        {[], _} ->
+      cond do
+        names == [] ->
           {:error, Messages.missing_integration_message()}
 
-        {names, []} ->
-          paths = Enum.map(names, &Manifest.pruned_spec_path(Macro.camelize(&1)))
-          {:ok, igniter, Enum.uniq(paths)}
-
-        {_names, bad} ->
+        (bad = Enum.reject(names, &ModuleNames.valid_segment?/1)) != [] ->
           {:error, Messages.bad_names_message(bad)}
+
+        true ->
+          keys = names |> Enum.map(&Config.key/1) |> Enum.uniq()
+
+          case Enum.reject(keys, &Keyword.has_key?(integrations, &1)) do
+            [] -> {:ok, Enum.map(keys, &{&1, Keyword.fetch!(integrations, &1)})}
+            missing -> {:error, Messages.missing_entry_message(missing)}
+          end
       end
     end
 
     # `--module` moves exactly one integration into a new namespace. The
     # last segment must stay the integration name, so the pruned spec
     # path and every derived module name stay consistent.
-    defp target_module(igniter, paths) do
+    defp target_module(igniter, selected) do
       module = igniter.args.options[:module]
 
       cond do
@@ -179,16 +174,17 @@ if Code.ensure_loaded?(Igniter) do
         is_nil(module) ->
           {:ok, nil}
 
-        igniter.args.options[:all] || length(paths) != 1 ->
+        igniter.args.options[:all] || length(selected) != 1 ->
           {:error, Messages.module_needs_one_message()}
 
         true ->
-          parse_target(module, hd(paths))
+          [{key, _entry}] = selected
+          parse_target(module, key)
       end
     end
 
-    defp parse_target(value, spec_path) do
-      integration = spec_path |> Path.basename(".yaml") |> Macro.camelize()
+    defp parse_target(value, key) do
+      integration = key |> Atom.to_string() |> Macro.camelize()
 
       with {:ok, module} <- ModuleNames.parse(value),
            true <- List.last(Module.split(module)) == integration do
@@ -199,12 +195,14 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp regen(igniter, spec_path, target) do
-      with true <- Igniter.exists?(igniter, spec_path) or :missing,
+    defp regen(igniter, {key, entry}, target) do
+      spec_path = key |> Atom.to_string() |> Macro.camelize() |> Manifest.pruned_spec_path()
+
+      with {:ok, layer1} <- layer1(entry),
+           true <- Igniter.exists?(igniter, spec_path) or :missing,
            igniter = Igniter.include_existing_file(igniter, spec_path),
            {:ok, bytes} <- Content.read(igniter, spec_path),
-           {:ok, spec} <- Loader.decode(bytes, :yaml),
-           {:ok, layer1} <- layer1(spec) do
+           {:ok, spec} <- Loader.decode(bytes, :yaml) do
         names = ModuleNames.from_layer1(layer1)
 
         cond do
@@ -212,17 +210,15 @@ if Code.ensure_loaded?(Igniter) do
             Igniter.add_issue(igniter, Messages.remove_old_needs_module_message())
 
           target in [nil, layer1] ->
-            render(igniter, names, spec_path, spec)
+            render(igniter, names, spec_path, spec, entry)
 
           true ->
             new = ModuleNames.from_layer1(target)
 
             Move.run(igniter, names, new, %{
-              spec_path: spec_path,
-              bytes: bytes,
-              spec: spec,
-              render: &render(&1, new, spec_path, spec),
-              wiring: wiring(igniter, new, spec)
+              key: key,
+              render: &render(&1, new, spec_path, spec, entry),
+              wiring: wiring(igniter, new, spec, entry)
             })
         end
       else
@@ -230,7 +226,7 @@ if Code.ensure_loaded?(Igniter) do
           Igniter.add_issue(igniter, Messages.missing_spec_message(spec_path))
 
         {:bad_module, value} ->
-          Igniter.add_issue(igniter, Messages.bad_module_message(spec_path, value))
+          Igniter.add_issue(igniter, Messages.bad_module_message(key, value))
 
         {:error, reason} ->
           Igniter.add_issue(
@@ -240,37 +236,35 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp layer1(spec) do
-      value = Meta.module(spec)
-
-      case ModuleNames.parse(value) do
+    defp layer1(entry) do
+      case Config.module(entry) do
         {:ok, layer1} -> {:ok, layer1}
-        :error -> {:bad_module, value}
+        {:error, value} -> {:bad_module, value}
       end
     end
 
-    defp wiring(igniter, names, spec) do
+    defp wiring(igniter, names, spec, entry) do
       %{
         otp_app: Igniter.Project.Application.app_name(igniter),
         names: names,
         auth: Auth.strategy(spec),
         servers: Servers.resolve(spec),
-        prefix: prefix(spec, Operation.extract(spec))
+        prefix: prefix(entry, Operation.extract(spec))
       }
     end
 
-    # The base path comes from the pruned spec's `x-hearth` block — the
-    # prefix `gen` folded into Layer 1 and `config/test.exs`. Recomputing
-    # it from the pruned subset can yield a longer prefix and desync
-    # from that config; it is only the fallback for a spec without the
-    # block. A hand-edit can add a path outside the recorded prefix —
-    # halt then, rather than strip the wrong segments.
-    defp render(igniter, names, spec_path, spec) do
+    # The base path comes from the `.hearth.exs` entry — the prefix
+    # `gen` folded into Layer 1 and `config/test.exs`. Recomputing it
+    # from the pruned subset can yield a longer prefix and desync from
+    # that config; it is only the fallback for an entry without one. A
+    # hand-edit can add a path outside the recorded prefix — halt then,
+    # rather than strip the wrong segments.
+    defp render(igniter, names, spec_path, spec, entry) do
       operations = Operation.extract(spec)
-      prefix = prefix(spec, operations)
+      prefix = prefix(entry, operations)
 
       if BasePath.prefix_of_all?(operations, prefix) do
-        render_layers(igniter, names, spec_path, spec, operations, prefix)
+        render_layers(igniter, names, {spec_path, spec, entry}, operations, prefix)
       else
         Igniter.add_issue(
           igniter,
@@ -279,9 +273,10 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp prefix(spec, operations), do: Meta.base_path(spec) || BasePath.common_prefix(operations)
+    defp prefix(entry, operations),
+      do: Config.base_path(entry) || BasePath.common_prefix(operations)
 
-    defp render_layers(igniter, names, spec_path, spec, operations, prefix) do
+    defp render_layers(igniter, names, {spec_path, spec, entry}, operations, prefix) do
       otp_app = Igniter.Project.Application.app_name(igniter)
       auth = Auth.strategy(spec)
       servers = Servers.resolve(spec)
@@ -290,6 +285,8 @@ if Code.ensure_loaded?(Igniter) do
       # The three layers and the auth test are `:tracked` —
       # ownership-token-aware. The external test is a `:scaffold` —
       # a user-owned file `regen` creates once and never overwrites.
+      # `source` is the spec `gen` ran on, so Layer 2's moduledoc
+      # matches what gen wrote; the pruned spec path is the fallback.
       files =
         Manifest.files(names,
           otp_app: otp_app,
@@ -297,7 +294,7 @@ if Code.ensure_loaded?(Igniter) do
           servers: servers,
           prefix: prefix,
           operations: selected,
-          metadata: metadata(spec_path, spec)
+          metadata: Manifest.metadata(Config.source(entry) || spec_path, spec)
         )
 
       {igniter, results} =
@@ -364,13 +361,6 @@ if Code.ensure_loaded?(Igniter) do
     defp accept?(igniter, location) do
       igniter.args.options[:yes] || igniter.assigns[:test_mode?] ||
         Mix.shell().yes?("hearth.regen: #{location} is hearth:collaborating — regenerate it?")
-    end
-
-    # `source` is the spec `gen` ran on (recorded in `x-hearth`), so the
-    # Layer 2 moduledoc matches what gen wrote; the pruned spec path is
-    # the fallback.
-    defp metadata(spec_path, spec) do
-      Manifest.metadata(Meta.source(spec) || spec_path, spec)
     end
 
     defp format_reason(%{__exception__: true} = ex), do: Exception.message(ex)

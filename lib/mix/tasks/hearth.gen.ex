@@ -87,8 +87,8 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         file / registry), registry lookup, install gating, YAML/JSON
         decode, operation extraction + tag filtering, Layer 1/2/3
         generation, a Layer 1 auth test, an external integration test
-        scaffold, the pruned spec at `priv/hearth/<name>.yaml`, and
-        Mox + config wiring. Update a generated integration with
+        scaffold, the pruned spec at `priv/hearth/<name>.yaml`, the
+        integration's `.hearth.exs` entry, and Mox + config wiring. Update a generated integration with
         `mix hearth.regen` — `hearth.gen` only creates.
       * Coming soon — on-disk cache and HTTP fetcher (for URL /
         registry sources).
@@ -431,13 +431,14 @@ if Code.ensure_loaded?(Igniter) do
 
       # The pruned spec is built from `selected` *before* the path
       # prefix is stripped — it must match the spec's original `paths`
-      # keys. It records the prefix and source so `regen` reproduces
-      # them rather than recomputing from the subset.
+      # keys. The `.hearth.exs` entry records the module, source and
+      # prefix so `regen` reproduces them rather than recomputing.
       pruned_spec_yaml =
         spec
         |> Hearth.Spec.Prune.prune(selected)
-        |> Hearth.Spec.Meta.put(base_path: prefix, source: path, module: inspect(names.layer1))
         |> Hearth.Spec.Prune.to_yaml()
+
+      entry = [module: names.layer1, source: path, base_path: prefix]
 
       selected = BasePath.strip(selected, prefix)
       pruned_spec_path = Manifest.pruned_spec_path(names.integration)
@@ -463,6 +464,7 @@ if Code.ensure_loaded?(Igniter) do
       |> write_files(files)
       # Re-derived each run — `on_exists: :overwrite`.
       |> Igniter.create_new_file(pruned_spec_path, pruned_spec_yaml, on_exists: :overwrite)
+      |> Hearth.Config.Project.put_integration(Hearth.Config.key(names.integration), entry)
       |> Patches.wire(%{
         otp_app: otp_app,
         names: names,
@@ -477,7 +479,8 @@ if Code.ensure_loaded?(Igniter) do
           operations,
           selected,
           Enum.map(files, &{&1.module, &1.location, &1.label}),
-          Patches.wired_files(auth) ++ ["#{pruned_spec_path} (pruned spec)"]
+          Patches.wired_files(auth) ++
+            ["#{pruned_spec_path} (pruned spec)", ".hearth.exs (integration entry)"]
         )
       )
     end

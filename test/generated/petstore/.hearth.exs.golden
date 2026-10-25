@@ -1,0 +1,11 @@
+# Hearth integrations: `mix hearth.gen` adds one entry per
+# integration, and `mix hearth.regen` reads it.
+[
+  integrations: [
+    petstore: [
+      module: Test.Integrations.Petstore,
+      source: "priv/specs/petstore-3.0.yaml",
+      base_path: ""
+    ]
+  ]
+]

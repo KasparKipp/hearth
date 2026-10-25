@@ -55,8 +55,10 @@ $ mix hearth.regen stripe          # or stripe,send_grid — or --all
 
 `regen` re-renders integrations from their pruned specs, honouring ownership
 tokens. It takes integration names (the `--integration` value), never modules:
-each pruned spec records its Layer 1 module in `x-hearth.module`. Running it straight after `gen` is a no-op. To pull in spec changes,
-edit `priv/hearth/stripe.yaml` and re-run `regen`.
+`gen` records each integration's Layer 1 module, source and base path in
+`.hearth.exs`, and `regen` reads them back. The pruned spec stays plain
+OpenAPI. Running `regen` straight after `gen` is a no-op. To pull in spec
+changes, edit `priv/hearth/stripe.yaml` and re-run `regen`.
 
 Only local spec files generate code today. URL and registry sources are
 recognized and validated; generating from them needs the fetcher (pending).
@@ -232,11 +234,11 @@ all live there and rarely round-trip back into the spec.
 - [ ] **Multiple auth schemes.** v1 auto-picks the primary. Planned: `gen`
       prompts; `--auth-scheme <name>` selects non-interactively; under `--yes`
       with several schemes and no flag, halt rather than guess.
-- [ ] **Upstream drift check (`mix hearth.diff`).** Re-prune the spec at
-      `x-hearth.source` with the pruned spec's selection and report changed /
-      removed / added operations. Needs `source_sha256` + `pruned_sha256` in
-      `x-hearth` to tell local edits from upstream changes. A later
-      `hearth.sync` applies it.
+- [ ] **Upstream drift check (`mix hearth.diff`).** Re-prune the spec at the
+      `.hearth.exs` `source:` with the pruned spec's selection and report
+      changed / removed / added operations. Needs `source_sha256` +
+      `pruned_sha256` in the entry to tell local edits from upstream changes.
+      A later `hearth.sync` applies it.
 - [ ] **Swagger 2.0 conversion.** Detect Swagger 2 input and convert to OpenAPI
       3 in memory before generating. Many real-world specs are still Swagger 2.
 - [ ] **Pagination opinion.** Recognize common pagination markers (`cursor`,
@@ -365,6 +367,9 @@ lib/
     hearth.regen.ex            # pruned spec → refreshed integration
   hearth/
     registry.ex                # curated, versioned spec shortcuts (stripe@…)
+    config.ex                  # pure: .hearth.exs — parse, keys, entry fields
+    config/
+      project.ex               # read / write .hearth.exs (Igniter-guarded)
     spec/                      # pure: decoded spec → data
       source.ex                # argv → {:file | :url | :registry | :error, _}
       loader.ex                # sniff format, decode YAML/JSON
@@ -374,7 +379,6 @@ lib/
       servers.ex               # servers → default / test base URLs
       base_path.ex             # shared path prefix (stops at templated segments)
       prune.ex                 # spec → pruned spec + YAML encoding
-      meta.ex                  # the x-hearth block in the pruned spec
     render/                    # pure: data → source strings
       module_names.ex          # every layer's module from Layer 1
       layer1.ex  layer2.ex  layer3.ex
@@ -476,20 +480,25 @@ What exists, condensed. The blow-by-blow is in git history.
   alternates.
 - **Pruned spec** — `Prune.prune/2` keeps the selected paths and the
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
-  with conventional top-level key order, plus an `x-hearth` block
-  (`module`, `base_path`, `source`).
+  with conventional top-level key order. Plain OpenAPI — no Hearth block.
+- **`.hearth.exs`** — `[integrations: [<snake_name>: [module:, source:,
+  base_path:]]]`, evaluated like `.formatter.exs` (`Hearth.Config.parse/1`).
+  gen writes the entry (`Hearth.Config.Project.put_integration/3`, created
+  from a template when missing); writes are Sourceror keyword edits that keep
+  the user's comments and other entries.
 - **`hearth.regen`** — takes comma-separated integration names (each must be a
-  single alias segment; `stripe` → `priv/hearth/stripe.yaml`) or `--all`
-  (every `priv/hearth/*.yaml`); neither, or both, halts. Per spec: derives
-  every module from `x-hearth.module` (halts if missing or not a module name),
-  takes `base_path` / `source` from `x-hearth` (recomputes if absent; halts if
-  a path falls outside the recorded base path), and renders the same
-  `Manifest`. Any failure halts the whole run. Refreshes code only — never
-  config or the pruned spec — except under `--module <Layer1>`: exactly one
-  name, module must end in it. It creates the new modules (halts if any
-  exist; the old ones are untouched), rewrites only the `module:` value in the
-  pruned spec (`Meta.replace_module/3`, re-encodes as a fallback), and wires
-  config via `Patches.wire/2`.
+  single alias segment with a `.hearth.exs` entry; `stripe` → `stripe:` and
+  `priv/hearth/stripe.yaml`) or `--all` (every `.hearth.exs` entry); neither,
+  or both, halts. Per integration: derives every module from the entry's
+  `module:` (halts if missing or not an alias), takes `base_path:` /
+  `source:` from it (recomputes if absent; halts if a path falls outside the
+  recorded base path), and renders the same `Manifest`. Any failure halts the
+  whole run. Refreshes code only — never config, `.hearth.exs` or the pruned
+  spec — except under `--module <Layer1>`: exactly one name, module must end
+  in it. It creates the new modules (halts if any exist; the old ones are
+  untouched), points the entry's `module:` at them
+  (`Hearth.Config.Project.put_module/3`), and wires config via
+  `Patches.wire/2`.
   Lives in `Hearth.Regen.Move`; the task passes it a `render` callback and
   the wiring context.
   `--remove-old` (requires a `--module` that differs from the current one)

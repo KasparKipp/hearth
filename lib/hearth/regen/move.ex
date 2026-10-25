@@ -9,36 +9,34 @@ if Code.ensure_loaded?(Igniter) do
     # `Hearth.Render.ModuleNames.from_layer1/1` maps. Rendering and
     # argument checks stay in the task, which passes `ctx`:
     #
-    #   * `:spec_path`, `:bytes`, `:spec` — the pruned spec as read
+    #   * `:key`     — the integration's `.hearth.exs` key
     #   * `:render`  — renders the integration under `new` (igniter → igniter)
     #   * `:wiring`  — the `Hearth.Gen.Patches.wire/2` context for `new`
     #
     # Guarded like the Mix tasks: Igniter is an optional dependency.
 
+    alias Hearth.Config.Project
     alias Hearth.Fs.Content
     alias Hearth.Fs.Ownership
     alias Hearth.Gen.Patches
     alias Hearth.Integration.Manifest
     alias Hearth.Regen.Messages
-    alias Hearth.Spec.Meta
 
     # Renders the integration into the new module (via `ctx.render`),
-    # points the pruned spec at it, and wires its mock and config the way
+    # points its `.hearth.exs` entry at it, and wires its mock and config the way
     # `gen` does. Like `gen`, it only creates: it halts if any of the new
     # module's files exist. The old module is then retired by `retire/4`.
     @spec run(Igniter.t(), map(), map(), map()) :: Igniter.t()
     def run(igniter, old, new, ctx) do
-      %{spec_path: spec_path, bytes: bytes, spec: spec, render: render, wiring: wiring} = ctx
+      %{key: key, render: render, wiring: wiring} = ctx
 
       case existing_files(igniter, new) do
         [] ->
-          yaml = Meta.replace_module(bytes, spec, inspect(new.layer1))
-
           igniter
           |> render.()
-          |> Igniter.create_new_file(spec_path, yaml, on_exists: :overwrite)
+          |> Project.put_module(key, new.layer1)
           |> Patches.wire(wiring)
-          |> retire(old, new, spec_path)
+          |> retire(old, new)
 
         existing ->
           paths = Enum.map(existing, &elem(&1, 0))
@@ -48,15 +46,15 @@ if Code.ensure_loaded?(Igniter) do
 
     # Without `--remove-old` the old module stays and the notice lists
     # its files for the user to delete.
-    defp retire(igniter, old, new, spec_path) do
+    defp retire(igniter, old, new) do
       old_files = existing_files(igniter, old)
 
       if igniter.args.options[:remove_old] do
         {igniter, results} = remove_old(igniter, old, old_files)
-        Igniter.add_notice(igniter, Messages.removed_notice(old, new, spec_path, results))
+        Igniter.add_notice(igniter, Messages.removed_notice(old, new, results))
       else
         paths = Enum.map(old_files, &elem(&1, 0))
-        Igniter.add_notice(igniter, Messages.moved_notice(old, new, spec_path, paths))
+        Igniter.add_notice(igniter, Messages.moved_notice(old, new, paths))
       end
     end
 

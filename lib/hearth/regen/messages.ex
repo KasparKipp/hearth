@@ -7,8 +7,6 @@ defmodule Hearth.Regen.Messages do
 
   alias Hearth.Spec.BasePath
 
-  @spec_dir "priv/hearth"
-
   def regen_notice(names, spec_path, results) do
     lines =
       Enum.map_join(results, "\n", fn {location, action} -> result_line(action, location) end)
@@ -45,7 +43,7 @@ defmodule Hearth.Regen.Messages do
       mix hearth.regen --all
 
     An integration's name is the `--integration` it was generated
-    with; its pruned spec lives at #{@spec_dir}/<name>.yaml.
+    with — its key in `.hearth.exs`.
     """
   end
 
@@ -55,11 +53,25 @@ defmodule Hearth.Regen.Messages do
     """
   end
 
-  def no_specs_message do
+  def no_integrations_message do
     """
-    hearth.regen: no pruned specs under #{@spec_dir}/ to regenerate.
+    hearth.regen: no integrations in .hearth.exs to regenerate.
 
-    `mix hearth.gen` writes one per integration.
+    `mix hearth.gen` adds an entry per integration.
+    """
+  end
+
+  def missing_entry_message(keys) do
+    names = Enum.map_join(keys, ", ", &Atom.to_string/1)
+    integration = keys |> hd() |> Atom.to_string() |> Macro.camelize()
+
+    """
+    hearth.regen: no integration named #{names} in .hearth.exs.
+
+    `mix hearth.gen` adds an entry per integration, keyed by its
+    snake_case name. Generate it first:
+
+      mix hearth.gen <source> --integration #{integration}
     """
   end
 
@@ -115,13 +127,13 @@ defmodule Hearth.Regen.Messages do
     """
   end
 
-  def moved_notice(old, new, spec_path, old_files) do
+  def moved_notice(old, new, old_files) do
     files = Enum.map_join(old_files, "\n", &"  * #{&1}")
 
     """
     Moved #{new.integration} from #{inspect(old.layer1)} to #{inspect(new.layer1)}.
 
-    #{spec_path} now names #{inspect(new.layer1)}, and its mock and
+    .hearth.exs now names #{inspect(new.layer1)}, and its mock and
     config are wired. #{inspect(old.layer1)} is untouched — once
     callers use the new module, delete its files:
 
@@ -141,14 +153,14 @@ defmodule Hearth.Regen.Messages do
     """
   end
 
-  def removed_notice(old, new, spec_path, results) do
+  def removed_notice(old, new, results) do
     {removed, kept} = Enum.split_with(results, &match?({_path, :removed}, &1))
     removed = Enum.map_join(removed, "\n", fn {path, _} -> "  * #{path}" end)
 
     """
     Moved #{new.integration} from #{inspect(old.layer1)} to #{inspect(new.layer1)}, removing the old module.
 
-    #{spec_path} now names #{inspect(new.layer1)}, and its mock and
+    .hearth.exs now names #{inspect(new.layer1)}, and its mock and
     config are wired. #{inspect(old.layer1)}'s config entries and
     defmock are removed, and these files:
 
@@ -177,17 +189,18 @@ defmodule Hearth.Regen.Messages do
   defp claim_label(:collaborating), do: "hearth:collaborating"
   defp claim_label(:unreadable), do: "could not read it to check its ownership token"
 
-  def bad_module_message(spec_path, value) do
+  def bad_module_message(key, value) do
     found = if value, do: " (found #{inspect(value)})", else: ""
+    integration = key |> Atom.to_string() |> Macro.camelize()
 
     """
-    hearth.regen: #{spec_path} has no valid `x-hearth.module`#{found}.
+    hearth.regen: the .hearth.exs entry for #{key} has no valid `module:`#{found}.
 
     It must name the integration's Layer 1 module — the raw client
-    `mix hearth.gen` created — so every other layer can be derived:
+    `mix hearth.gen` created — as an alias, so every other layer can
+    be derived:
 
-      x-hearth:
-        module: MyApp.Integrations.Stripe
+      #{key}: [module: MyApp.Integrations.#{integration}, …]
     """
   end
 
@@ -204,8 +217,8 @@ defmodule Hearth.Regen.Messages do
 
     The base path is folded into the generated client's base URL and
     into `config/test.exs`. Either move these paths under #{prefix},
-    or lower `x-hearth.base_path` in #{spec_path} to a prefix every
-    path shares — and update the `base_url` config to match.
+    or lower the integration's `base_path:` in .hearth.exs to a prefix
+    every path shares — and update the `base_url` config to match.
     """
   end
 

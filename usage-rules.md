@@ -67,12 +67,13 @@ files already exist. **Do not re-run `gen` to update an
 integration** — use `mix hearth.regen` instead. To start over,
 delete the generated files `gen` listed (the halt message names the
 ones still present) and `priv/hearth/<int>.yaml`, then re-run `gen`.
+`gen` replaces the integration's `.hearth.exs` entry.
 
 ## Update integrations with `regen`
 
     mix hearth.regen stripe              # one integration
     mix hearth.regen stripe,send_grid    # several
-    mix hearth.regen --all               # every pruned spec
+    mix hearth.regen --all               # every integration in .hearth.exs
 
 Name an integration by the `--integration` it was generated with, not
 by its module. With no name and no `--all`, `regen` halts.
@@ -87,8 +88,8 @@ To move one integration into a new namespace:
     mix hearth.regen stripe --module MyApp.Payments.Stripe
 
 The module must end in the integration name. `--module` creates the
-new modules (halting if any exist), points `x-hearth.module` at them,
-and wires their mock and config. The old modules and their config stay
+new modules (halting if any exist), points the `.hearth.exs` entry at
+them, and wires their mock and config. The old modules and their config stay
 untouched — delete them once callers use the new module.
 
 Add `--remove-old` to remove the old module in the same run — its
@@ -102,11 +103,30 @@ scaffold) are kept and listed. `--remove-old` without `--module` halts.
 To pull in upstream spec changes, edit `priv/hearth/<int>.yaml` and
 re-run `regen`.
 
-The pruned spec ends with an `x-hearth` block recording the Layer 1
-`module`, the base path `gen` folded into the client's base URL, and
-the original spec source. Leave it as is: `regen` derives every module
-from `module` and halts without it. A new path must sit under the
-recorded `base_path` — `regen` halts otherwise.
+## `.hearth.exs`
+
+`gen` records each integration in `.hearth.exs` at the project root,
+keyed by its snake_case name:
+
+    [
+      integrations: [
+        stripe: [
+          module: MyApp.Integrations.Stripe,
+          source: "priv/specs/stripe.yaml",
+          base_path: "/v1"
+        ]
+      ]
+    ]
+
+* `module` — the Layer 1 module. `regen` derives every other module
+  from it and halts without it.
+* `source` — the spec `gen` ran on.
+* `base_path` — the path prefix `gen` folded into the client's base
+  URL. A new path in the pruned spec must sit under it — `regen` halts
+  otherwise.
+
+Commit it alongside `priv/hearth/`. The pruned spec itself is plain
+OpenAPI.
 
 ## Ownership tokens
 

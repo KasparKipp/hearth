@@ -32,10 +32,11 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ "pruned"
   end
 
-  test "explains the x-hearth block in the pruned spec" do
-    assert @content =~ "x-hearth"
+  test "explains the .hearth.exs entry" do
+    assert @content =~ ".hearth.exs"
     assert @content =~ "base_path"
     assert @content =~ "`module`"
+    refute @content =~ "x-hearth"
   end
 
   test "regen takes integration names or --all, not a module" do
