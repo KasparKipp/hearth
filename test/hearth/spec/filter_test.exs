@@ -161,6 +161,22 @@ defmodule Hearth.Spec.FilterTest do
     end
   end
 
+  describe "parse/1 + apply/2 with unsafe operationIds" do
+    test "an operationId that became a safe name still matches as copied from the spec" do
+      spec = %{
+        "paths" => %{
+          "/a" => %{"get" => %{"operationId" => "end", "tags" => ["X"]}},
+          "/b" => %{"get" => %{"operationId" => "other", "tags" => ["X"]}}
+        }
+      }
+
+      {:ok, filter} = Hearth.Spec.Filter.parse(["X:end"])
+      ops = spec |> Hearth.Spec.Operation.extract() |> Hearth.Spec.Filter.apply(filter)
+
+      assert Enum.map(ops, & &1.id) == ["end_"]
+    end
+  end
+
   describe "parse/1 + apply/2 round-trip" do
     test "a parsed filter selects the expected operations" do
       ops = [

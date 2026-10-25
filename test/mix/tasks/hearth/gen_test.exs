@@ -915,6 +915,61 @@ defmodule Mix.Tasks.Hearth.GenTest do
     end
   end
 
+  describe "generated identifiers" do
+    # Every name here is a trap: reserved words, a leading digit, `opts`
+    # (the trailing keyword arg), `impl` (Layer 2's private dispatcher),
+    # `module_info` (compiler-defined), and two path params that
+    # collide once snake_cased.
+    @nasty_spec JSON.encode!(%{
+                  "openapi" => "3.0.0",
+                  "info" => %{"title" => "Nasty", "version" => "1.0"},
+                  "servers" => [%{"url" => "https://api.example.com"}],
+                  "paths" => %{
+                    "/items/{opts}/{1id}/{end}" => %{"get" => %{"operationId" => "end"}},
+                    "/impl" => %{"post" => %{"operationId" => "impl"}},
+                    "/users/{petId}/{pet_id}" => %{"get" => %{"operationId" => "moduleInfo"}},
+                    "/verify" => %{"post" => %{"operationId" => "2fa-verify"}}
+                  }
+                })
+
+    test "a spec full of unsafe names generates layers that compile cleanly" do
+      igniter =
+        test_project(files: %{"priv/specs/nasty.json" => @nasty_spec})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/nasty.json",
+          "--integration",
+          "Nasty"
+        ])
+
+      assert igniter.issues == []
+
+      sources =
+        Enum.map(
+          [
+            "lib/test/integrations/nasty.ex",
+            "lib/test/integrations/nasty/nasty_api.ex",
+            "lib/test/integrations/nasty/nasty_api/req.ex"
+          ],
+          &created_file(igniter, &1)
+        )
+
+      {_modules, diagnostics} =
+        Code.with_diagnostics(fn ->
+          Enum.flat_map(sources, &Code.compile_string/1)
+        end)
+
+      assert diagnostics == []
+
+      layer3 = Enum.at(sources, 2)
+      assert layer3 =~ "def end_(opts_, param_1id, end_, opts \\\\ [])"
+      assert layer3 =~ ~S|Nasty.request("/items/#{opts_}/#{param_1id}/#{end_}", opts)|
+      assert layer3 =~ "def module_info_(pet_id, pet_id_2, opts \\\\ [])"
+      assert layer3 =~ ~S|Nasty.request("/users/#{pet_id}/#{pet_id_2}", opts)|
+      assert layer3 =~ "def impl_(opts \\\\ [])"
+      assert layer3 =~ "def op_2fa_verify(opts \\\\ [])"
+    end
+  end
+
   describe "Layer 3 generation" do
     @petstore_layer3 "lib/test/integrations/petstore/petstore_api/req.ex"
 

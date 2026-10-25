@@ -147,25 +147,19 @@ defmodule Hearth.Render.Layer2 do
   end
 
   # The `@callback` signature — path params typed `String.t()`.
-  defp arg_signature(%Operation{path_params: params}) do
-    path_args = Enum.map(List.wrap(params), &"#{param_name(&1)} :: String.t()")
+  defp arg_signature(%Operation{} = op) do
+    path_args = Enum.map(Operation.path_args(op), &"#{&1} :: String.t()")
     Enum.join(path_args ++ ["opts :: keyword()"], ", ")
   end
 
   # The `def` head — path param names, `opts` with a default.
-  defp def_signature(%Operation{path_params: params}) do
-    path_args = Enum.map(List.wrap(params), &param_name/1)
-    Enum.join(path_args ++ ["opts \\\\ []"], ", ")
+  defp def_signature(%Operation{} = op) do
+    Enum.join(Operation.path_args(op) ++ ["opts \\\\ []"], ", ")
   end
 
   # The arguments passed through to `impl()` — names only, no defaults.
-  defp call_args(%Operation{path_params: params}) do
-    path_args = Enum.map(List.wrap(params), &param_name/1)
-    Enum.join(path_args ++ ["opts"], ", ")
-  end
-
-  defp param_name(param) when is_map(param) do
-    Operation.sanitize_id(param["name"] || "param")
+  defp call_args(%Operation{} = op) do
+    Enum.join(Operation.path_args(op) ++ ["opts"], ", ")
   end
 
   # Escapes the two sequences that would break a generated heredoc: a

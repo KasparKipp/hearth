@@ -132,6 +132,86 @@ defmodule Hearth.Spec.OperationTest do
     end
   end
 
+  describe "extract/1 — safe function names" do
+    defp ids_for(operation_ids) do
+      paths =
+        operation_ids
+        |> Enum.with_index()
+        |> Map.new(fn {op_id, i} -> {"/p#{i}", %{"get" => %{"operationId" => op_id}}} end)
+
+      %{"paths" => paths} |> Operation.extract() |> Enum.map(& &1.id) |> Enum.sort()
+    end
+
+    test "a reserved word gets a trailing underscore" do
+      assert ids_for(["end", "do", "fn", "nil", "when"]) == ~w(do_ end_ fn_ nil_ when_)
+    end
+
+    test "a leading digit gets an op_ prefix" do
+      assert ids_for(["2fa-verify"]) == ["op_2fa_verify"]
+    end
+
+    test "names that clash with generated or built-in functions get a trailing underscore" do
+      # `impl/0` is Layer 2's private dispatcher; `module_info` is
+      # defined on every module by the compiler.
+      assert ids_for(["impl", "moduleInfo"]) == ~w(impl_ module_info_)
+    end
+
+    test "an operationId that sanitizes to nothing falls back to <verb>_<path-slug>" do
+      spec = %{"paths" => %{"/items" => %{"get" => %{"operationId" => "---"}}}}
+      assert [%Operation{id: "get_items"}] = Operation.extract(spec)
+    end
+
+    test "numeric dedupe skips a suffix another operation already uses" do
+      spec = %{
+        "paths" => %{
+          "/a" => %{"get" => %{"operationId" => "getUser"}},
+          "/b" => %{"get" => %{"operationId" => "getUser"}},
+          "/c" => %{"get" => %{"operationId" => "get_user_2"}}
+        }
+      }
+
+      ops = Operation.extract(spec)
+      assert ops |> Enum.map(& &1.id) |> Enum.sort() == ~w(get_user get_user_2 get_user_3)
+      assert Enum.find(ops, &(&1.path == "/c")).id == "get_user_2"
+    end
+  end
+
+  describe "function_name/1" do
+    test "matches the id extract/1 derives, so user-supplied ids still match" do
+      assert Operation.function_name("getBoard") == "get_board"
+      assert Operation.function_name("end") == "end_"
+      assert Operation.function_name("2fa") == "op_2fa"
+    end
+  end
+
+  describe "path_args/1" do
+    defp args_for(names) do
+      params = Enum.map(names, &%{"name" => &1, "in" => "path"})
+      Operation.path_args(struct(Operation, path_params: params))
+    end
+
+    test "snake_cases each path param name" do
+      assert args_for(["petId", "owner-name"]) == ["pet_id", "owner_name"]
+    end
+
+    test "a reserved word or `opts` gets a trailing underscore" do
+      assert args_for(["end", "opts"]) == ["end_", "opts_"]
+    end
+
+    test "a leading digit gets a param_ prefix" do
+      assert args_for(["1id"]) == ["param_1id"]
+    end
+
+    test "a missing or empty name becomes `param`" do
+      params = [%{"in" => "path"}, %{"name" => "", "in" => "path"}]
+      assert Operation.path_args(struct(Operation, path_params: params)) == ["param", "param_2"]
+    end
+
+    test "names that collide after sanitizing get numeric suffixes" do
+      assert args_for(["petId", "pet_id"]) == ["pet_id", "pet_id_2"]
+    end
+  end
+
   defp param_names(params), do: Enum.map(params, & &1["name"])
 
   describe "extract/1 — id derivation" do

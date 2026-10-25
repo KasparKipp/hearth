@@ -30,6 +30,16 @@ defmodule Hearth.Spec.Operation do
 
   @http_methods Map.keys(@methods)
 
+  # Elixir's reserved words — none can name a function or a variable.
+  @reserved ~w(true false nil when and or not in fn do end catch rescue after else)
+
+  # Function names the generated modules already define: Layer 2's
+  # private `impl/0` dispatcher, and the compiler's `module_info`.
+  @taken_functions ~w(impl module_info)
+
+  # Every generated function ends with an `opts` keyword arg.
+  @taken_args ~w(opts)
+
   defstruct [
     :id,
     :operation_id,
@@ -77,11 +87,32 @@ defmodule Hearth.Spec.Operation do
   end
 
   @doc false
+  # The generated function name for an operationId: `sanitize_id/1`,
+  # then made safe — a reserved word or a name the generated modules
+  # already define gets a trailing `_`, a leading digit an `op_` prefix.
+  # `""` when nothing survives sanitizing. Public so `Hearth.Spec.Filter`
+  # matches user-supplied operationIds the same way `:id` is derived.
+  @spec function_name(String.t()) :: String.t()
+  def function_name(string) when is_binary(string) do
+    string |> sanitize_id() |> safe("op_", @taken_functions)
+  end
+
+  @doc false
+  # The generated arg names for an operation's path params, in order:
+  # snake_cased and made safe like `function_name/1` (with a `param_`
+  # prefix for a leading digit, and `opts` taken), `param` for a
+  # missing name, and numeric suffixes for names that collide.
+  @spec path_args(t()) :: [String.t()]
+  def path_args(%__MODULE__{path_params: params}) do
+    params |> List.wrap() |> Enum.map(&arg_name/1) |> dedupe()
+  end
+
+  @doc false
   # Lowercases, splits camelCase, and collapses every run of
   # non-alphanumeric characters (hyphens, dots, spaces, repeated
-  # underscores) into a single underscore, so the result is always a
-  # valid Elixir function name. Public so `Hearth.Spec.Filter` can
-  # normalize user-supplied operationIds the same way `:id` is derived.
+  # underscores) into a single underscore. The result can still be a
+  # reserved word or start with a digit — `function_name/1` and
+  # `path_args/1` make it safe.
   @spec sanitize_id(String.t()) :: String.t()
   def sanitize_id(string) when is_binary(string) do
     string
@@ -180,30 +211,67 @@ defmodule Hearth.Spec.Operation do
   # Assigns the final `:id` to each operation in spec order, suffixing
   # later duplicates of a base name with `_2`, `_3`, …
   defp assign_ids(operations) do
-    {assigned, _seen} =
-      Enum.map_reduce(operations, %{}, fn op, seen ->
-        {id, seen} = dedupe(base_id(op), seen)
-        {%{op | id: id}, seen}
-      end)
-
-    assigned
+    ids = operations |> Enum.map(&base_id/1) |> dedupe()
+    Enum.zip_with(operations, ids, &%{&1 | id: &2})
   end
 
-  defp base_id(%__MODULE__{operation_id: id}) when is_binary(id) and id != "" do
-    sanitize_id(id)
+  # The operationId's function name — or, when there is no operationId
+  # or nothing of it survives sanitizing, `<verb>_<path-slug>`.
+  defp base_id(%__MODULE__{operation_id: id} = op) when is_binary(id) do
+    case function_name(id) do
+      "" -> path_id(op)
+      name -> name
+    end
   end
 
-  defp base_id(%__MODULE__{method: method, path: path}) do
+  defp base_id(op), do: path_id(op)
+
+  defp path_id(%__MODULE__{method: method, path: path}) do
     # Replace path separators and param braces with spaces; `sanitize_id/1`
     # collapses them (and any other non-alphanumerics) into underscores.
     slug = String.replace(path, ~r"[/{}]", " ")
-    sanitize_id("#{method} #{slug}")
+    function_name("#{method} #{slug}")
   end
 
-  defp dedupe(base, seen) do
-    case Map.get(seen, base, 0) do
-      0 -> {base, Map.put(seen, base, 1)}
-      n -> {"#{base}_#{n + 1}", Map.put(seen, base, n + 1)}
+  defp arg_name(param) do
+    name = if is_map(param) and is_binary(param["name"]), do: param["name"], else: ""
+
+    case name |> sanitize_id() |> safe("param_", @taken_args) do
+      "" -> "param"
+      arg -> arg
     end
+  end
+
+  defp safe("", _digit_prefix, _taken), do: ""
+
+  defp safe(<<d, _::binary>> = name, digit_prefix, _taken) when d in ?0..?9,
+    do: digit_prefix <> name
+
+  defp safe(name, _digit_prefix, taken) do
+    if name in @reserved or name in taken, do: name <> "_", else: name
+  end
+
+  # Keeps the first occurrence of each name; a later duplicate takes
+  # the lowest `_N` suffix (from 2) that no other name in the list
+  # uses, so a suffixed name never collides with an explicit one.
+  defp dedupe(names) do
+    all = MapSet.new(names)
+
+    {deduped, _used} =
+      Enum.map_reduce(names, MapSet.new(), fn name, used ->
+        unique =
+          if MapSet.member?(used, name),
+            do: next_free(name, 2, MapSet.union(used, all)),
+            else: name
+
+        {unique, MapSet.put(used, unique)}
+      end)
+
+    deduped
+  end
+
+  defp next_free(name, n, taken) do
+    candidate = "#{name}_#{n}"
+    if MapSet.member?(taken, candidate), do: next_free(name, n + 1, taken), else: candidate
   end
 end

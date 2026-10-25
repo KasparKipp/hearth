@@ -56,24 +56,27 @@ defmodule Hearth.Render.Layer3 do
   defp request_opts(%Operation{method: :get}), do: ", opts"
   defp request_opts(%Operation{method: method}), do: ", [method: #{inspect(method)}] ++ opts"
 
-  defp def_args(%Operation{path_params: params}) do
-    path_args = params |> List.wrap() |> Enum.map(&param_arg/1)
-    Enum.join(path_args ++ ["opts \\\\ []"], ", ")
-  end
-
-  defp param_arg(param) when is_map(param) do
-    Operation.sanitize_id(param["name"] || "param")
+  defp def_args(%Operation{} = op) do
+    Enum.join(Operation.path_args(op) ++ ["opts \\\\ []"], ", ")
   end
 
   # Builds the URL string literal, interpolating each path param.
   # `/pets/{petId}` with param `petId` → the literal `"/pets/#{pet_id}"`.
-  defp url_literal(%Operation{path: path, path_params: params}) do
-    interpolated =
+  # One pass over the template: substituting param by param would let
+  # a later `{pet_id}` match inside an earlier inserted `#{pet_id}`.
+  defp url_literal(%Operation{path: path, path_params: params} = op) do
+    arg_for =
       params
       |> List.wrap()
-      |> Enum.reduce(path, fn param, acc ->
-        raw = param["name"]
-        String.replace(acc, "{#{raw}}", "\#{#{Operation.sanitize_id(raw)}}")
+      |> Enum.zip(Operation.path_args(op))
+      |> Map.new(fn {param, arg} -> {param["name"], arg} end)
+
+    interpolated =
+      Regex.replace(~r/\{([^}]+)\}/, path, fn template, name ->
+        case Map.fetch(arg_for, name) do
+          {:ok, arg} -> "\#{#{arg}}"
+          :error -> template
+        end
       end)
 
     "\"" <> interpolated <> "\""

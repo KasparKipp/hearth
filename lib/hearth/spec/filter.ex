@@ -111,7 +111,7 @@ defmodule Hearth.Spec.Filter do
   defp sanitized_ids(ids) do
     ids
     |> String.split(",", trim: true)
-    |> Enum.map(&Operation.sanitize_id/1)
+    |> Enum.map(&Operation.function_name/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
   end
