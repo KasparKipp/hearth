@@ -392,6 +392,8 @@ lib/
       content.ex               # read through Igniter's Rewrite (Igniter-guarded)
 test/
   hearth/…  mix/tasks/hearth/… # mirror lib/
+  mix/tasks/hearth/gen/        # gen's tests, one file per concern
+  support/hearth/task_case.ex  # Hearth.TaskCase — Igniter.Test + read-back helpers
   fixtures/specs/              # OAI petstore (3.0), tictactoe (3.1), keyed (API key in query)
   generated/<case>/…golden     # golden snapshots of everything gen writes
   golden_test.exs  usage_rules_test.exs
@@ -503,7 +505,7 @@ Learned the hard way; every change must keep them:
 - **Every commit produces visibly different behavior for distinct user
   inputs.** Skeletons that no-op identically on every input are misleading.
 - **Consumer-facing text never references internal docs or step numbers.**
-  Enforced in `gen_test.exs` "consumer-facing docs".
+  Enforced in `gen/install_and_docs_test.exs` "consumer-facing docs".
 - **`long_doc` and `usage-rules.md` only advertise what works today.**
   Lock-in tests refute stale wording and copy-paste traps.
 - **Tasks that need install state open with the gated compose pattern**
@@ -544,8 +546,6 @@ Learned the hard way; every change must keep them:
 - **Steps 4d–4f** — `Hearth.Spec.Cache`, `Hearth.Spec.Fetcher` (Req + cache;
   bundles `latest` resolution — TODO on the `latest` entry in
   `lib/hearth/registry.ex`), end-to-end URL/registry codegen.
-- **Open review items:**
-  - `gen_test.exs` (~1500 lines) wants splitting by concern.
 
 ---
 
