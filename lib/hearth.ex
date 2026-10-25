@@ -20,6 +20,8 @@ defmodule Hearth do
       (create-only).
     * `mix hearth.regen` — regenerate integrations from their pruned specs,
       honouring `hearth:owned` / `hearth:collaborating` ownership tokens.
+    * `mix hearth.diff` — report drift between integrations and their source
+      specs, marking breaking changes. Read-only; fails in CI on drift.
 
   Run `mix help hearth.gen` for the full option list.
   """

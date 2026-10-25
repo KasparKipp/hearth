@@ -47,6 +47,12 @@ defmodule Hearth.UsageRulesTest do
     refute @content =~ "edit `priv/hearth/<int>.yaml` and"
   end
 
+  test "documents hearth.diff for CI" do
+    assert @content =~ "mix hearth.diff stripe"
+    assert @content =~ "--fail-on breaking"
+    assert @content =~ "source_sha256"
+  end
+
   test "regen takes integration names or --all, not a module" do
     assert @content =~ "mix hearth.regen stripe"
     assert @content =~ "mix hearth.regen --all"

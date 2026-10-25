@@ -5,6 +5,7 @@
     keyed: [
       module: Test.Integrations.Keyed,
       source: "priv/specs/keyed-3.0.yaml",
+      source_sha256: "609d7371efcc462bea9008e404ae7b3e09babe73700ac8862de63a8f479322da",
       base_path: "",
       tags: [Items: :all]
     ]

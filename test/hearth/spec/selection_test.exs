@@ -180,4 +180,62 @@ defmodule Hearth.Spec.SelectionTest do
       assert problem =~ "store"
     end
   end
+
+  describe "unlisted/2" do
+    test "lists unselected operations that tags: doesn't mention: new tags, and new ids under a partial tag" do
+      rule = rule!(tags: [pets: [include: ["listPets"], exclude: ["createPets"]], users: :all])
+
+      unlisted = operations() |> Selection.unlisted(rule) |> ids()
+
+      # showPetById: not in pets' lists · getInventory: store is unknown ·
+      # health: untagged, and the rule has no untagged:
+      assert Enum.sort(unlisted) == [nil, "getInventory", "showPetById"]
+    end
+
+    test "a :none tag or an exclude: entry is a decision, not news" do
+      rule =
+        rule!(
+          tags: [
+            pets: [include: ["listPets"], exclude: ["createPets", "showPetById"]],
+            store: :none,
+            users: :all,
+            admin: :none
+          ],
+          untagged: :none
+        )
+
+      assert Selection.unlisted(operations(), rule) == []
+    end
+  end
+
+  describe "carry_renames/3" do
+    defp renamed(operations, old_id, new_id) do
+      Enum.map(operations, fn
+        %{operation_id: ^old_id} = op -> %{op | operation_id: new_id}
+        op -> op
+      end)
+    end
+
+    test "points include: and exclude: at an operation's new name, matched by method + path" do
+      rule = rule!(tags: [pets: [include: ["listPets"], exclude: ["createPets", "showPetById"]]])
+
+      source =
+        operations() |> renamed("listPets", "listAllPets") |> renamed("createPets", "addPet")
+
+      carried = Selection.carry_renames(rule, operations(), source)
+
+      assert carried.tags["pets"] == [
+               include: ["listAllPets"],
+               exclude: ["addPet", "showPetById"]
+             ]
+
+      assert source |> Selection.select(carried) |> ids() == ["listAllPets"]
+    end
+
+    test "leaves the rule alone when nothing was renamed" do
+      rule = rule!(tags: [pets: :all, users: [include: ["getUser"], exclude: ["listUsers"]]])
+
+      assert Selection.carry_renames(rule, operations(), operations()) == rule
+    end
+  end
 end

@@ -94,6 +94,8 @@ added and removed, and regenerates. Plain `regen` halts when `tags:`
 no longer matches the pruned spec, pointing at `--sync`. Don't add or
 remove operations in `priv/hearth/<int>.yaml` by hand: `regen` halts,
 and `--sync` would undo it. `source:` must be a local spec file.
+`--sync --all` asks before re-pruning everything (`--yes` skips the
+question); run `mix hearth.diff --all` first to see what it would change.
 
 `--sync` never rewrites the external test. It asks before appending
 tests for the operations it added (`--yes` accepts), and names tests
@@ -129,6 +131,7 @@ keyed by its snake_case name:
         stripe: [
           module: MyApp.Integrations.Stripe,
           source: "priv/specs/stripe.yaml",
+          source_sha256: "9f86d0…",
           base_path: "/v1",
           tags: [
             Customers: [include: ["GetCustomers"], exclude: ["DeleteCustomersCustomer"]],
@@ -142,6 +145,8 @@ keyed by its snake_case name:
 * `module` — the Layer 1 module. `regen` derives every other module
   from it and halts without it.
 * `source` — the spec `gen` ran on.
+* `source_sha256` — the source's checksum at the last `gen` or
+  `--sync`, so `mix hearth.diff` can tell whether it changed since.
 * `base_path` — the path prefix `gen` folded into the client's base
   URL. A new path in the pruned spec must sit under it — `regen` halts
   otherwise.
@@ -151,6 +156,30 @@ keyed by its snake_case name:
 
 Commit it alongside `priv/hearth/`. The pruned spec itself is plain
 OpenAPI.
+
+## Check for drift with `diff`
+
+    mix hearth.diff stripe               # one integration (or stripe,send_grid, or --all)
+    mix hearth.diff stripe --source priv/specs/stripe-2026-10.yaml
+
+`diff` re-prunes the integration's `source:` with its `tags:` and
+compares the result with `priv/hearth/<int>.yaml`. It lists every
+change — operations added, removed, moved or renamed; parameters,
+request bodies and responses; component schemas (properties, required
+fields, enum values, types) — and marks the breaking ones.
+Documentation-only changes are ignored. It also lists new upstream
+operations `tags:` doesn't select yet, without failing.
+
+An upstream operationId rename (same method and path) is drift but not
+breaking: `--sync` renames the generated function and keeps the
+operation selected — `tags:` follows the new id — and the report names
+the call sites to rename (`list_pets → list_all_pets`).
+
+`diff` writes nothing and exits non-zero on drift — run it in CI.
+`--fail-on breaking` fails only on breaking changes. `--source`
+previews another spec (e.g. a newer version) without touching
+`.hearth.exs`. To apply drift, point `source:` at the spec you want
+and run `mix hearth.regen <int> --sync`.
 
 ## Ownership tokens
 

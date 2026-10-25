@@ -47,7 +47,8 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
     its `tags:`, re-records `tags:`, lists the operations added and
     removed, and regenerates. Use it after editing `tags:`, or after
     pointing `source:` at a newer version of the spec. `source:` must
-    be a local spec file.
+    be a local spec file. `--sync --all` asks for confirmation first
+    (`--yes` skips it) — run `mix hearth.diff --all` to see the drift.
 
     The external test is yours, so `--sync` doesn't rewrite it. It asks
     before appending tests for the operations it added (`--yes`
@@ -109,6 +110,8 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Fs.Content
     alias Hearth.Fs.Ownership
     alias Hearth.Integration.Manifest
+    alias Hearth.Integration.Messages, as: IntegrationMessages
+    alias Hearth.Integration.Names
     alias Hearth.Regen.Messages
     alias Hearth.Regen.Move
     alias Hearth.Regen.Sync
@@ -143,50 +146,21 @@ if Code.ensure_loaded?(Igniter) do
     def igniter(igniter) do
       with {:ok, igniter, integrations} <- Project.read(igniter),
            {:ok, selected} <- select(igniter, integrations),
-           {:ok, target} <- target_module(igniter, selected) do
+           {:ok, target} <- target_module(igniter, selected),
+           :ok <- confirm_sync_all(igniter, selected) do
         Enum.reduce(selected, igniter, &regen(&2, &1, target))
       else
         {:error, message} -> Igniter.add_issue(igniter, message)
       end
     end
 
-    # `--all` → every integration in `.hearth.exs`; otherwise the
-    # comma-separated names, each of which must have an entry. Returns
-    # `{key, entry}` pairs.
     defp select(igniter, integrations) do
-      case {igniter.args.positional[:integrations], igniter.args.options[:all]} do
-        {nil, true} -> all(integrations)
-        {nil, _} -> {:error, Messages.missing_integration_message()}
-        {_names, true} -> {:error, Messages.names_and_all_message()}
-        {names, _} -> named(integrations, names)
-      end
-    end
-
-    defp all([]), do: {:error, Messages.no_integrations_message()}
-    defp all(integrations), do: {:ok, integrations}
-
-    defp named(integrations, arg) do
-      names =
-        arg
-        |> String.split(",")
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == ""))
-
-      cond do
-        names == [] ->
-          {:error, Messages.missing_integration_message()}
-
-        (bad = Enum.reject(names, &ModuleNames.valid_segment?/1)) != [] ->
-          {:error, Messages.bad_names_message(bad)}
-
-        true ->
-          keys = names |> Enum.map(&Config.key/1) |> Enum.uniq()
-
-          case Enum.reject(keys, &Keyword.has_key?(integrations, &1)) do
-            [] -> {:ok, Enum.map(keys, &{&1, Keyword.fetch!(integrations, &1)})}
-            missing -> {:error, Messages.missing_entry_message(missing)}
-          end
-      end
+      Names.select(
+        integrations,
+        igniter.args.positional[:integrations],
+        igniter.args.options[:all],
+        :regen
+      )
     end
 
     # `--module` moves exactly one integration into a new namespace. The
@@ -224,7 +198,7 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     defp regen(igniter, {key, entry}, target) do
-      spec_path = key |> Atom.to_string() |> Macro.camelize() |> Manifest.pruned_spec_path()
+      spec_path = Names.spec_path(key)
 
       with {:ok, layer1} <- layer1(key, entry),
            {:ok, igniter, spec, changes} <- pruned_spec(igniter, key, entry, spec_path) do
@@ -293,7 +267,7 @@ if Code.ensure_loaded?(Igniter) do
       else
         :none -> :ok
         [] -> :ok
-        {:error, detail} -> {:halt, Messages.bad_tags_message(key, detail)}
+        {:error, detail} -> {:halt, IntegrationMessages.bad_tags_message(:regen, key, detail)}
       end
     end
 
@@ -412,9 +386,22 @@ if Code.ensure_loaded?(Igniter) do
 
     # `hearth:collaborating` files prompt per file. `--yes` and test
     # mode accept without asking.
+    # `--sync --all` re-prunes every integration from its source — a
+    # potentially huge change. Ask first; `--yes` and test mode accept.
+    defp confirm_sync_all(igniter, selected) do
+      cond do
+        !(igniter.args.options[:sync] && igniter.args.options[:all]) -> :ok
+        igniter.args.options[:yes] || igniter.assigns[:test_mode?] -> :ok
+        Mix.shell().yes?(Messages.sync_all_prompt(Keyword.keys(selected)), default: :no) -> :ok
+        true -> {:error, Messages.sync_all_declined_message()}
+      end
+    end
+
     defp accept?(igniter, location) do
       igniter.args.options[:yes] || igniter.assigns[:test_mode?] ||
-        Mix.shell().yes?("hearth.regen: #{location} is hearth:collaborating — regenerate it?")
+        Mix.shell().yes?("hearth.regen: #{location} is hearth:collaborating — regenerate it?",
+          default: :no
+        )
     end
 
     defp format_reason(%{__exception__: true} = ex), do: Exception.message(ex)

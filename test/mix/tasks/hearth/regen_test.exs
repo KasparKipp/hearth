@@ -558,12 +558,14 @@ defmodule Mix.Tasks.Hearth.RegenTest do
       assert {:ok, [shop: entry]} =
                igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
 
-      assert entry == [
+      assert Keyword.delete(entry, :source_sha256) == [
                module: Test.Integrations.Shop,
                source: "priv/specs/shop.json",
                base_path: "/v1",
                tags: [Customers: :all, Orders: :none]
              ]
+
+      assert entry[:source_sha256] =~ ~r/^[0-9a-f]{64}$/
 
       refute created_file(igniter, "priv/hearth/shop.yaml") =~ "x-hearth"
     end
@@ -714,6 +716,64 @@ defmodule Mix.Tasks.Hearth.RegenTest do
 
       assert pruned_paths(igniter) == ["get /pets/{petId}"]
       assert notice_text(igniter) =~ "- get /pets (listPets)"
+    end
+
+    test "--sync lists schema changes it pulled in, like hearth.diff" do
+      newer =
+        String.replace(
+          @petstore_3_0_yaml,
+          "        tag:\n          type: string\n",
+          "        tag:\n          type: string\n        age:\n          type: integer\n"
+        )
+
+      igniter =
+        gen_list_pets()
+        |> Igniter.create_new_file("priv/specs/petstore.yaml", newer, on_exists: :overwrite)
+        |> apply_igniter!()
+        |> regen(["petstore", "--sync"])
+
+      assert notice_text(igniter) =~ "~ Pet: property age added"
+    end
+
+    test "--sync keeps an operation renamed upstream under a partial tag, recording its new id" do
+      renamed =
+        String.replace(@petstore_3_0_yaml, "operationId: listPets", "operationId: listAllPets")
+
+      igniter =
+        gen_list_pets()
+        |> Igniter.create_new_file("priv/specs/petstore.yaml", renamed, on_exists: :overwrite)
+        |> apply_igniter!()
+        |> regen(["petstore", "--sync"])
+
+      assert pruned_paths(igniter) == ["get /pets"]
+
+      assert created_file(igniter, "lib/test/integrations/petstore/petstore_api.ex") =~
+               "def list_all_pets("
+
+      assert {:ok, [petstore: synced]} =
+               igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
+
+      assert synced[:tags] == [
+               pets: [include: ["listAllPets"], exclude: ["createPets", "showPetById"]]
+             ]
+
+      notices = notice_text(igniter)
+      assert notices =~ "renamed to listAllPets — call sites: list_pets → list_all_pets"
+      assert notices =~ "#{@external} still calls list_pets, renamed to list_all_pets"
+    end
+
+    test "--sync --all re-prunes every integration once confirmed (test mode accepts)" do
+      igniter =
+        gen_list_pets() |> set_entry(entry(pets: @list_and_create)) |> regen(["--all", "--sync"])
+
+      assert pruned_paths(igniter) == ["get /pets", "post /pets"]
+    end
+
+    test "the --sync --all prompt names the integrations and points at hearth.diff" do
+      prompt = Hearth.Regen.Messages.sync_all_prompt([:petstore, :shop])
+
+      assert prompt =~ "petstore, shop"
+      assert prompt =~ "mix hearth.diff --all"
     end
 
     test "--sync halts when the tags select nothing" do

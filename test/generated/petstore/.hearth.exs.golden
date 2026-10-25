@@ -5,6 +5,7 @@
     petstore: [
       module: Test.Integrations.Petstore,
       source: "priv/specs/petstore-3.0.yaml",
+      source_sha256: "cefaafa05eee75b1888762dea08a295f245e9f3e4bdb8777f4bdfed09e335339",
       base_path: "",
       tags: [pets: :all]
     ]

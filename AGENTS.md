@@ -116,6 +116,7 @@ with it) is wrapped in the same `if Code.ensure_loaded?(Igniter)` guard —
 | `mix hearth.install` | One-time per-project setup (formatter import).                              |
 | `mix hearth.gen`     | Generate the three-layer integration from an OpenAPI spec. Create-only.     |
 | `mix hearth.regen`   | Regenerate integrations from their pruned specs, ownership-aware.           |
+| `mix hearth.diff`    | Report drift between integrations and their sources. Read-only, CI-friendly. |
 
 ---
 
@@ -235,11 +236,6 @@ all live there and rarely round-trip back into the spec.
 - [ ] **Multiple auth schemes.** v1 auto-picks the primary. Planned: `gen`
       prompts; `--auth-scheme <name>` selects non-interactively; under `--yes`
       with several schemes and no flag, halt rather than guess.
-- [ ] **Upstream drift check (`mix hearth.diff`).** Re-prune the spec at the
-      `.hearth.exs` `source:` with the pruned spec's selection and report
-      changed / removed / added operations. Needs `source_sha256` +
-      `pruned_sha256` in the entry to tell local edits from upstream changes.
-      A later `hearth.sync` applies it.
 - [ ] **Swagger 2.0 conversion.** Detect Swagger 2 input and convert to OpenAPI
       3 in memory before generating. Many real-world specs are still Swagger 2.
 - [ ] **Pagination opinion.** Recognize common pagination markers (`cursor`,
@@ -366,6 +362,7 @@ lib/
     hearth.install.ex          # one-time project setup
     hearth.gen.ex              # spec → integration (create-only)
     hearth.regen.ex            # pruned spec → refreshed integration
+    hearth.diff.ex             # pruned spec vs source → drift report (read-only)
   hearth/
     registry.ex                # curated, versioned spec shortcuts (stripe@…)
     config.ex                  # pure: .hearth.exs — parse, keys, entry fields
@@ -381,6 +378,8 @@ lib/
       base_path.ex             # shared path prefix (stops at templated segments)
       prune.ex                 # spec → pruned spec + YAML encoding
       selection.ex             # the tags / operations gen selected, for .hearth.exs
+      drift.ex                 # pruned spec vs re-pruned source → changes
+      drift/schema.ex          # JSON schema shape changes (additive / breaking)
     render/                    # pure: data → source strings
       module_names.ex          # every layer's module from Layer 1
       layer1.ex  layer2.ex  layer3.ex
@@ -388,6 +387,9 @@ lib/
       mocks.ex                 # test/support/mocks.ex
     integration/
       manifest.ex              # the files an integration consists of (gen + regen)
+      names.ex                 # pick integrations from names / --all (regen + diff)
+      reprune.ex               # source + tags: → pruned spec (Igniter-guarded)
+      messages.ex              # text shared by regen and diff
     gen/
       messages.ex              # gen's user-facing text, tag discovery
       patches.ex               # deps, mock, test_helper, config (Igniter-guarded)
@@ -395,6 +397,8 @@ lib/
       messages.ex              # regen's user-facing text
       move.ex                  # --module / --remove-old (Igniter-guarded)
       sync.ex                  # --sync: re-prune from source by tags: (Igniter-guarded)
+    diff/
+      messages.ex              # diff's report and halts
     fs/
       ownership.ex             # hearth:owned / hearth:collaborating
       content.ex               # read through Igniter's Rewrite (Igniter-guarded)
@@ -485,7 +489,9 @@ What exists, condensed. The blow-by-blow is in git history.
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
   with conventional top-level key order. Plain OpenAPI — no Hearth block.
 - **`.hearth.exs`** — `[integrations: [<snake_name>: [module:, source:,
-  base_path:, tags:]]]`, evaluated like `.formatter.exs` (`Hearth.Config.parse/1`).
+  source_sha256:, base_path:, tags:]]]`, evaluated like `.formatter.exs`
+  (`Hearth.Config.parse/1`). `source_sha256` is the source's checksum at
+  the last gen / `--sync` (`Reprune.sha256/1`).
   `tags:` (`Hearth.Spec.Selection.describe/2`) lists every tag in the source
   spec in first-seen order as `:all`, `:none` or `include:` / `exclude:`
   operationId lists; untagged operations go under `untagged:` (omitted when
@@ -506,9 +512,8 @@ What exists, condensed. The blow-by-blow is in git history.
   recorded base path), and renders the same `Manifest`. Any failure halts the
   whole run. Refreshes code only — never config, `.hearth.exs` or the pruned
   spec — except under `--sync` (`Hearth.Regen.Sync`: reads `source:` —
-  local files only — through `Content.read_spec/2`, re-prunes with
-  `tags:`, rewrites the pruned spec and `tags:`, notices `+` / `-`
-  operations; halts without `tags:`/`source:` or on an empty selection;
+  local files only — via `Integration.Reprune`, rewrites the pruned spec,
+  `tags:` and `source_sha256`, notices the `Drift` changes it applied; halts without `tags:`/`source:` or on an empty selection;
   `Sync.extend_external_test/4` offers y/N — `--yes` / test mode accept —
   to append `Render.Tests.external_tests/2` blocks for added operations the
   scaffold doesn't already call, via Igniter's `add_code`, and notices tests
@@ -526,6 +531,26 @@ What exists, condensed. The blow-by-blow is in git history.
   `Patches.unwire/3` cuts its config entries, alternates and `defmock`
   by Sourceror range from the text (AST removal crashes Sourceror on its
   trailing-comment blocks and drops comments).
+- **`hearth.diff`** — same names / `--all` as regen (`Integration.Names`).
+  Per integration: reads the pruned spec, re-prunes `source:` (or
+  `--source`, one integration only) with `tags:` via
+  `Integration.Reprune`, and compares with `Spec.Drift.compare/2`:
+  operations by method + path (moves matched by `operationId`, breaking
+  when the path-param count changes; an `operationId`-only rename is not
+  breaking — the detail names the old → new function from
+  `Operation.extract/1` — and `Selection.carry_renames/3`, applied in
+  `Reprune.run/4` given the current pruned spec, keeps a renamed operation
+  selected under a partial tag; `--sync` then records the new id and
+  notices external tests still calling the old function),
+  parameters / request body / responses with local `$ref`s resolved, and
+  `components/schemas` by name, all through `Drift.Schema` (properties,
+  `required`, `enum`, `type`, `$ref`, `items`, compositions; annotations
+  ignored). `Selection.unlisted/2` lists new upstream operations `tags:`
+  doesn't mention (informational). `source_sha256` (written by gen and
+  `--sync`) says whether the source changed since. Drift is an Igniter
+  issue — `--fail-on breaking` downgrades additive-only drift to a notice
+  — and `run/1` exits 1 on issues. `--sync` prints the same
+  `Drift.format/1` lines for what it applied. Writes nothing.
 
 ---
 

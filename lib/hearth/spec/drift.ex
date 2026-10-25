@@ -1,0 +1,310 @@
+defmodule Hearth.Spec.Drift do
+  @moduledoc false
+
+  # Compares an integration's pruned spec with a fresh prune of its
+  # source (same `tags:`), and lists what changed — what `mix
+  # hearth.diff` reports. Each change is additive or breaking for a
+  # caller of the generated client:
+  #
+  #   * operations, matched by method + path: added (additive), removed
+  #     (breaking), moved to another path — matched by `operationId` —
+  #     (breaking only when the path parameters change), `operationId`
+  #     renamed (not breaking: regen renames the function, and the
+  #     detail names the call sites to rename)
+  #   * inside an operation: parameters (local `$ref`s resolved), the
+  #     request body and responses, with schemas compared by
+  #     `Hearth.Spec.Drift.Schema`
+  #   * `components/schemas`, by name: added, removed, changed
+  #
+  # Documentation (`summary`, `description`, `example`, …) is ignored.
+
+  alias Hearth.Spec.Drift.Schema
+  alias Hearth.Spec.Operation
+
+  @methods ~w(get put post delete options head patch trace)
+
+  @type change :: %{
+          area: :operation | :schema,
+          kind: :added | :removed | :changed,
+          subject: String.t(),
+          detail: String.t() | nil,
+          breaking?: boolean()
+        }
+
+  @spec compare(map(), map()) :: [change()]
+  def compare(current, candidate) do
+    operations(current, candidate) ++ schemas(current, candidate)
+  end
+
+  @spec breaking?([change()]) :: boolean()
+  def breaking?(changes), do: Enum.any?(changes, & &1.breaking?)
+
+  # One report line: `+ post /pets (createPets)`,
+  # `~ Pet: property age added`, `- Child  [breaking]`.
+  @spec format(change()) :: String.t()
+  def format(change) do
+    detail = if change.detail, do: ": #{change.detail}", else: ""
+    breaking = if change.breaking?, do: "  [breaking]", else: ""
+    "#{sign(change.kind)} #{change.subject}#{detail}#{breaking}"
+  end
+
+  defp sign(:added), do: "+"
+  defp sign(:removed), do: "-"
+  defp sign(:changed), do: "~"
+
+  # --- operations ---------------------------------------------------------
+
+  defp operations(current, candidate) do
+    old = list_operations(current)
+    new = list_operations(candidate)
+    new_keys = MapSet.new(new, & &1.key)
+    old_keys = MapSet.new(old, & &1.key)
+
+    gone = Enum.reject(old, &MapSet.member?(new_keys, &1.key))
+    fresh = Enum.reject(new, &MapSet.member?(old_keys, &1.key))
+    moves = moves(gone, fresh)
+    moved_to = MapSet.new(Map.values(moves), & &1.key)
+
+    old_changes =
+      Enum.flat_map(old, fn op ->
+        cond do
+          MapSet.member?(new_keys, op.key) ->
+            compare_operation(op, Enum.find(new, &(&1.key == op.key)), current, candidate)
+
+          moved = moves[op.key] ->
+            [
+              change(
+                :operation,
+                :changed,
+                op,
+                "moved to #{moved.method} #{moved.path}",
+                moved?(op, moved)
+              )
+            ]
+
+          true ->
+            [change(:operation, :removed, op, nil, true)]
+        end
+      end)
+
+    added =
+      for op <- fresh, not MapSet.member?(moved_to, op.key) do
+        change(:operation, :added, op, nil, false)
+      end
+
+    old_changes ++ added
+  end
+
+  defp list_operations(spec) do
+    paths = spec["paths"] || %{}
+    functions = function_names(spec)
+
+    for path <- paths |> Map.keys() |> Enum.sort(),
+        method <- @methods,
+        op = paths[path][method],
+        is_map(op) do
+      %{
+        key: {method, path},
+        method: method,
+        path: path,
+        id: op["operationId"],
+        function: functions[{method, path}],
+        op: op,
+        params: List.wrap(paths[path]["parameters"])
+      }
+    end
+  end
+
+  # A removed operation whose `operationId` turns up at a new method +
+  # path moved there.
+  defp moves(gone, fresh) do
+    for op <- gone, op.id, target = Enum.find(fresh, &(&1.id == op.id)), into: %{} do
+      {op.key, target}
+    end
+  end
+
+  defp moved?(old, new), do: path_param_count(old.path) != path_param_count(new.path)
+
+  defp path_param_count(path), do: length(Regex.scan(~r/\{[^}]+\}/, path))
+
+  defp compare_operation(old, new, current, candidate) do
+    details =
+      operation_id(old, new) ++
+        parameters(old, new, current, candidate) ++
+        request_body(old.op["requestBody"], new.op["requestBody"], current, candidate) ++
+        responses(old.op["responses"] || %{}, new.op["responses"] || %{}, current, candidate)
+
+    for {detail, breaking?} <- details, do: change(:operation, :changed, old, detail, breaking?)
+  end
+
+  # The generated function name per method + path — what callers use,
+  # including derived names and collision suffixes.
+  defp function_names(spec) do
+    spec
+    |> Operation.extract()
+    |> Map.new(&{{Atom.to_string(&1.method), &1.path}, &1.id})
+  end
+
+  # Only the operationId changed: regen renames the function and the
+  # call sites follow — mechanical, so drift but not breaking.
+  defp operation_id(%{id: same}, %{id: same}), do: []
+
+  defp operation_id(%{function: same} = old, %{function: same} = new),
+    do: [{"operationId #{old.id} → #{new.id} (function name unchanged)", false}]
+
+  defp operation_id(old, new),
+    do: [{"renamed to #{new.id} — call sites: #{old.function} → #{new.function}", false}]
+
+  defp parameters(old, new, current, candidate) do
+    old_params = resolved_params(old, current)
+    new_params = resolved_params(new, candidate)
+
+    added =
+      for {key, param} <- new_params, not List.keymember?(old_params, key, 0) do
+        if param["required"],
+          do: {"#{param_label(key)} added, required", true},
+          else: {"#{param_label(key)} added", false}
+      end
+
+    removed =
+      for {key, _param} <- old_params, not List.keymember?(new_params, key, 0) do
+        {"#{param_label(key)} removed", true}
+      end
+
+    common =
+      for {key, old_param} <- old_params,
+          {_key, new_param} <- [List.keyfind(new_params, key, 0)],
+          change <- param_changes(key, old_param, new_param),
+          do: change
+
+    added ++ removed ++ common
+  end
+
+  # Path-item parameters, overridden by operation ones with the same
+  # name + location, as `[{{in, name}, param}]`.
+  defp resolved_params(op, spec) do
+    (op.params ++ List.wrap(op.op["parameters"]))
+    |> Enum.map(&resolve(spec, &1))
+    |> Enum.filter(&(is_map(&1) and is_binary(&1["name"])))
+    |> Enum.reduce([], fn param, acc ->
+      List.keystore(acc, {param["in"], param["name"]}, 0, {{param["in"], param["name"]}, param})
+    end)
+  end
+
+  defp param_label({location, name}), do: "#{location} parameter #{name}"
+
+  defp param_changes(key, old, new) do
+    required =
+      case {old["required"] == true, new["required"] == true} do
+        {same, same} -> []
+        {false, true} -> [{"#{param_label(key)} is now required", true}]
+        {true, false} -> [{"#{param_label(key)} is no longer required", false}]
+      end
+
+    required ++ prefixed(param_label(key), Schema.changes(old["schema"], new["schema"]))
+  end
+
+  defp request_body(nil, nil, _current, _candidate), do: []
+
+  defp request_body(nil, new, _current, candidate) do
+    if resolve(candidate, new)["required"],
+      do: [{"request body added, required", true}],
+      else: [{"request body added", false}]
+  end
+
+  defp request_body(_old, nil, _current, _candidate), do: [{"request body removed", true}]
+
+  defp request_body(old, new, current, candidate) do
+    old = resolve(current, old)
+    new = resolve(candidate, new)
+
+    required =
+      case {old["required"] == true, new["required"] == true} do
+        {same, same} -> []
+        {false, true} -> [{"request body is now required", true}]
+        {true, false} -> [{"request body is no longer required", false}]
+      end
+
+    required ++ content("request body", old["content"], new["content"])
+  end
+
+  defp responses(old, new, current, candidate) do
+    codes = old |> Map.keys() |> Enum.concat(Map.keys(new)) |> Enum.uniq() |> Enum.sort()
+
+    Enum.flat_map(codes, fn code ->
+      case {old[code], new[code]} do
+        {nil, _new} ->
+          [{"response #{code} added", false}]
+
+        {_old, nil} ->
+          [{"response #{code} removed", true}]
+
+        {old_response, new_response} ->
+          content(
+            "response #{code}",
+            resolve(current, old_response)["content"],
+            resolve(candidate, new_response)["content"]
+          )
+      end
+    end)
+  end
+
+  defp content(label, old, new) do
+    old = old || %{}
+    new = new || %{}
+    types = old |> Map.keys() |> Enum.concat(Map.keys(new)) |> Enum.uniq() |> Enum.sort()
+
+    Enum.flat_map(types, fn type ->
+      case {old[type], new[type]} do
+        {nil, _new} -> [{"#{label} #{type} added", false}]
+        {_old, nil} -> [{"#{label} #{type} removed", true}]
+        {o, n} -> prefixed("#{label} #{type}", Schema.changes(o["schema"], n["schema"]))
+      end
+    end)
+  end
+
+  defp prefixed(label, changes) do
+    for {detail, breaking?} <- changes, do: {"#{label}: #{detail}", breaking?}
+  end
+
+  # Follows a local `#/components/…` `$ref`, a few levels deep.
+  defp resolve(spec, node, depth \\ 0)
+
+  defp resolve(spec, %{"$ref" => "#/" <> pointer}, depth) when depth < 5 do
+    case get_in(spec, String.split(pointer, "/")) do
+      nil -> %{}
+      target -> resolve(spec, target, depth + 1)
+    end
+  end
+
+  defp resolve(_spec, node, _depth), do: node
+
+  # --- components ---------------------------------------------------------
+
+  defp schemas(current, candidate) do
+    old = get_in(current, ["components", "schemas"]) || %{}
+    new = get_in(candidate, ["components", "schemas"]) || %{}
+    names = old |> Map.keys() |> Enum.concat(Map.keys(new)) |> Enum.uniq() |> Enum.sort()
+
+    Enum.flat_map(names, &schema_changes(&1, old[&1], new[&1]))
+  end
+
+  defp schema_changes(name, nil, _new), do: [schema_change(:added, name, nil, false)]
+  defp schema_changes(name, _old, nil), do: [schema_change(:removed, name, nil, true)]
+
+  defp schema_changes(name, old, new) do
+    for {detail, breaking?} <- Schema.changes(old, new),
+        do: schema_change(:changed, name, detail, breaking?)
+  end
+
+  defp schema_change(kind, name, detail, breaking?) do
+    %{area: :schema, kind: kind, subject: name, detail: detail, breaking?: breaking?}
+  end
+
+  defp change(area, kind, op, detail, breaking?) do
+    %{area: area, kind: kind, subject: label(op), detail: detail, breaking?: breaking?}
+  end
+
+  defp label(%{method: method, path: path, id: nil}), do: "#{method} #{path}"
+  defp label(%{method: method, path: path, id: id}), do: "#{method} #{path} (#{id})"
+end

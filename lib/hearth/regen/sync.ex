@@ -4,10 +4,10 @@ if Code.ensure_loaded?(Igniter) do
 
     # `mix hearth.regen <name> --sync`: re-prunes the integration's spec
     # from its `.hearth.exs` `source:` with the selection its `tags:`
-    # declare, rewrites the pruned spec, and re-records `tags:` in its
-    # canonical form (an operation that appeared under an `:all` tag
-    # shows up there). The task then renders from the returned pruned
-    # spec as usual. Only local spec files are read today.
+    # declare (`Hearth.Integration.Reprune`), rewrites the pruned spec,
+    # and re-records `tags:` in its canonical form (an operation that
+    # appeared under an `:all` tag shows up there) and `source_sha256`.
+    # The task then renders from the returned pruned spec as usual.
     #
     # The external test is a user-owned scaffold, so regen never
     # rewrites it. `extend_external_test/4` offers (y/N; `--yes` and test
@@ -19,34 +19,43 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Config
     alias Hearth.Config.Project
     alias Hearth.Fs.Content
+    alias Hearth.Integration.Messages, as: IntegrationMessages
+    alias Hearth.Integration.Reprune
     alias Hearth.Regen.Messages
+    alias Hearth.Spec.Drift
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
-    alias Hearth.Spec.Prune
     alias Hearth.Spec.Selection
-    alias Hearth.Spec.Source
 
-    @type changes :: %{added: [{atom(), String.t()}], removed: [Operation.t()]}
+    @type changes :: %{
+            added: [{atom(), String.t()}],
+            removed: [Operation.t()],
+            renamed: [{String.t(), String.t()}]
+          }
 
     @spec run(Igniter.t(), atom(), Config.entry(), String.t()) ::
             {:ok, Igniter.t(), map(), changes()} | {:halt, String.t()}
     def run(igniter, key, entry, spec_path) do
-      with {:ok, rule} <- rule(key, entry),
-           {:ok, source} <- source(key, entry),
-           {:ok, igniter, spec} <- read_source(igniter, key, source),
-           operations = Operation.extract(spec),
-           {:ok, selected} <- select(key, source, operations, rule) do
-        yaml = spec |> Prune.prune(selected) |> Prune.to_yaml()
-        {:ok, pruned} = Loader.decode(yaml, :yaml)
-        {added, removed} = changes(previous(igniter, spec_path), selected)
+      previous = previous(igniter, spec_path)
 
-        igniter =
-          igniter
-          |> Igniter.create_new_file(spec_path, yaml, on_exists: :overwrite)
-          |> Project.put_fields(key, Selection.describe(operations, selected))
-          |> Igniter.add_notice(Messages.synced_notice(key, source, spec_path, added, removed))
+      case Reprune.run(igniter, entry, nil, previous) do
+        {:ok, igniter, result} ->
+          {added, removed} = changes(Operation.extract(previous), result.selected)
+          renamed = renamed(Operation.extract(previous), Operation.extract(result.pruned))
+          drift = Drift.compare(previous, result.pruned)
+          fields = Selection.describe(result.operations, result.selected)
 
-        {:ok, igniter, pruned, %{added: Enum.map(added, &key/1), removed: removed}}
+          igniter =
+            igniter
+            |> Igniter.create_new_file(spec_path, result.yaml, on_exists: :overwrite)
+            |> Project.put_fields(key, fields ++ [source_sha256: result.sha256])
+            |> Igniter.add_notice(Messages.synced_notice(key, result.source, spec_path, drift))
+
+          {:ok, igniter, result.pruned,
+           %{added: Enum.map(added, &key/1), removed: removed, renamed: renamed}}
+
+        {:error, source, reason} ->
+          {:halt, IntegrationMessages.reprune_message(:regen, key, source, reason)}
       end
     end
 
@@ -65,9 +74,12 @@ if Code.ensure_loaded?(Igniter) do
           |> Operation.extract()
           |> Enum.filter(&(key(&1) in changes.added and not calls?(content, &1)))
 
+        renamed = Enum.filter(changes.renamed, fn {old, _new} -> calls?(content, old) end)
+
         igniter
         |> append_tests(names, location, added)
         |> note_stale(location, Enum.filter(changes.removed, &calls?(content, &1)))
+        |> note_renamed(location, renamed)
       else
         _ -> igniter
       end
@@ -105,58 +117,32 @@ if Code.ensure_loaded?(Igniter) do
       Igniter.add_notice(igniter, Messages.external_stale_notice(location, ids))
     end
 
+    defp note_renamed(igniter, _location, []), do: igniter
+
+    defp note_renamed(igniter, location, renamed),
+      do: Igniter.add_notice(igniter, Messages.external_renamed_notice(location, renamed))
+
     defp accept?(igniter, location, ids) do
       igniter.args.options[:yes] || igniter.assigns[:test_mode?] ||
-        Mix.shell().yes?(Messages.external_prompt(location, ids))
+        Mix.shell().yes?(Messages.external_prompt(location, ids), default: :no)
     end
 
     # Whether the external test already calls the operation's Layer 3
     # function — as a test Hearth wrote, or one the user did.
-    defp calls?(content, %Operation{id: id}), do: content =~ ~r/\.Req\.#{id}\(/
+    defp calls?(content, %Operation{id: id}), do: calls?(content, id)
+    defp calls?(content, function), do: content =~ ~r/\.Req\.#{function}\(/
 
-    defp rule(key, entry) do
-      case Selection.rule(entry) do
-        {:ok, rule} -> {:ok, rule}
-        :none -> {:halt, Messages.sync_needs_tags_message(key)}
-        {:error, message} -> {:halt, Messages.bad_tags_message(key, message)}
-      end
-    end
-
-    defp source(key, entry) do
-      case Config.source(entry) do
-        nil -> {:halt, Messages.sync_needs_source_message(key)}
-        source -> {:ok, source}
-      end
-    end
-
-    defp read_source(igniter, key, source) do
-      with {:file, path} <- Source.resolve(source),
-           {:ok, igniter, spec} <- Content.read_spec(igniter, path) do
-        {:ok, igniter, spec}
-      else
-        {:error, reason} -> {:halt, Messages.sync_source_message(key, source, reason)}
-        _url_or_registry -> {:halt, Messages.sync_source_message(key, source, :not_local)}
-      end
-    end
-
-    defp select(key, source, operations, rule) do
-      case Selection.select(operations, rule) do
-        [] -> {:halt, Messages.empty_selection_message(key, source)}
-        selected -> {:ok, selected}
-      end
-    end
-
-    # The operations in the pruned spec as it was before this sync —
-    # none when it's missing or unreadable.
+    # The pruned spec as it was before this sync — empty when it's
+    # missing or unreadable.
     defp previous(igniter, spec_path) do
       igniter = Igniter.include_existing_file(igniter, spec_path)
 
       with true <- Igniter.exists?(igniter, spec_path),
            {:ok, bytes} <- Content.read(igniter, spec_path),
            {:ok, spec} <- Loader.decode(bytes, :yaml) do
-        Operation.extract(spec)
+        spec
       else
-        _ -> []
+        _ -> %{}
       end
     end
 
@@ -166,6 +152,17 @@ if Code.ensure_loaded?(Igniter) do
 
       {Enum.reject(selected, &MapSet.member?(before_keys, key(&1))),
        Enum.reject(before, &MapSet.member?(selected_keys, key(&1)))}
+    end
+
+    # Generated function names that changed at the same method + path —
+    # an upstream operationId rename.
+    defp renamed(before, now) do
+      now_functions = Map.new(now, &{key(&1), &1.id})
+
+      for op <- before,
+          function = now_functions[key(op)],
+          function && function != op.id,
+          do: {op.id, function}
     end
 
     defp key(%Operation{method: method, path: path}), do: {method, path}

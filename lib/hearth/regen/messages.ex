@@ -34,59 +34,6 @@ defmodule Hearth.Regen.Messages do
   defp result_line(:unreadable, location),
     do: "* skipping #{location} (could not read it to check its ownership token)"
 
-  def missing_integration_message do
-    """
-    hearth.regen: name the integrations to regenerate, or pass --all.
-
-      mix hearth.regen stripe
-      mix hearth.regen stripe,send_grid
-      mix hearth.regen --all
-
-    An integration's name is the `--integration` it was generated
-    with — its key in `.hearth.exs`.
-    """
-  end
-
-  def names_and_all_message do
-    """
-    hearth.regen: pass integration names or --all, not both.
-    """
-  end
-
-  def no_integrations_message do
-    """
-    hearth.regen: no integrations in .hearth.exs to regenerate.
-
-    `mix hearth.gen` adds an entry per integration.
-    """
-  end
-
-  def missing_entry_message(keys) do
-    names = Enum.map_join(keys, ", ", &Atom.to_string/1)
-    integration = keys |> hd() |> Atom.to_string() |> Macro.camelize()
-
-    """
-    hearth.regen: no integration named #{names} in .hearth.exs.
-
-    `mix hearth.gen` adds an entry per integration, keyed by its
-    snake_case name. Generate it first:
-
-      mix hearth.gen <source> --integration #{integration}
-    """
-  end
-
-  def bad_names_message(bad) do
-    names = Enum.map_join(bad, ", ", &inspect/1)
-
-    """
-    hearth.regen: #{names} is not an integration name.
-
-    Use the name the integration was generated with — a single
-    alias segment, e.g. `stripe` or `SendGrid` — not its module.
-    Separate several names with commas.
-    """
-  end
-
   def module_needs_one_message do
     """
     hearth.regen: --module moves exactly one integration.
@@ -237,69 +184,32 @@ defmodule Hearth.Regen.Messages do
     """
   end
 
-  def bad_tags_message(key, detail) do
-    """
-    hearth.regen: the .hearth.exs entry for #{key} has a malformed selection.
-
-    #{detail}
-    """
-  end
-
-  def sync_needs_tags_message(key) do
-    """
-    hearth.regen: --sync re-prunes #{key} from its source with the
-    entry's `tags:`, but its .hearth.exs entry has none. Add one, e.g.
-
-      #{key}: [module: …, source: …, tags: [Customers: :all]]
-    """
-  end
-
-  def sync_needs_source_message(key) do
-    """
-    hearth.regen: --sync re-prunes #{key} from its source, but its
-    .hearth.exs entry has no `source:`.
-    """
-  end
-
-  def sync_source_message(key, source, :not_local) do
-    """
-    hearth.regen: --sync for #{key} reads local spec files only for
-    now; #{inspect(source)} is a URL or registry source. Download the
-    spec, point `source:` at the file, and re-run.
-    """
-  end
-
-  def sync_source_message(key, source, :missing) do
-    "hearth.regen: --sync for #{key}: source #{inspect(source)} not found. " <>
-      "Point `source:` in .hearth.exs at the spec file."
-  end
-
-  def sync_source_message(key, source, :unsupported) do
-    "hearth.regen: --sync for #{key}: unsupported spec format for #{inspect(source)}. " <>
-      "Supported extensions: .yaml, .yml, .json."
-  end
-
-  def sync_source_message(key, source, {:decode, reason}) do
-    "hearth.regen: --sync for #{key}: failed to parse #{source}.\n\n" <> format_reason(reason)
-  end
-
-  def empty_selection_message(key, source) do
-    """
-    hearth.regen: `tags:` for #{key} in .hearth.exs selects no operations in #{source}.
-    """
-  end
-
-  def synced_notice(key, source, spec_path, added, removed) do
+  # `changes` — `Hearth.Spec.Drift` changes from the old pruned spec to
+  # the new one, the same lines `mix hearth.diff` prints.
+  def synced_notice(key, source, spec_path, changes) do
     changes =
-      case Enum.map(added, &change_line("+", &1)) ++ Enum.map(removed, &change_line("-", &1)) do
-        [] -> "The selected operations are unchanged."
-        lines -> Enum.join(lines, "\n")
+      case changes do
+        [] -> "No changes: the pruned spec already matched."
+        changes -> Enum.map_join(changes, "\n", &Hearth.Spec.Drift.format/1)
       end
 
     """
     Synced #{key}: re-pruned #{spec_path} from #{source} with its `tags:`.
 
     #{changes}
+    """
+  end
+
+  def sync_all_prompt(keys) do
+    "hearth.regen: --sync --all re-prunes every integration from its source " <>
+      "(#{Enum.join(keys, ", ")}). That can be a very large change — " <>
+      "run `mix hearth.diff --all` first to see it. Continue?"
+  end
+
+  def sync_all_declined_message do
+    """
+    hearth.regen: --sync --all cancelled; nothing was changed. See the drift
+    with `mix hearth.diff --all`, or sync one integration at a time.
     """
   end
 
@@ -320,20 +230,21 @@ defmodule Hearth.Regen.Messages do
     """
   end
 
+  def external_renamed_notice(location, renamed) do
+    calls = Enum.map_join(renamed, ", ", fn {old, new} -> "#{old}, renamed to #{new}" end)
+
+    """
+    #{location} still calls #{calls}.
+    Rename the calls — the old functions no longer exist.
+    """
+  end
+
   def external_stale_notice(location, ids) do
     """
     #{location} still calls #{Enum.join(ids, ", ")}, which --sync removed.
     Delete or rewrite those tests — the functions no longer exist.
     """
   end
-
-  defp change_line(sign, operation) do
-    name = operation.operation_id || operation.id
-    "#{sign} #{operation.method} #{operation.path} (#{name})"
-  end
-
-  defp format_reason(%{__exception__: true} = ex), do: Exception.message(ex)
-  defp format_reason(reason), do: inspect(reason)
 
   def missing_spec_message(spec_path) do
     integration = spec_path |> Path.basename(".yaml") |> Macro.camelize()

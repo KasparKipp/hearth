@@ -78,6 +78,10 @@ mix hearth.regen stripe
 
 # Changed `tags:` in .hearth.exs, or pointed `source:` at a newer spec? Re-prune
 mix hearth.regen stripe --sync
+
+# CI: has the spec drifted from what's generated? Exits non-zero if so
+mix hearth.diff stripe
+mix hearth.diff stripe --source priv/specs/stripe-2026-10.yaml   # preview a new version
 ```
 
 Hand-edited a generated file? Put `hearth:owned` in its `@moduledoc` and
