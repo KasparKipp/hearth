@@ -138,6 +138,26 @@ Never call Layer 1 (the raw client) or Layer 3 (the Req impl)
 directly from business code — go through Layer 2 so tests can stub
 it.
 
+## Credentials
+
+For a bearer or API-key spec, the credential comes from the
+`:api_key` option, or else from config:
+
+    config :my_app, MyApp.Integrations.Stripe, api_key: "sk_…"
+    StripeApi.list_customers(api_key: tenant.stripe_key)
+
+`gen` wires `config/runtime.exs` to read `<INTEGRATION>_API_KEY`. The
+value may be a string, a 0-arity function, or an `{m, f, a}` tuple,
+resolved when each request runs, so a vault lookup or a refreshed
+token needs no edit to Layer 1:
+
+    config :my_app, MyApp.Integrations.Stripe,
+      api_key: {MyApp.Vault, :fetch!, ["stripe"]}
+
+A per-call `api_key:` overrides config. A credential set explicitly
+on the request (`auth:`, the header, or the query param) is left
+alone.
+
 ## Testing
 
 The Mox mock is pre-wired:

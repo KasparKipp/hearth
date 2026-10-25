@@ -1,0 +1,12 @@
+import Config
+
+if config_env() == :prod do
+  config :test, Test.Integrations.Keyed,
+    api_key:
+      System.get_env("KEYED_API_KEY") || raise("missing KEYED_API_KEY environment variable")
+end
+
+if config_env() == :dev do
+  config :test, Test.Integrations.Keyed,
+    api_key: System.get_env("KEYED_API_KEY") || "DEV_NO_KEYED_API_KEY"
+end

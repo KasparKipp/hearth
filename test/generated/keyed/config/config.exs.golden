@@ -1,0 +1,3 @@
+import Config
+config :test, hearth_domains: [Test.Integrations.Keyed.KeyedApi]
+import_config "#{config_env()}.exs"

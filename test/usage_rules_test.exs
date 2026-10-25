@@ -43,6 +43,12 @@ defmodule Hearth.UsageRulesTest do
     refute @content =~ "mix hearth.regen <App>"
   end
 
+  test "documents where credentials come from" do
+    assert @content =~ "## Credentials"
+    assert @content =~ "StripeApi.list_customers(api_key: tenant.stripe_key)"
+    assert @content =~ "api_key: {MyApp.Vault, :fetch!, [\"stripe\"]}"
+  end
+
   test "documents moving an integration with --module" do
     assert @content =~ "mix hearth.regen stripe --module MyApp.Payments.Stripe"
     assert @content =~ "--module MyApp.Payments.Stripe --remove-old"

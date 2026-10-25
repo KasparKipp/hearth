@@ -16,7 +16,8 @@ defmodule Hearth.GoldenTest do
 
   @cases [
     {"petstore", "test/fixtures/specs/petstore-3.0.yaml", "Petstore"},
-    {"tictactoe", "test/fixtures/specs/tictactoe-3.1.yaml", "Tictactoe"}
+    {"tictactoe", "test/fixtures/specs/tictactoe-3.1.yaml", "Tictactoe"},
+    {"keyed", "test/fixtures/specs/keyed-3.0.yaml", "Keyed"}
   ]
 
   @update? System.get_env("HEARTH_UPDATE_GOLDEN") == "1"

@@ -10,10 +10,10 @@ defmodule Hearth.Render.Tests do
   #     against the live API, one `test` per operation. Generated once
   #     and never overwritten — the user carries on from it.
   #
-  # The test runs through the real `request!/2` entry point. Because
-  # `request!/2` does not thread caller opts into `new/1`, the
-  # credential is seeded into application env in `setup` — which is
-  # process-global, hence `async: false`.
+  # The test runs through the real `request!/2` entry point. Keyed
+  # schemes get two tests: the credential from config, seeded into
+  # application env in `setup` (process-global, hence `async: false`),
+  # and a per-call `api_key:` overriding it.
   #
   # The `plug:` option routes the request to an in-process plug; the
   # assertion runs inside it. Assembled as a string and run through
@@ -29,6 +29,7 @@ defmodule Hearth.Render.Tests do
   alias Hearth.Spec.Operation
 
   @api_key "hearth-test-credential"
+  @per_call "per-call-credential"
 
   @spec layer1(module(), module(), atom(), Auth.strategy()) :: String.t()
   def layer1(test_module, client_module, otp_app, auth) do
@@ -82,24 +83,30 @@ defmodule Hearth.Render.Tests do
   end
 
   defp auth_test(:bearer, _client) do
-    test_block(
-      "request! attaches a bearer token from config",
-      ~s|assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer \#{@api_key}"]|
-    )
+    keyed_tests("attaches a bearer token", fn
+      :config ->
+        ~s|assert Plug.Conn.get_req_header(conn, "authorization") == ["Bearer \#{@api_key}"]|
+
+      key ->
+        ~s|assert Plug.Conn.get_req_header(conn, "authorization") == [#{inspect("Bearer " <> key)}]|
+    end)
   end
 
   defp auth_test({:api_key, :header, name}, _client) do
-    test_block(
-      "request! sets the #{name} header from config",
-      ~s|assert Plug.Conn.get_req_header(conn, #{inspect(String.downcase(name))}) == [@api_key]|
+    keyed_tests(
+      "sets the #{name} header",
+      &~s|assert Plug.Conn.get_req_header(conn, #{inspect(String.downcase(name))}) == [#{expected(&1)}]|
     )
   end
 
   defp auth_test({:api_key, :query, name}, _client) do
-    test_block("request! sets the #{name} query param from config", """
-    conn = Plug.Conn.fetch_query_params(conn)
-    assert conn.query_params[#{inspect(name)}] == @api_key
-    """)
+    keyed_tests(
+      "sets the #{name} query param",
+      &"""
+      conn = Plug.Conn.fetch_query_params(conn)
+      assert conn.query_params[#{inspect(name)}] == #{expected(&1)}
+      """
+    )
   end
 
   defp auth_test(:none, _client) do
@@ -121,9 +128,25 @@ defmodule Hearth.Render.Tests do
     """
   end
 
+  # The config-sourced test plus the per-call override test.
+  # `assertion` gets `:config` or the per-call credential string.
+  defp keyed_tests(what, assertion) do
+    test_block("request! #{what} from config", assertion.(:config)) <>
+      "\n" <>
+      test_block(
+        "a per-call api_key: overrides config",
+        assertion.(@per_call),
+        ", api_key: #{inspect(@per_call)}"
+      )
+  end
+
+  defp expected(:config), do: "@api_key"
+  defp expected(key), do: inspect(key)
+
   # An ExUnit test that asserts on the request inside a `Req.Test` plug.
-  # `plug_body` is one or more lines operating on `conn`.
-  defp test_block(name, plug_body) do
+  # `plug_body` is one or more lines operating on `conn`; `extra_opts`
+  # is appended to the `request!/2` options.
+  defp test_block(name, plug_body, extra_opts \\ "") do
     """
     test #{inspect(name)} do
       plug = fn conn ->
@@ -131,7 +154,7 @@ defmodule Hearth.Render.Tests do
         Plug.Conn.send_resp(conn, 200, JSON.encode!(%{}))
       end
 
-      assert %Req.Response{status: 200} = @client.request!("/ping", plug: plug)
+      assert %Req.Response{status: 200} = @client.request!("/ping", plug: plug#{extra_opts})
     end
     """
   end
