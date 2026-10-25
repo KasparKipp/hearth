@@ -56,6 +56,24 @@ defmodule Hearth.Spec.BasePathTest do
     end
   end
 
+  describe "prefix_of_all?/2" do
+    test "is true when the prefix leads every path, segment-wise" do
+      assert BasePath.prefix_of_all?(ops(["/v1/a", "/v1/b/{id}"]), "/v1")
+    end
+
+    test "is false when any path falls outside the prefix" do
+      refute BasePath.prefix_of_all?(ops(["/v1/a", "/v2/b"]), "/v1")
+    end
+
+    test "matches whole segments, not string prefixes" do
+      refute BasePath.prefix_of_all?(ops(["/v10/a"]), "/v1")
+    end
+
+    test ~s(is true for the "" prefix) do
+      assert BasePath.prefix_of_all?(ops(["/a"]), "")
+    end
+  end
+
   describe "strip/2" do
     test "drops the prefix from every operation path" do
       stripped = BasePath.strip(ops(["/api/v1/customers", "/api/v1/orders/{id}"]), "/api/v1")

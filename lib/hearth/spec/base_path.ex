@@ -42,6 +42,19 @@ defmodule Hearth.Spec.BasePath do
   end
 
   @doc """
+  Whether `prefix` is a leading path — whole segments — of every
+  operation's path. `strip/2` requires this; a recorded prefix can
+  stop holding once a pruned spec is hand-edited.
+  """
+  @spec prefix_of_all?([Operation.t()], String.t()) :: boolean()
+  def prefix_of_all?(_operations, ""), do: true
+
+  def prefix_of_all?(operations, prefix) do
+    prefix_segs = segments(prefix)
+    Enum.all?(operations, &List.starts_with?(segments(&1.path), prefix_segs))
+  end
+
+  @doc """
   Drops `prefix` from the front of every operation's path.
 
   A `""` prefix returns `operations` unchanged. `prefix` must be a

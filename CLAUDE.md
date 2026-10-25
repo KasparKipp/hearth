@@ -919,8 +919,13 @@ These were learned the hard way and must hold for future steps:
     fixed layout below it follows.
   - `Mix.Tasks.Hearth.Regen` reads `priv/hearth/<integration>.yaml`
     (the pruned spec `gen` wrote), re-derives `Auth` / `Servers` /
-    `BasePath` / operations from it, and re-renders the three layers
-    + auth test. Per `:tracked` file: `:owned` → skip, `:none` →
+    operations from it, and re-renders the three layers + auth test.
+    The base path and source come from the pruned spec's `x-hearth`
+    block (`Hearth.Spec.Meta`, written by `gen`) — recomputing the
+    prefix from the subset could lengthen it and desync from
+    `config/test.exs`. A spec without the block falls back to
+    recomputing; a path outside the recorded prefix halts.
+    `regen` straight after `gen` is tested to be a no-op. Per `:tracked` file: `:owned` → skip, `:none` →
     silent overwrite, `:collaborating` → per-file `Mix.shell().yes?`
     prompt (`--yes` / test mode auto-accept). The external test is a
     `:scaffold` — created if absent, never overwritten. A missing

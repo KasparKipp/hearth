@@ -230,3 +230,6 @@ components:
             board:write: Write to the board
           tokenUrl: https://learn.openapis.org/oauth/2.0/token
       type: oauth2
+x-hearth:
+  base_path: ''
+  source: priv/specs/tictactoe-3.1.yaml

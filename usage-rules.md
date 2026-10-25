@@ -79,6 +79,11 @@ pruned spec.
 To pull in upstream spec changes, edit `priv/hearth/<int>.yaml` and
 re-run `regen`.
 
+The pruned spec ends with an `x-hearth` block recording the base path
+`gen` folded into the client's base URL and the original spec source.
+Leave it as is. A new path must sit under the recorded `base_path` —
+`regen` halts otherwise.
+
 ## Ownership tokens
 
 Hand-edited a generated file? Mark it in the moduledoc:

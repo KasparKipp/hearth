@@ -118,3 +118,6 @@ components:
         $ref: '#/components/schemas/Pet'
       maxItems: 100
       type: array
+x-hearth:
+  base_path: ''
+  source: priv/specs/petstore-3.0.yaml

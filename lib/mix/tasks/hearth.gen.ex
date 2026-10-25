@@ -502,15 +502,21 @@ if Code.ensure_loaded?(Igniter) do
       otp_app = Igniter.Project.Application.app_name(igniter)
       auth = Hearth.Spec.Auth.strategy(spec)
 
-      # The pruned spec is built from `selected` *before* the path
-      # prefix is stripped — it must match the spec's original `paths`
-      # keys.
-      pruned_spec_yaml = spec |> Hearth.Spec.Prune.prune(selected) |> Hearth.Spec.Prune.to_yaml()
-
       # A leading path prefix shared by every operation (e.g. `/v3`) is
       # stripped from the operation paths and folded into Layer 1's base
       # URL — see `Hearth.Render.Layer1` for the base-URL side.
       prefix = BasePath.common_prefix(operations)
+
+      # The pruned spec is built from `selected` *before* the path
+      # prefix is stripped — it must match the spec's original `paths`
+      # keys. It records the prefix and source so `regen` reproduces
+      # them rather than recomputing from the subset.
+      pruned_spec_yaml =
+        spec
+        |> Hearth.Spec.Prune.prune(selected)
+        |> Hearth.Spec.Meta.put(base_path: prefix, source: path)
+        |> Hearth.Spec.Prune.to_yaml()
+
       selected = BasePath.strip(selected, prefix)
 
       servers = Hearth.Spec.Servers.resolve(spec)

@@ -61,6 +61,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Spec.Auth
     alias Hearth.Spec.BasePath
     alias Hearth.Spec.Loader
+    alias Hearth.Spec.Meta
     alias Hearth.Spec.Operation
     alias Hearth.Spec.Servers
 
@@ -107,12 +108,27 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
+    # The base path comes from the pruned spec's `x-hearth` block — the
+    # prefix `gen` folded into Layer 1 and `config/test.exs`. Recomputing
+    # it from the pruned subset can yield a longer prefix and desync
+    # from that config; it is only the fallback for a spec without the
+    # block. A hand-edit can add a path outside the recorded prefix —
+    # halt then, rather than strip the wrong segments.
     defp render(igniter, names, spec_path, spec) do
       operations = Operation.extract(spec)
+      prefix = Meta.base_path(spec) || BasePath.common_prefix(operations)
+
+      if BasePath.prefix_of_all?(operations, prefix) do
+        render_layers(igniter, names, spec_path, spec, operations, prefix)
+      else
+        Igniter.add_issue(igniter, base_path_mismatch_message(spec_path, prefix, operations))
+      end
+    end
+
+    defp render_layers(igniter, names, spec_path, spec, operations, prefix) do
       otp_app = Igniter.Project.Application.app_name(igniter)
       auth = Auth.strategy(spec)
       servers = Servers.resolve(spec)
-      prefix = BasePath.common_prefix(operations)
       selected = BasePath.strip(operations, prefix)
 
       # The three layers and the auth test are `:tracked` —
@@ -210,9 +226,12 @@ if Code.ensure_loaded?(Igniter) do
         Mix.shell().yes?("hearth.regen: #{location} is hearth:collaborating — regenerate it?")
     end
 
+    # `source` is the spec `gen` ran on (recorded in `x-hearth`), so the
+    # Layer 2 moduledoc matches what gen wrote; the pruned spec path is
+    # the fallback.
     defp metadata(spec_path, spec) do
       %{
-        source: spec_path,
+        source: Meta.source(spec) || spec_path,
         title: get_in(spec, ["info", "title"]),
         version: get_in(spec, ["info", "version"]),
         openapi: spec["openapi"],
@@ -262,6 +281,24 @@ if Code.ensure_loaded?(Igniter) do
 
       That is the raw-client module `mix hearth.gen` created (no `Api`
       suffix). Every other layer is derived from it.
+      """
+    end
+
+    defp base_path_mismatch_message(spec_path, prefix, operations) do
+      outside =
+        operations
+        |> Enum.reject(&BasePath.prefix_of_all?([&1], prefix))
+        |> Enum.map_join("\n", &"  * #{&1.path}")
+
+      """
+      hearth.regen: #{spec_path} has paths outside its recorded base path #{prefix}:
+
+      #{outside}
+
+      The base path is folded into the generated client's base URL and
+      into `config/test.exs`. Either move these paths under #{prefix},
+      or lower `x-hearth.base_path` in #{spec_path} to a prefix every
+      path shares — and update the `base_url` config to match.
       """
     end
 

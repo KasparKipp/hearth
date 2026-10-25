@@ -31,6 +31,11 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ "pruned"
   end
 
+  test "explains the x-hearth block in the pruned spec" do
+    assert @content =~ "x-hearth"
+    assert @content =~ "base_path"
+  end
+
   test "documents the Mox test seam at <Layer2>.Mock" do
     assert @content =~ "Mox"
     assert @content =~ ".Mock"

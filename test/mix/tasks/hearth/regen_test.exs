@@ -70,6 +70,97 @@ defmodule Mix.Tasks.Hearth.RegenTest do
     end
   end
 
+  describe "regen right after gen" do
+    # Full spec prefix is `/v1`; the `Customers` subset alone shares
+    # `/v1/customers`. regen must reuse gen's prefix, not recompute it
+    # from the pruned subset — config/test.exs carries gen's base URL.
+    @subset_prefix_spec JSON.encode!(%{
+                          "openapi" => "3.0.0",
+                          "info" => %{"title" => "Shop", "version" => "1.0"},
+                          "servers" => [%{"url" => "https://api.example.com"}],
+                          "paths" => %{
+                            "/v1/customers/list" => %{
+                              "get" => %{
+                                "operationId" => "listCustomers",
+                                "tags" => ["Customers"]
+                              }
+                            },
+                            "/v1/customers/search" => %{
+                              "get" => %{
+                                "operationId" => "searchCustomers",
+                                "tags" => ["Customers"]
+                              }
+                            },
+                            "/v1/orders/list" => %{
+                              "get" => %{"operationId" => "listOrders", "tags" => ["Orders"]}
+                            }
+                          }
+                        })
+
+    defp gen_then_regen(files, gen_args, layer1) do
+      test_project(files: files)
+      |> Igniter.compose_task("hearth.gen", gen_args)
+      |> apply_igniter!()
+      |> Igniter.compose_task("hearth.regen", [layer1])
+    end
+
+    test "is a no-op" do
+      %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml}
+      |> gen_then_regen(
+        ["priv/specs/petstore.yaml", "--integration", "Petstore"],
+        "Test.Integrations.Petstore"
+      )
+      |> assert_unchanged()
+    end
+
+    test "gen records the base path and source in the pruned spec" do
+      igniter =
+        test_project(files: %{"priv/specs/shop.json" => @subset_prefix_spec})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/shop.json",
+          "--integration",
+          "Shop",
+          "--tag",
+          "Customers"
+        ])
+
+      {:ok, pruned} =
+        created_file(igniter, "priv/hearth/shop.yaml") |> YamlElixir.read_from_string()
+
+      assert pruned["x-hearth"] == %{"base_path" => "/v1", "source" => "priv/specs/shop.json"}
+    end
+
+    test "halts when an edited pruned spec has a path outside the recorded base path" do
+      pruned = """
+      openapi: 3.0.0
+      info: {title: Shop, version: "1.0"}
+      paths:
+        /v1/customers/list:
+          get: {operationId: listCustomers}
+        /v2/customers/list:
+          get: {operationId: listCustomersV2}
+      x-hearth: {base_path: /v1, source: priv/specs/shop.json}
+      """
+
+      igniter =
+        test_project(files: %{"priv/hearth/shop.yaml" => pruned})
+        |> Igniter.compose_task("hearth.regen", ["Test.Integrations.Shop"])
+
+      assert Enum.any?(igniter.issues, fn issue ->
+               String.contains?(issue, "/v1") and String.contains?(issue, "/v2/customers/list")
+             end)
+    end
+
+    test "is a no-op when the selected subset shares a longer path prefix" do
+      %{"priv/specs/shop.json" => @subset_prefix_spec}
+      |> gen_then_regen(
+        ["priv/specs/shop.json", "--integration", "Shop", "--tag", "Customers"],
+        "Test.Integrations.Shop"
+      )
+      |> assert_unchanged()
+    end
+  end
+
   describe "ownership tokens" do
     test "a hearth:owned file is skipped, keeping its hand-edits" do
       igniter =
