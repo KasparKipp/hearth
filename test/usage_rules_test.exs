@@ -45,6 +45,7 @@ defmodule Hearth.UsageRulesTest do
 
   test "documents moving an integration with --module" do
     assert @content =~ "mix hearth.regen stripe --module MyApp.Payments.Stripe"
+    assert @content =~ "--module MyApp.Payments.Stripe --remove-old"
   end
 
   test "documents the Mox test seam at <Layer2>.Mock" do

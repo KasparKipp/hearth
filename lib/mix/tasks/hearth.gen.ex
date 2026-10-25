@@ -409,7 +409,7 @@ if Code.ensure_loaded?(Igniter) do
     # that already exist on disk.
     defp existing_artifacts(igniter, names) do
       module_paths =
-        Enum.map(Manifest.modules(names), fn {module, kind} ->
+        Enum.map(Manifest.modules(names), fn {module, kind, _policy} ->
           Igniter.Project.Module.proper_location(igniter, module, kind)
         end)
 

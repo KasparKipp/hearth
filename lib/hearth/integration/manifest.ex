@@ -20,24 +20,27 @@ defmodule Hearth.Integration.Manifest do
   alias Hearth.Render
 
   @type kind :: :source_folder | :test
+  @type policy :: :tracked | :scaffold
 
   @type entry :: %{
           module: module(),
           content: String.t(),
           kind: kind(),
-          policy: :tracked | :scaffold,
+          policy: policy(),
           label: String.t()
         }
 
-  # `names` is the map `Hearth.Render.ModuleNames.from_layer1/1` returns.
-  @spec modules(map()) :: [{module(), kind()}]
+  # Every module with its location kind and policy — the single source
+  # for both. `names` is the map `Hearth.Render.ModuleNames.from_layer1/1`
+  # returns.
+  @spec modules(map()) :: [{module(), kind(), policy()}]
   def modules(names) do
     [
-      {names.layer1, :source_folder},
-      {names.layer2, :source_folder},
-      {names.layer3, :source_folder},
-      {names.layer1_test, :test},
-      {names.external_test, :test}
+      {names.layer1, :source_folder, :tracked},
+      {names.layer2, :source_folder, :tracked},
+      {names.layer3, :source_folder, :tracked},
+      {names.layer1_test, :test, :tracked},
+      {names.external_test, :test, :scaffold}
     ]
   end
 
@@ -59,7 +62,6 @@ defmodule Hearth.Integration.Manifest do
       entry(
         names.layer1,
         Render.Layer1.render(names.layer1, otp_app, servers.default, prefix, auth),
-        :tracked,
         "raw Req client"
       ),
       entry(
@@ -68,19 +70,16 @@ defmodule Hearth.Integration.Manifest do
           metadata: Keyword.fetch!(opts, :metadata),
           otp_app: otp_app
         ),
-        :tracked,
         "behaviour, #{count} #{Messages.pluralize("callback", count)}"
       ),
       entry(
         names.layer3,
         Render.Layer3.render(names.layer3, names.layer2, names.layer1, operations),
-        :tracked,
         "Req implementation, #{count} #{Messages.pluralize("function", count)}"
       ),
       entry(
         names.layer1_test,
         Render.Tests.layer1(names.layer1_test, names.layer1, otp_app, auth),
-        :tracked,
         "Layer 1 auth test"
       ),
       entry(
@@ -93,12 +92,13 @@ defmodule Hearth.Integration.Manifest do
           auth,
           operations
         ),
-        :scaffold,
         "external integration test"
       )
     ]
     |> Enum.zip(modules(names))
-    |> Enum.map(fn {entry, {_module, kind}} -> Map.put(entry, :kind, kind) end)
+    |> Enum.map(fn {entry, {_module, kind, policy}} ->
+      Map.merge(entry, %{kind: kind, policy: policy})
+    end)
   end
 
   # The integration's pruned spec — its versioned source of truth.
@@ -120,7 +120,7 @@ defmodule Hearth.Integration.Manifest do
     }
   end
 
-  defp entry(module, content, policy, label) do
-    %{module: module, content: content, policy: policy, label: label}
+  defp entry(module, content, label) do
+    %{module: module, content: content, label: label}
   end
 end

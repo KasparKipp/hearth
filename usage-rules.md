@@ -92,6 +92,14 @@ wires their mock and config, and swaps the old Layer 2 for the new one
 in `:hearth_domains`. The old modules and their other config stay
 untouched — delete them once callers use the new module.
 
+Add `--remove-old` to remove the old module in the same run — its
+files, config entries and `defmock`:
+
+    mix hearth.regen stripe --module MyApp.Payments.Stripe --remove-old
+
+Files you've claimed (an ownership token, or the external test
+scaffold) are kept and listed. `--remove-old` without `--module` halts.
+
 To pull in upstream spec changes, edit `priv/hearth/<int>.yaml` and
 re-run `regen`.
 

@@ -24,20 +24,20 @@ defmodule Hearth.Integration.ManifestTest do
   end
 
   describe "modules/1" do
-    test "lists every generated module with its location kind" do
+    test "lists every generated module with its location kind and policy" do
       assert Manifest.modules(@names) == [
-               {Test.Integrations.Petstore, :source_folder},
-               {Test.Integrations.Petstore.PetstoreApi, :source_folder},
-               {Test.Integrations.Petstore.PetstoreApi.Req, :source_folder},
-               {Test.Integrations.PetstoreTest, :test},
-               {Test.Integrations.PetstoreExternalTest, :test}
+               {Test.Integrations.Petstore, :source_folder, :tracked},
+               {Test.Integrations.Petstore.PetstoreApi, :source_folder, :tracked},
+               {Test.Integrations.Petstore.PetstoreApi.Req, :source_folder, :tracked},
+               {Test.Integrations.PetstoreTest, :test, :tracked},
+               {Test.Integrations.PetstoreExternalTest, :test, :scaffold}
              ]
     end
   end
 
   describe "files/2" do
     test "renders one entry per module, in modules/1 order" do
-      assert Enum.map(files(), &{&1.module, &1.kind}) == Manifest.modules(@names)
+      assert Enum.map(files(), &{&1.module, &1.kind, &1.policy}) == Manifest.modules(@names)
     end
 
     test "the external test is a user-owned scaffold; the rest are tracked" do

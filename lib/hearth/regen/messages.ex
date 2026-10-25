@@ -131,6 +131,52 @@ defmodule Hearth.Regen.Messages do
     """
   end
 
+  def remove_old_needs_module_message do
+    """
+    hearth.regen: --remove-old only works with --module <NewLayer1Module>.
+
+      mix hearth.regen stripe --module MyApp.Payments.Stripe --remove-old
+
+    It removes the integration's old module after moving it.
+    """
+  end
+
+  def removed_notice(old, new, spec_path, results) do
+    {removed, kept} = Enum.split_with(results, &match?({_path, :removed}, &1))
+    removed = Enum.map_join(removed, "\n", fn {path, _} -> "  * #{path}" end)
+
+    """
+    Moved #{new.integration} from #{inspect(old.layer1)} to #{inspect(new.layer1)}, removing the old module.
+
+    #{spec_path} now names #{inspect(new.layer1)}, and its mock and
+    config are wired. #{inspect(old.layer1)}'s config entries and
+    defmock are removed, and these files:
+
+    #{removed}
+    #{kept_section(kept)}
+    """
+  end
+
+  defp kept_section([]), do: ""
+
+  defp kept_section(kept) do
+    files =
+      Enum.map_join(kept, "\n", fn {path, claim} -> "  * #{path} (#{claim_label(claim)})" end)
+
+    """
+
+    Kept, because they're yours. They still reference the removed
+    modules — delete them once you've moved what you need:
+
+    #{files}
+    """
+  end
+
+  defp claim_label(:scaffold), do: "user-owned scaffold"
+  defp claim_label(:owned), do: "hearth:owned"
+  defp claim_label(:collaborating), do: "hearth:collaborating"
+  defp claim_label(:unreadable), do: "could not read it to check its ownership token"
+
   def bad_module_message(spec_path, value) do
     found = if value, do: " (found #{inspect(value)})", else: ""
 

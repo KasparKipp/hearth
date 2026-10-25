@@ -487,6 +487,12 @@ What exists, condensed. The blow-by-blow is in git history.
   pruned spec (`Meta.replace_module/3`, re-encodes as a fallback), and wires
   config via `Patches.wire/2` with `replaces:` — the old Layer 2 is swapped
   for the new one in `:hearth_domains` (in place; appended if absent).
+  `--remove-old` (requires a `--module` that differs from the current one)
+  also `Igniter.rm`s the old untokened tracked files — scaffold, owned,
+  collaborating and unreadable files are kept and listed — and
+  `Patches.unwire/3` cuts its config entries, alternates and `defmock`
+  by Sourceror range from the text (AST removal crashes Sourceror on its
+  trailing-comment blocks and drops comments).
 
 ---
 

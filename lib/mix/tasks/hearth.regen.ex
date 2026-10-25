@@ -17,7 +17,7 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
 
         mix hearth.regen <integration>[,<integration>...] [--yes]
         mix hearth.regen --all [--yes]
-        mix hearth.regen <integration> --module <Layer1Module> [--yes]
+        mix hearth.regen <integration> --module <Layer1Module> [--remove-old] [--yes]
 
     `<integration>` is the name the integration was generated with
     (`mix hearth.gen … --integration Stripe`). `stripe` and `Stripe`
@@ -44,6 +44,12 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
     modules and their other config are left untouched: delete them
     once callers have switched.
 
+    Add `--remove-old` to remove the old module in the same run: its
+    files, every config entry keyed by its modules, its commented
+    alternate base URLs and its `defmock`. Files you have claimed are
+    kept and listed — a `hearth:owned` / `hearth:collaborating` token,
+    or the external test scaffold.
+
     ## Ownership tokens
 
     `mix hearth.gen` only creates; `mix hearth.regen` updates. Each
@@ -62,6 +68,7 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
       * `--all` — regenerate every integration under `priv/hearth/`.
       * `--module <Layer1Module>` — move one integration into a new
         namespace (see above).
+      * `--remove-old` — with `--module`, remove the old module too.
       * `--yes` — non-interactive: accept every `hearth:collaborating`
         prompt.
     """
@@ -95,7 +102,7 @@ if Code.ensure_loaded?(Igniter) do
     def info(_argv, _composing_task) do
       %Igniter.Mix.Task.Info{
         group: :hearth,
-        schema: [all: :boolean, module: :string, yes: :boolean],
+        schema: [all: :boolean, module: :string, remove_old: :boolean, yes: :boolean],
         # Optional so a bare `mix hearth.regen` halts with a
         # task-specific message rather than Igniter's generic error.
         positional: [{:integrations, optional: true}],
@@ -167,6 +174,9 @@ if Code.ensure_loaded?(Igniter) do
       module = igniter.args.options[:module]
 
       cond do
+        is_nil(module) and igniter.args.options[:remove_old] ->
+          {:error, Messages.remove_old_needs_module_message()}
+
         is_nil(module) ->
           {:ok, nil}
 
@@ -198,10 +208,15 @@ if Code.ensure_loaded?(Igniter) do
            {:ok, layer1} <- layer1(spec) do
         names = ModuleNames.from_layer1(layer1)
 
-        if target in [nil, layer1] do
-          render(igniter, names, spec_path, spec)
-        else
-          move(igniter, names, ModuleNames.from_layer1(target), {spec_path, bytes, spec})
+        cond do
+          target == layer1 and igniter.args.options[:remove_old] ->
+            Igniter.add_issue(igniter, Messages.remove_old_needs_module_message())
+
+          target in [nil, layer1] ->
+            render(igniter, names, spec_path, spec)
+
+          true ->
+            move(igniter, names, ModuleNames.from_layer1(target), {spec_path, bytes, spec})
         end
       else
         :missing ->
@@ -229,9 +244,8 @@ if Code.ensure_loaded?(Igniter) do
 
     # `--module`: render the integration into the new module, point the
     # pruned spec at it, and wire its mock and config the way `gen`
-    # does. Like `gen`, it only creates. The old module's files and
-    # config are left in place for the user to remove once callers
-    # have switched.
+    # does. Like `gen`, it only creates. The old module is retired by
+    # `retire/4`.
     defp move(igniter, old, new, {spec_path, bytes, spec}) do
       case existing_files(igniter, new) do
         [] ->
@@ -241,22 +255,63 @@ if Code.ensure_loaded?(Igniter) do
           |> render(new, spec_path, spec)
           |> Igniter.create_new_file(spec_path, yaml, on_exists: :overwrite)
           |> Patches.wire(Map.put(wiring(igniter, new, spec), :replaces, old.layer2))
-          |> Igniter.add_notice(
-            Messages.moved_notice(old, new, spec_path, existing_files(igniter, old))
-          )
+          |> retire(old, new, spec_path)
 
         existing ->
-          Igniter.add_issue(igniter, Messages.target_exists_message(new.layer1, existing))
+          paths = Enum.map(existing, &elem(&1, 0))
+          Igniter.add_issue(igniter, Messages.target_exists_message(new.layer1, paths))
+      end
+    end
+
+    # Without `--remove-old` the old module stays and the notice lists
+    # its files for the user to delete.
+    defp retire(igniter, old, new, spec_path) do
+      old_files = existing_files(igniter, old)
+
+      if igniter.args.options[:remove_old] do
+        {igniter, results} = remove_old(igniter, old, old_files)
+        Igniter.add_notice(igniter, Messages.removed_notice(old, new, spec_path, results))
+      else
+        paths = Enum.map(old_files, &elem(&1, 0))
+        Igniter.add_notice(igniter, Messages.moved_notice(old, new, spec_path, paths))
+      end
+    end
+
+    # `--remove-old`: delete the old module's files and every config
+    # entry `gen` wrote for it. Files the user claimed — an ownership
+    # token, or the external test scaffold — are kept and listed.
+    # Ownership fails closed: an unreadable file is kept too.
+    defp remove_old(igniter, old, old_files) do
+      {igniter, results} =
+        Enum.reduce(old_files, {igniter, []}, fn {path, policy}, {acc, results} ->
+          case claim(acc, path, policy) do
+            {acc, :none} -> {Igniter.rm(acc, path), [{path, :removed} | results]}
+            {acc, claim} -> {acc, [{path, claim} | results]}
+          end
+        end)
+
+      otp_app = Igniter.Project.Application.app_name(igniter)
+      {Patches.unwire(igniter, otp_app, old), Enum.reverse(results)}
+    end
+
+    defp claim(igniter, _path, :scaffold), do: {igniter, :scaffold}
+
+    defp claim(igniter, path, :tracked) do
+      igniter = Igniter.include_existing_file(igniter, path)
+
+      case Content.read(igniter, path) do
+        {:ok, existing} -> {igniter, Ownership.classify(existing)}
+        {:error, _reason} -> {igniter, :unreadable}
       end
     end
 
     defp existing_files(igniter, names) do
       names
       |> Manifest.modules()
-      |> Enum.map(fn {module, kind} ->
-        Igniter.Project.Module.proper_location(igniter, module, kind)
+      |> Enum.map(fn {module, kind, policy} ->
+        {Igniter.Project.Module.proper_location(igniter, module, kind), policy}
       end)
-      |> Enum.filter(&Igniter.exists?(igniter, &1))
+      |> Enum.filter(fn {path, _policy} -> Igniter.exists?(igniter, path) end)
     end
 
     defp wiring(igniter, names, spec) do

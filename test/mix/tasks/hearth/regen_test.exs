@@ -375,6 +375,150 @@ defmodule Mix.Tasks.Hearth.RegenTest do
     end
   end
 
+  describe "--remove-old" do
+    # API-key auth (a runtime.exs credential) and extra servers
+    # (commented alternates in config.exs and test.exs), so every kind
+    # of config entry `gen` writes is present.
+    @keyed_spec JSON.encode!(%{
+                  "openapi" => "3.0.0",
+                  "info" => %{"title" => "Keyed", "version" => "1.0"},
+                  "servers" => [
+                    %{"url" => "https://api.keyed.com"},
+                    %{"url" => "https://eu.keyed.com"},
+                    %{"url" => "https://sandbox.keyed.com"},
+                    %{"url" => "https://staging.keyed.com"}
+                  ],
+                  "paths" => %{"/ping" => %{"get" => %{"operationId" => "ping"}}},
+                  "components" => %{
+                    "securitySchemes" => %{
+                      "ApiKey" => %{"type" => "apiKey", "in" => "header", "name" => "X-API-Key"}
+                    }
+                  }
+                })
+
+    @old_keyed_files [
+      "lib/test/integrations/keyed.ex",
+      "lib/test/integrations/keyed/keyed_api.ex",
+      "lib/test/integrations/keyed/keyed_api/req.ex",
+      "test/test/integrations/keyed_test.exs"
+    ]
+    @config_files ~w(config/config.exs config/test.exs config/runtime.exs test/support/mocks.ex)
+
+    # Two integrations, so removing one must leave the other's config.
+    defp gen_keyed_and_petstore do
+      test_project(
+        files: %{
+          "priv/specs/keyed.json" => @keyed_spec,
+          "priv/specs/petstore.yaml" => @petstore_3_0_yaml
+        }
+      )
+      |> Igniter.compose_task("hearth.gen", ["priv/specs/keyed.json", "--integration", "Keyed"])
+      |> apply_igniter!()
+      |> Igniter.compose_task("hearth.gen", [
+        "priv/specs/petstore.yaml",
+        "--integration",
+        "Petstore"
+      ])
+      |> apply_igniter!()
+    end
+
+    defp move_keyed(igniter, extra \\ ["--remove-old"]) do
+      regen(igniter, ["keyed", "--module", "Test.Billing.Keyed"] ++ extra)
+    end
+
+    defp contents(igniter, paths), do: Enum.map_join(paths, "\n", &created_file(igniter, &1))
+
+    test "the setup writes every kind of config entry for the old module" do
+      config = gen_keyed_and_petstore() |> contents(@config_files)
+
+      assert config =~ ~r/Test\.Integrations\.Keyed,\s+api_key:/
+      assert config =~ "Test.Integrations.Keyed, base_url:"
+      assert config =~ "impl: Test.Integrations.Keyed.KeyedApi.Mock"
+      assert config =~ "# Hearth: alternate base URLs for Test.Integrations.Keyed"
+      assert config =~ "Mox.defmock(Test.Integrations.Keyed.KeyedApi.Mock"
+    end
+
+    test "removes the old module's files" do
+      gen_keyed_and_petstore()
+      |> move_keyed()
+      |> assert_rms(@old_keyed_files)
+    end
+
+    test "removes every config entry for the old module, keeping the others" do
+      config = gen_keyed_and_petstore() |> move_keyed() |> contents(@config_files)
+
+      refute config =~ "Test.Integrations.Keyed"
+      assert config =~ ~r/Test\.Billing\.Keyed,\s+api_key:/
+      assert config =~ "impl: Test.Billing.Keyed.KeyedApi.Mock"
+      assert config =~ "impl: Test.Integrations.Petstore.PetstoreApi.Mock"
+      assert config =~ "Mox.defmock(Test.Integrations.Petstore.PetstoreApi.Mock"
+    end
+
+    test "leaves no empty config_env blocks behind in runtime.exs" do
+      runtime =
+        test_project(files: %{"priv/specs/keyed.json" => @keyed_spec})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/keyed.json", "--integration", "Keyed"])
+        |> apply_igniter!()
+        |> move_keyed()
+        |> created_file("config/runtime.exs")
+
+      assert runtime =~ ~r/Test\.Billing\.Keyed,\s+api_key:/
+      refute runtime =~ ~r/do\s+end/
+    end
+
+    test "keeps the user-owned external test scaffold and lists it" do
+      igniter = gen_keyed_and_petstore() |> move_keyed()
+
+      refute "test/test/integrations/keyed_external_test.exs" in igniter.rms
+      assert notice_text(igniter) =~ "test/test/integrations/keyed_external_test.exs"
+    end
+
+    test "keeps an old file marked hearth:owned and lists it" do
+      owned = """
+      defmodule Test.Integrations.Keyed do
+        @moduledoc "hearth:owned"
+      end
+      """
+
+      igniter =
+        gen_keyed_and_petstore()
+        |> Igniter.create_new_file("lib/test/integrations/keyed.ex", owned, on_exists: :overwrite)
+        |> apply_igniter!()
+        |> move_keyed()
+
+      refute "lib/test/integrations/keyed.ex" in igniter.rms
+      assert "lib/test/integrations/keyed/keyed_api.ex" in igniter.rms
+      assert notice_text(igniter) =~ "lib/test/integrations/keyed.ex (hearth:owned)"
+    end
+
+    test "a later regen of the moved integration is a no-op" do
+      gen_keyed_and_petstore()
+      |> move_keyed()
+      |> apply_igniter!()
+      |> regen(["keyed"])
+      |> assert_unchanged()
+    end
+
+    test "without it, the old module's files and config stay" do
+      igniter = gen_keyed_and_petstore() |> move_keyed([])
+
+      assert igniter.rms == []
+      assert contents(igniter, @config_files) =~ ~r/Test\.Integrations\.Keyed,\s+api_key:/
+    end
+
+    test "halts without --module, or with the current module" do
+      files = %{"priv/hearth/petstore.yaml" => @petstore_pruned}
+
+      for argv <- [
+            ["petstore", "--remove-old"],
+            ["petstore", "--module", "Test.Integrations.Petstore", "--remove-old"]
+          ] do
+        igniter = test_project(files: files) |> regen(argv)
+        assert has_issue?(igniter, ["--remove-old", "--module"])
+      end
+    end
+  end
+
   describe "x-hearth.module" do
     test "names the Layer 1 module, keeping the domain gen chose" do
       pruned = @petstore_3_0_yaml <> "\nx-hearth:\n  module: Test.Billing.Petstore\n"
