@@ -40,7 +40,7 @@ defmodule Hearth.MixProject do
       files: ~w(lib .formatter.exs mix.exs README* LICENSE*
       CHANGELOG* usage-rules.md),
       links: %{
-        "GitHub" => "https://github.com/todo-project/hearth"
+        "GitHub" => "https://github.com/KasparKipp/hearth"
       }
     ]
   end

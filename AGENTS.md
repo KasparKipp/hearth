@@ -677,7 +677,7 @@ These were learned the hard way and must hold for future steps:
     Bearer/API-key also get a `credential/1` that reads
     `Application.get_env(@otp_app, __MODULE__)[:api_key]` with an
     `:api_key` opt override, raising a clear error if absent.
-  - **Credential model (confirmed with Kaspar):** the credential lives
+  - **Credential model:** the credential lives
     in app config keyed by the Layer 1 module — `config :otp_app,
     <ClientModule>, api_key: …`. Step 5f generates the entry in
     `config/runtime.exs`: prod path does `System.get_env("X") || raise`,
