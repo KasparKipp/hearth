@@ -69,7 +69,7 @@ defmodule Hearth.MixProject do
       # runtime of the generated client; `plug` backs the `Req.Test`
       # plug in the generated Layer 1 test. (`mox`, for the generated
       # mock, is added straight to the consumer by `mix hearth.gen`.)
-      {:req, "~> 0.5", optional: true},
+      {:req, "~> 0.7", optional: true},
       {:plug, "~> 1.0", optional: true},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

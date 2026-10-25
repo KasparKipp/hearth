@@ -434,8 +434,8 @@ defmodule Mix.Tasks.Hearth.GenTest do
         ])
 
       source = created_file(igniter, "lib/test/integrations/keyed.ex")
-      assert source =~ ~s|headers: [{"X-API-Key", credential(opts)}]|
-      assert source =~ "defp credential(opts)"
+      assert source =~ ~s|Req.Request.put_header(request, "x-api-key", credential(request))|
+      assert source =~ "defp credential(request)"
     end
 
     test "the notice lists all four generated files" do
@@ -518,9 +518,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
 
       source = created_file(igniter, "test/test/integrations/keyed_test.exs")
 
-      assert source =~
-               "Application.put_env(:test, @client, Keyword.put(previous, :api_key, @api_key))"
-
+      assert source =~ "configure_api_key(@api_key)"
       assert source =~ ~s|Plug.Conn.get_req_header(conn, "x-api-key") == [@api_key]|
     end
 
@@ -577,6 +575,14 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert mix_exs =~ "only: [:test]" or mix_exs =~ "only: :test"
     end
 
+    test "adds {:req, \"~> 0.7\"} to the consumer's deps" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> gen("priv/specs/petstore.yaml", "Petstore")
+
+      assert created_file(igniter, "mix.exs") =~ ~s|{:req, "~> 0.7"}|
+    end
+
     test "queues `mix deps.get` when it added deps to mix.exs" do
       igniter =
         test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
@@ -606,7 +612,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
       test_project(
         files: %{
           "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
-          "mix.exs" => mix_exs(deps: ~s|{:req, "~> 0.5"}, {:mox, "~> 1.0", only: [:test]}|)
+          "mix.exs" => mix_exs(deps: ~s|{:req, "~> 0.7"}, {:mox, "~> 1.0", only: [:test]}|)
         }
       )
       |> gen("priv/specs/petstore.yaml", "Petstore")
@@ -620,7 +626,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
             "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
             "mix.exs" =>
               mix_exs(
-                deps: ~s|{:req, "~> 0.5"}, {:mox, "~> 1.0", only: [:test]}|,
+                deps: ~s|{:req, "~> 0.7"}, {:mox, "~> 1.0", only: [:test]}|,
                 elixirc_paths?: false
               )
           }

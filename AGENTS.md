@@ -401,7 +401,7 @@ lib/
       content.ex               # read through Igniter's Rewrite (Igniter-guarded)
 test/
   hearth/…  mix/tasks/hearth/… # mirror lib/
-  fixtures/specs/              # OAI petstore (3.0) + tictactoe (3.1)
+  fixtures/specs/              # OAI petstore (3.0), tictactoe (3.1), keyed (API key in query)
   generated/<case>/…golden     # golden snapshots of everything gen writes
   golden_test.exs  usage_rules_test.exs
 ```
@@ -450,8 +450,13 @@ What exists, condensed. The blow-by-blow is in git history.
   (a placeholder + TODO when the spec has no servers), overridable via
   `config … base_url:`; `new/1` (mirrors `Req.new/1`, ends with
   `Req.merge(opts)`), `request/2`, `request!/2`. Bearer / API-key (header or
-  query) read `api_key` from app config keyed by the Layer 1 module, with an
-  `:api_key` override on `new/1`.
+  query) register an `:api_key` option and attach the credential in an
+  appended request step (`put_api_key/1`): resolved per request from the
+  option (per call, through every layer) or else `config … api_key:`; a
+  string, 0-arity fun or `{m, f, a}`; a caller's explicit `auth:` / header /
+  query param wins; the query key goes into the URL, never `:params`.
+  `test/hearth/render/layer1_runtime_test.exs` compiles and runs each variant
+  against `Req.Test`.
 - **Layer 2** — per operation a `@callback` plus a delegating `def`
   (summary/description as `@doc`), dispatching through
   `Application.get_env(@otp_app, __MODULE__)[:impl] || __MODULE__.Req`. The
@@ -459,12 +464,15 @@ What exists, condensed. The blow-by-blow is in git history.
 - **Layer 3** — `@behaviour` Layer 2; each function calls
   `<Layer1>.request/2` with the path interpolated in one regex pass; `:get`
   omits `method:`.
-- **Generated tests** — `<Int>Test`: `Req.Test` auth assertions, wrapped in
-  `if Code.ensure_loaded?(Plug.Conn)` (no `plug` dep is added — `req` declares
+- **Generated tests** — `<Int>Test`: `Req.Test` auth assertions. For keyed
+  schemes one test per way to supply the credential — config string / fun /
+  MFA, per-call string / fun, `new/1`, an explicit credential winning, and
+  (query) the key alongside `params:` — so it doubles as usage examples.
+  Wrapped in `if Code.ensure_loaded?(Plug.Conn)` (no `plug` dep is added — `req` declares
   it optional for all envs). `<Int>ExternalTest`: `@moduletag :external`, one
   test per operation calling Layer 3 directly; `test_helper.exs` excludes
   `:external`.
-- **Wiring (`Patches`)** — adds `{:req, "~> 0.5"}` and
+- **Wiring (`Patches`)** — adds `{:req, "~> 0.7"}` and
   `{:mox, "~> 1.0", only: [:test]}`, queues `deps.get` when that changed
   `mix.exs`; `defmock` appended idempotently; `test/support` added to
   `elixirc_paths(:test)` via `Igniter.Project.Test.ensure_test_support/1`
@@ -547,9 +555,6 @@ Learned the hard way; every change must keep them:
   bundles `latest` resolution — TODO on the `latest` entry in
   `lib/hearth/registry.ex`), end-to-end URL/registry codegen.
 - **Open review items:**
-  - auth corner cases — does a query API key survive a caller's `params:`
-    (`Req.merge`)? A per-call `api_key:` through Layer 2/3 reaches
-    `Req.request/2` as an unknown option;
   - `Ownership.classify/1` scans the whole file, not just the `@moduledoc`;
   - `gen_test.exs` (~1500 lines) wants splitting by concern.
 

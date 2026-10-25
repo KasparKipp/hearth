@@ -1,0 +1,43 @@
+# Minimal API-key (query) spec — the golden case for keyed auth: the
+# request-step Layer 1, both generated auth tests, and the runtime.exs
+# credential wiring.
+openapi: 3.0.0
+info:
+  title: Keyed
+  version: "1.0"
+servers:
+  - url: https://api.keyed.example.com/v1
+paths:
+  /items:
+    get:
+      operationId: listItems
+      tags: [Items]
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: OK
+  /items/{itemId}:
+    get:
+      operationId: getItem
+      tags: [Items]
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+components:
+  securitySchemes:
+    ApiKeyQuery:
+      type: apiKey
+      in: query
+      name: api_key
+security:
+  - ApiKeyQuery: []

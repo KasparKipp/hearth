@@ -1,0 +1,36 @@
+defmodule Test.Integrations.KeyedExternalTest do
+  @moduledoc false
+
+  # Generated once by Hearth — a scaffold for real HTTP calls
+  # against the live API. Hearth never overwrites this file; edit
+  # it freely. Tagged `:external` and skipped by `mix test` — run
+  # it with `mix test --include external`.
+
+  use ExUnit.Case, async: false
+
+  @moduletag :external
+
+  alias Test.Integrations.Keyed.KeyedApi
+  @client Test.Integrations.Keyed
+
+  setup do
+    # Merge into the existing config — `config/test.exs` sets a
+    # `:base_url` on @client; a bare `put_env` would wipe it and the
+    # external test would hit production.
+    previous = Application.get_env(:test, @client, [])
+    api_key = System.get_env("KEYED_API_KEY") || "DEV_NO_KEYED_API_KEY"
+    Application.put_env(:test, @client, Keyword.put(previous, :api_key, api_key))
+    on_exit(fn -> Application.put_env(:test, @client, previous) end)
+    :ok
+  end
+
+  # TODO: replace the placeholder args/opts and assert on your use-case.
+  test "list_items reaches the live API" do
+    assert {:ok, %Req.Response{}} = KeyedApi.Req.list_items([])
+  end
+
+  # TODO: replace the placeholder args/opts and assert on your use-case.
+  test "get_item reaches the live API" do
+    assert {:ok, %Req.Response{}} = KeyedApi.Req.get_item("TODO", [])
+  end
+end

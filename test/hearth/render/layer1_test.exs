@@ -14,28 +14,34 @@ defmodule Hearth.Render.Layer1Test do
       assert source =~ "Raw Req client for the Stripe integration"
     end
 
-    test ":bearer auth attaches a bearer token and a credential/1 reader" do
+    # Behaviour is covered by Layer1RuntimeTest; these pin the shape.
+    test ":bearer auth registers :api_key and attaches it in a request step" do
       source = Layer1.render(MyApp.Api, :my_app, "https://x", "", :bearer)
 
-      assert source =~ "auth: {:bearer, credential(opts)}"
-      assert source =~ "|> Req.merge(Keyword.delete(opts, :api_key))"
-      assert source =~ "defp credential(opts) do"
-      assert source =~ "Application.get_env(@otp_app, __MODULE__, [])[:api_key]"
-      assert source =~ "opts[:api_key]"
+      assert source =~ "|> Req.Request.register_options([:api_key])"
+      assert source =~ "|> Req.Request.append_request_steps(put_api_key: &put_api_key/1)"
+      assert source =~ ~s|"Bearer " <> credential(request)|
+      assert source =~ "defp credential(request) do"
+
+      assert source =~
+               "request.options[:api_key] || Application.get_env(@otp_app, __MODULE__, [])[:api_key]"
+
+      assert source =~ "## Credentials"
     end
 
     test "API-key header auth sets the header from the credential" do
       source =
         Layer1.render(MyApp.Api, :my_app, "https://x", "", {:api_key, :header, "X-API-Key"})
 
-      assert source =~ ~s|headers: [{"X-API-Key", credential(opts)}]|
-      assert source =~ "defp credential(opts) do"
+      assert source =~ ~s|Req.Request.put_header(request, "x-api-key", credential(request))|
+      assert source =~ "defp credential(request) do"
     end
 
     test "API-key query auth sets the query param from the credential" do
       source = Layer1.render(MyApp.Api, :my_app, "https://x", "", {:api_key, :query, "api_key"})
 
-      assert source =~ ~s|params: %{"api_key" => credential(opts)}|
+      assert source =~ ~s|URI.encode_query([{"api_key", credential(request)}])|
+      refute source =~ "params:"
     end
 
     test ":none auth produces a base-URL-only client and no credential reader" do
@@ -43,6 +49,7 @@ defmodule Hearth.Render.Layer1Test do
 
       assert source =~ "Req.new(base_url: base_url()) |> Req.merge(opts)"
       refute source =~ "defp credential"
+      refute source =~ "## Credentials"
       assert source =~ "def new(opts \\\\ []) do"
     end
 

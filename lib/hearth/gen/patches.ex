@@ -26,7 +26,7 @@ if Code.ensure_loaded?(Igniter) do
     @spec add_deps(Igniter.t()) :: Igniter.t()
     def add_deps(igniter) do
       igniter
-      |> Igniter.Project.Deps.add_dep({:req, "~> 0.5"}, on_exists: :skip)
+      |> Igniter.Project.Deps.add_dep({:req, "~> 0.7"}, on_exists: :skip)
       |> Igniter.Project.Deps.add_dep({:mox, "~> 1.0", only: [:test]}, on_exists: :skip)
     end
 
