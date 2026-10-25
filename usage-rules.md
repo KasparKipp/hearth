@@ -156,7 +156,8 @@ token needs no edit to Layer 1:
 
 A per-call `api_key:` overrides config. A credential set explicitly
 on the request (`auth:`, the header, or the query param) is left
-alone.
+alone. The generated auth test (`<Int>Test`) has a working example of
+each of these.
 
 ## Testing
 

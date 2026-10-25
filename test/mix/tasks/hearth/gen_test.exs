@@ -518,9 +518,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
 
       source = created_file(igniter, "test/test/integrations/keyed_test.exs")
 
-      assert source =~
-               "Application.put_env(:test, @client, Keyword.put(previous, :api_key, @api_key))"
-
+      assert source =~ "configure_api_key(@api_key)"
       assert source =~ ~s|Plug.Conn.get_req_header(conn, "x-api-key") == [@api_key]|
     end
 

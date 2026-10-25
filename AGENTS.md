@@ -464,8 +464,11 @@ What exists, condensed. The blow-by-blow is in git history.
 - **Layer 3** — `@behaviour` Layer 2; each function calls
   `<Layer1>.request/2` with the path interpolated in one regex pass; `:get`
   omits `method:`.
-- **Generated tests** — `<Int>Test`: `Req.Test` auth assertions, wrapped in
-  `if Code.ensure_loaded?(Plug.Conn)` (no `plug` dep is added — `req` declares
+- **Generated tests** — `<Int>Test`: `Req.Test` auth assertions. For keyed
+  schemes one test per way to supply the credential — config string / fun /
+  MFA, per-call string / fun, `new/1`, an explicit credential winning, and
+  (query) the key alongside `params:` — so it doubles as usage examples.
+  Wrapped in `if Code.ensure_loaded?(Plug.Conn)` (no `plug` dep is added — `req` declares
   it optional for all envs). `<Int>ExternalTest`: `@moduletag :external`, one
   test per operation calling Layer 3 directly; `test_helper.exs` excludes
   `:external`.
