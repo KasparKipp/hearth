@@ -48,8 +48,9 @@ directory that `mix new` didn't:
 | `test/stripe_demo/integrations/stripe_external_test.exs` | live-API tests, yours to edit |
 | `test/support/mocks.ex` | the Mox mock for `StripeApi` |
 | `config/test.exs` | points `StripeApi` at the mock in tests |
+| `config/runtime.exs` | reads the API key from `STRIPE_API_KEY` in dev and prod |
 | `priv/hearth/stripe.yaml` | Stripe's spec pruned to these three operations |
-| `.hearth.exs` | the rest of the entry: module, source, checksum, base path, and which tags were selected |
+| `.hearth.exs` | the rest of the entry: module, source, checksum, base path, which tags were selected, and the auth scheme |
 
 ### Where `stripe@2026-04-22.dahlia` comes from
 
@@ -86,11 +87,13 @@ mix test
 ```
 
 runs `test/stripe_demo/integrations/stripe_test.exs`, which drives the
-raw client through `Req.Test` — no network. (It only checks that a
-request gets through for now: see the auth gap below.)
+raw client through `Req.Test` — no network. It checks the bearer token
+lands on the request, one test per way to supply the key (config,
+a function, an `{m, f, a}` tuple, per call, `new/1`), so it doubles as
+usage examples.
 
 ```bash
-mix test --include external
+STRIPE_API_KEY=sk_test_… mix test --include external
 ```
 
 also runs `test/stripe_demo/integrations/stripe_external_test.exs`: one
@@ -170,14 +173,24 @@ mix hearth.diff stripe        # in sync again
 listing what it applied. To pick up more operations, add patterns to the
 overrides, or tags to `tags:`, and `--sync` again.
 
-## Known gap: auth
+## Auth
 
-Stripe's spec lists HTTP basic auth first (the secret key as the
-username) and bearer second. Hearth wires bearer and API-key auth but not
-basic, and picks the first scheme, so the raw client is generated without
-auth and with a `TODO`. Choosing `bearerAuth` is on the way. Until then,
-pass the key yourself:
+Stripe's spec offers HTTP basic auth first (the secret key as the
+username) and bearer second. Hearth doesn't wire basic, so `gen` picked
+bearer and recorded the choice in `.hearth.exs`:
 
 ```elixir
-StripeDemo.Integrations.Stripe.StripeApi.get_customers(auth: {:bearer, "sk_test_…"})
+auth: [
+  scheme: "bearerAuth",
+  available: [basicAuth: "http/basic (not supported)", bearerAuth: "bearer"]
+]
+```
+
+The raw client sends `Authorization: Bearer <key>`, with the key from
+`STRIPE_API_KEY` (`config/runtime.exs`), from
+`config :stripe_demo, StripeDemo.Integrations.Stripe, api_key: …`, or per
+call:
+
+```elixir
+StripeDemo.Integrations.Stripe.StripeApi.get_customers(api_key: "sk_test_…", params: [limit: 3])
 ```

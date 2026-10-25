@@ -15,7 +15,11 @@
       ],
       base_path: "/v1",
       tags: [Subscriptions: :none, Customers: :all],
-      untagged: :none
+      untagged: :none,
+      auth: [
+        scheme: "bearerAuth",
+        available: [basicAuth: "http/basic (not supported)", bearerAuth: "bearer"]
+      ]
     ]
   ]
 ]
