@@ -254,37 +254,41 @@ all live there and rarely round-trip back into the spec.
 - [ ] **Multipart uploads, streaming, server-sent events.** Each is a template
       special-case. Done when a real integration needs them.
 - [ ] **Generated reusable request steps — `<App>.Hearth.Steps`.** A module
-      generated into the consumer's project to hold hand-portable Req request
-      steps that Layer 1's `new/1` wires in via `Req.Request.append_request_steps/2`.
+      generated once into the consumer's project (`hearth:owned`, never
+      regenerated) to hold user-editable Req request steps that every
+      Layer 1's `new/1` appends.
 
-      The motivating case: when every GET operation in the spec follows REST
-      and declares no `requestBody`, Hearth can safely generate a step that
-      promotes a GET *carrying* a binary body to a POST — for APIs
-      (Elasticsearch-style search) that accept a query body only over POST.
-      Because the spec proves no GET legitimately has a body, a body present
-      at runtime is unambiguously the "too big for the query string" case.
+      The problem it solves: custom steps written into Layer 1 are lost on
+      the next `regen` unless the user marks the whole file `hearth:owned`,
+      which also freezes the generated parts (base URL, auth). A separate,
+      seeded module keeps the user's steps out of regenerated code. Layer 1
+      already appends a generated step the same way (`put_api_key/1`), so
+      the hook pattern is in place.
 
       ```elixir
-      # Layer 1 — generated new/1 gains the step
+      # Layer 1 — generated new/1 gains the shared steps
       def new(opts \\ []) do
-        Req.new(base_url: @base_url, auth: {:bearer, credential(opts)})
-        |> Req.Request.append_request_steps(
-          post_binary_body: &MyApp.Hearth.Steps.post_binary_body/1
-        )
+        Req.new(base_url: base_url())
+        |> Req.Request.register_options([:api_key])
+        |> Req.Request.append_request_steps(put_api_key: &put_api_key/1)
+        |> MyApp.Hearth.Steps.attach()
         |> Req.merge(opts)
       end
 
       # MyApp.Hearth.Steps — generated once, hearth:owned, user-editable
-      def post_binary_body(req) do
-        with %{method: :get, body: <<_::binary>>} <- req do
-          %{req | method: :post}
-        end
+      def attach(request) do
+        request
+        |> Req.Request.append_request_steps(user_agent: &put_user_agent/1)
+      end
+
+      defp put_user_agent(request) do
+        Req.Request.put_header(request, "user-agent", "my_app/1.0")
       end
       ```
 
-      `<App>.Hearth.Steps` is the home for any future reusable, user-editable
-      step (retry policy, custom headers, pagination cursors): Hearth seeds
-      it, the user evolves it.
+      Candidates to seed it with: retry policy, custom headers, logging and
+      telemetry, pagination cursors. (Not "promote a GET with a body to a
+      POST" — Req 0.7 does that itself.)
 - [ ] **Prefixed-ID URL shorthand.** Many APIs use type-prefixed resource IDs
       (Stripe: `cus_…` customers, `sub_…` subscriptions, `pi_…` payment
       intents). When a spec's IDs carry such prefixes, Hearth could generate a
