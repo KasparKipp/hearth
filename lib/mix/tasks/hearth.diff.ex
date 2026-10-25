@@ -95,7 +95,9 @@ if Code.ensure_loaded?(Igniter) do
     @impl Igniter.Mix.Task
     def igniter(igniter) do
       with {:ok, fail_on} <- fail_on(igniter),
-           {:ok, igniter, integrations} <- Project.read(igniter),
+           {:ok, igniter, %{integrations: integrations, registry: registry}} <-
+             Project.load(igniter),
+           igniter = Igniter.assign(igniter, :hearth_registry, registry),
            {:ok, selected} <- select(igniter, integrations),
            :ok <- check_source(igniter, selected) do
         Enum.reduce(selected, igniter, &diff(&2, &1, fail_on))
@@ -168,12 +170,25 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     defp reprune(igniter, key, entry, current) do
-      case Reprune.run(igniter, entry, igniter.args.options[:source], current) do
+      opts = [
+        source: igniter.args.options[:source],
+        current: current,
+        registry: igniter.assigns[:hearth_registry]
+      ]
+
+      case Reprune.run(igniter, entry, opts) do
         {:ok, igniter, result} ->
           {:ok, igniter, result}
 
         {:error, source, reason} ->
-          {:halt, IntegrationMessages.reprune_message(:diff, key, source, reason)}
+          {:halt,
+           IntegrationMessages.reprune_message(
+             :diff,
+             key,
+             source,
+             reason,
+             igniter.assigns[:hearth_registry]
+           )}
       end
     end
 

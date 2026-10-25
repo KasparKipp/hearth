@@ -69,7 +69,9 @@ defmodule Hearth.Integration.Messages do
   end
 
   # Why `Hearth.Integration.Reprune` couldn't re-prune `key` from `source`.
-  def reprune_message(task, key, _source, :no_tags) do
+  def reprune_message(task, key, source, reason, registry \\ %{})
+
+  def reprune_message(task, key, _source, :no_tags, _registry) do
     """
     hearth.#{task}: #{key} is re-pruned from its source with the entry's
     `tags:`, but its .hearth.exs entry has none. Add one, e.g.
@@ -78,43 +80,72 @@ defmodule Hearth.Integration.Messages do
     """
   end
 
-  def reprune_message(task, key, _source, {:bad_tags, detail}),
+  def reprune_message(task, key, _source, {:bad_tags, detail}, _registry),
     do: bad_tags_message(task, key, detail)
 
-  def reprune_message(task, key, _source, :no_source) do
+  def reprune_message(task, key, _source, :no_source, _registry) do
     """
     hearth.#{task}: #{key} is re-pruned from its source, but its
     .hearth.exs entry has no `source:`.
     """
   end
 
-  def reprune_message(task, key, source, :not_local) do
-    """
-    hearth.#{task}: #{key}: only local spec files can be read for now;
-    #{inspect(source)} is a URL or registry source. Download the spec,
-    point `source:` at the file, and re-run.
-    """
-  end
-
-  def reprune_message(task, key, source, :missing) do
-    "hearth.#{task}: #{key}: source #{inspect(source)} not found. " <>
-      "Point `source:` in .hearth.exs at the spec file."
-  end
-
-  def reprune_message(task, key, source, :unsupported) do
-    "hearth.#{task}: #{key}: unsupported spec format for #{inspect(source)}. " <>
-      "Supported extensions: .yaml, .yml, .json."
-  end
-
-  def reprune_message(task, key, source, {:decode, reason}) do
-    "hearth.#{task}: #{key}: failed to parse #{source}.\n\n" <> format_reason(reason)
-  end
-
-  def reprune_message(task, key, source, :empty_selection) do
+  def reprune_message(task, key, source, :empty_selection, _registry) do
     """
     hearth.#{task}: `tags:` for #{key} in .hearth.exs selects no operations in #{source}.
     """
   end
+
+  def reprune_message(task, key, source, reason, registry),
+    do: "hearth.#{task}: #{key}: " <> load_detail(source, reason, registry)
+
+  # Why `Hearth.Integration.Load` couldn't load `source`.
+  def load_message(task, source, reason, registry \\ %{}),
+    do: "hearth.#{task}: " <> load_detail(source, reason, registry)
+
+  defp load_detail(source, :missing, _registry) do
+    "file not found at #{inspect(source)}. " <>
+      "Check the path is correct and relative to the project root."
+  end
+
+  defp load_detail(source, :unsupported, _registry) do
+    "unsupported spec format for #{inspect(source)}. " <>
+      "Supported extensions: .yaml, .yml, .json."
+  end
+
+  defp load_detail(source, {:decode, reason}, _registry),
+    do: "failed to parse spec at #{source}.\n\n" <> format_reason(reason)
+
+  defp load_detail(_source, {:fetch, url, reason}, _registry),
+    do: "could not fetch #{url}: #{Hearth.Spec.Fetcher.describe_error(reason)}."
+
+  defp load_detail(_source, {:registry, {:unknown_name, name}}, registry) do
+    available = Enum.map_join(Hearth.Registry.list(registry), "\n", &"  * #{&1}")
+
+    """
+    no registry entry for `#{name}`.
+
+    Available shortcuts — Hearth's, and any in .hearth.exs `registry:`:
+    #{available}
+
+    Pin a version with `name@version` (e.g. `stripe@latest`). If you
+    have an OpenAPI spec elsewhere, pass it as a file path or URL
+    instead.
+    """
+  end
+
+  defp load_detail(_source, {:registry, {:unknown_version, name, version, available}}, _registry) do
+    versions_block = Enum.map_join(available, "\n", &"  * #{name}@#{&1}")
+
+    """
+    registry shortcut `#{name}` has no version `#{version}`.
+
+    Available versions:
+    #{versions_block}
+    """
+  end
+
+  defp load_detail(_source, {:invalid, message}, _registry), do: message
 
   defp verb(:regen), do: "regenerate"
   defp verb(:diff), do: "check"

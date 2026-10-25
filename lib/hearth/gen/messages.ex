@@ -8,8 +8,11 @@ defmodule Hearth.Gen.Messages do
 
   alias Hearth.Spec.Operation
 
-  def format_shortcuts do
-    shortcuts = Enum.map_join(Hearth.Registry.list(), "\n", &"  * #{&1}")
+  def format_shortcuts(registry \\ %{}) do
+    shortcuts =
+      Enum.map_join(Hearth.Registry.list(registry), "\n", fn name ->
+        if Map.has_key?(registry, name), do: "  * #{name} (.hearth.exs)", else: "  * #{name}"
+      end)
 
     """
     Hearth shortcuts:
@@ -55,18 +58,6 @@ defmodule Hearth.Gen.Messages do
     """
     hearth.gen needs `mix hearth.install` to set up your project's
     formatter import. Run install now?
-    """
-  end
-
-  def url_notice(url) do
-    """
-    Source recognized: URL.
-
-        #{url}
-
-    Next pipeline stage: HTTP fetch (Req-based, with on-disk cache under
-    `priv/hearth/cache/<sha256>/`). Not yet wired — when ready, this
-    command will fetch and cache the spec before decoding it.
     """
   end
 
@@ -148,7 +139,7 @@ defmodule Hearth.Gen.Messages do
 
   def missing_integration_message(path) do
     """
-    hearth.gen: --integration is required for a file source.
+    hearth.gen: --integration is required for a file or URL source.
 
       mix hearth.gen #{path} --integration <Name>
 
@@ -231,77 +222,18 @@ defmodule Hearth.Gen.Messages do
   def pluralize(word, 1), do: word
   def pluralize(word, _count), do: word <> "s"
 
-  def file_not_found_message(path) do
-    "hearth.gen: file not found at #{inspect(path)}. " <>
-      "Check the path is correct and relative to the project root."
-  end
+  # A registry shortcut was resolved: which entry, and where it pointed.
+  def resolved_notice(source, entry) do
+    alias_note =
+      if entry.version == entry.resolved_version,
+        do: "",
+        else: " (alias for `#{entry.name}@#{entry.resolved_version}`)"
 
-  def unsupported_format_message(path) do
-    "hearth.gen: unsupported spec format for #{inspect(path)}. " <>
-      "Supported extensions: .yaml, .yml, .json."
-  end
-
-  def decode_failed_message(path, reason) do
-    "hearth.gen: failed to parse spec at #{path}.\n\n" <> format_reason(reason)
-  end
-
-  defp format_reason(%{__exception__: true} = ex), do: Exception.message(ex)
-  defp format_reason(reason), do: inspect(reason)
-
-  def registry_hit_notice(entry) do
-    %{
-      name: name,
-      version: version,
-      resolved_version: resolved,
-      url: url,
-      integration: integration
-    } = entry
-
-    header =
-      if version == resolved do
-        "Source recognized: registry shorthand `#{name}@#{version}`."
-      else
-        "Source recognized: registry shorthand `#{name}@#{version}` " <>
-          "(alias for `#{name}@#{resolved}`)."
-      end
+    local_note = if entry.local?, do: " from .hearth.exs", else: ""
 
     """
-    #{header}
-
-    Resolved to:
-        #{url}
-
-    Default integration name: #{integration} (override with --integration).
-
-    Next pipeline stage: HTTP fetch (Req-based, with on-disk cache under
-    `priv/hearth/cache/<sha256>/`). Not yet wired — when ready, this
-    command will fetch and cache the spec before decoding it.
-    """
-  end
-
-  def registry_unknown_name_message(name) do
-    available = Enum.map_join(Hearth.Registry.list(), "\n", &"  * #{&1}")
-
-    """
-    hearth.gen: no registry entry for `#{name}`.
-
-    Currently available shortcuts:
-    #{available}
-
-    Pin a version with `name@version` (e.g. `stripe@latest`). If you
-    have an OpenAPI spec elsewhere, pass it as a file path or URL
-    instead.
-    """
-  end
-
-  def registry_unknown_version_message(name, version, available) do
-    versions_block = Enum.map_join(available, "\n", &"  * #{name}@#{&1}")
-
-    """
-    hearth.gen: registry shortcut `#{name}` has no version `#{version}`.
-
-    Available versions:
-    #{versions_block}
+    Resolved `#{source}`#{alias_note}#{local_note} to:
+        #{entry.location}
     """
   end
 end

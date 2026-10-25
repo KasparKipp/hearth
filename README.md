@@ -66,6 +66,10 @@ mix hearth.install  # formatter import
 # Generate — create-only; halts if the integration already exists
 mix hearth.gen priv/specs/stripe.yaml --integration Stripe
 
+# From a URL, or a registry shortcut (Hearth's, or your own in .hearth.exs)
+mix hearth.gen https://example.com/openapi.json --integration Acme
+mix hearth.gen stripe@2026-04-22.dahlia --tag "Customers:GetCustomers"
+
 # Big spec? List its tags and pick a subset
 mix hearth.gen priv/specs/stripe.yaml --list
 mix hearth.gen priv/specs/stripe.yaml --integration Stripe --tag "Customers:create,list"
@@ -92,9 +96,9 @@ is the full guide — and what a coding agent working in your project should rea
 
 ## Status
 
-Early (`0.0.x`). Generation works from **local spec files** (YAML or JSON).
-URL sources and curated registry shortcuts (`mix hearth.gen stripe`) are
-recognized but don't generate yet — that needs the HTTP fetcher. Bearer and
+Early (`0.0.x`). Generation works from local spec files (YAML or JSON),
+URLs, and registry shortcuts — Hearth's (`mix hearth.gen stripe@latest`) or
+your own in `.hearth.exs`. Bearer and
 API-key auth are wired automatically; OAuth2, OpenID Connect and HTTP basic
 leave a TODO in the raw client.
 

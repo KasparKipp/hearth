@@ -9,7 +9,7 @@ defmodule Hearth.RegistryTest do
               %{
                 name: "stripe",
                 version: "latest",
-                url: "https://" <> _,
+                location: "https://" <> _,
                 integration: "Stripe"
               }} = Registry.lookup("stripe")
     end
@@ -35,16 +35,16 @@ defmodule Hearth.RegistryTest do
       # Same content today, but the URLs are distinct so the cache treats
       # them as separate sources. `latest` floats; the dated form is
       # frozen.
-      refute latest.url == dated.url
-      assert latest.url =~ "refs/heads/master"
-      assert dated.url =~ "v2266"
+      refute latest.location == dated.location
+      assert latest.location =~ "refs/heads/master"
+      assert dated.location =~ "v2266"
     end
 
     test "codename alias resolves to the canonical date.codename URL" do
       {:ok, canonical} = Registry.lookup("stripe@2026-04-22.dahlia")
       {:ok, dahlia} = Registry.lookup("stripe@dahlia")
 
-      assert dahlia.url == canonical.url
+      assert dahlia.location == canonical.location
       assert dahlia.version == "dahlia"
       assert dahlia.resolved_version == "2026-04-22.dahlia"
     end
@@ -53,7 +53,7 @@ defmodule Hearth.RegistryTest do
       {:ok, canonical} = Registry.lookup("stripe@2026-04-22.dahlia")
       {:ok, dated} = Registry.lookup("stripe@2026-04-22")
 
-      assert dated.url == canonical.url
+      assert dated.location == canonical.location
       assert dated.version == "2026-04-22"
       assert dated.resolved_version == "2026-04-22.dahlia"
     end
@@ -62,8 +62,8 @@ defmodule Hearth.RegistryTest do
       {:ok, canonical} = Registry.lookup("stripe@2025-08-27.basil")
       {:ok, family} = Registry.lookup("stripe@basil")
 
-      assert family.url == canonical.url
-      assert family.url =~ "v2017"
+      assert family.location == canonical.location
+      assert family.location =~ "v2017"
       assert family.resolved_version == "2025-08-27.basil"
     end
 
@@ -71,32 +71,32 @@ defmodule Hearth.RegistryTest do
       {:ok, canonical} = Registry.lookup("stripe@2026-02-25.clover")
       {:ok, family} = Registry.lookup("stripe@clover")
 
-      assert family.url == canonical.url
-      assert family.url =~ "v2203"
+      assert family.location == canonical.location
+      assert family.location =~ "v2203"
       assert family.resolved_version == "2026-02-25.clover"
     end
 
     test "historic dated entries resolve to their pinned tag URLs" do
       {:ok, oldest_basil} = Registry.lookup("stripe@2025-03-31.basil")
-      assert oldest_basil.url =~ "v1712"
+      assert oldest_basil.location =~ "v1712"
 
       {:ok, mid_clover} = Registry.lookup("stripe@2025-12-15.clover")
-      assert mid_clover.url =~ "v2139"
+      assert mid_clover.location =~ "v2139"
 
       {:ok, older_dahlia} = Registry.lookup("stripe@2026-03-25.dahlia")
-      assert older_dahlia.url =~ "v2248"
+      assert older_dahlia.location =~ "v2248"
     end
 
     test "date-alone aliases work across codename families" do
       # Basil family
       {:ok, dated} = Registry.lookup("stripe@2025-04-30")
       assert dated.resolved_version == "2025-04-30.basil"
-      assert dated.url =~ "v1769"
+      assert dated.location =~ "v1769"
 
       # Clover family
       {:ok, dated} = Registry.lookup("stripe@2025-11-17")
       assert dated.resolved_version == "2025-11-17.clover"
-      assert dated.url =~ "v2132"
+      assert dated.location =~ "v2132"
     end
 
     test "unknown name returns :unknown_name error" do
@@ -165,6 +165,47 @@ defmodule Hearth.RegistryTest do
 
     test "returns nil for an unknown shortcut" do
       assert Registry.versions("nonexistent") == nil
+    end
+  end
+
+  describe "a local registry" do
+    @local %{
+      "ohip_blk" => %{
+        "26.2" => "https://example.com/26.2/blk.json",
+        "26.3" => "priv/specs/blk-26.3.json",
+        "latest" => {:alias, "26.3"}
+      },
+      "stripe" => %{"mirror" => "https://mirror.example.com/stripe.yaml"}
+    }
+
+    test "resolves its entries, aliases and file locations included" do
+      assert {:ok,
+              %{
+                location: "https://example.com/26.2/blk.json",
+                local?: true,
+                integration: "OhipBlk"
+              }} =
+               Registry.lookup("ohip_blk@26.2", @local)
+
+      assert {:ok, %{location: "priv/specs/blk-26.3.json", resolved_version: "26.3"}} =
+               Registry.lookup("ohip_blk", @local)
+    end
+
+    test "shadows a built-in name" do
+      assert {:ok, %{location: "https://mirror.example.com/stripe.yaml", local?: true}} =
+               Registry.lookup("stripe@mirror", @local)
+
+      assert {:error, {:unknown_version, "stripe", "latest", ["mirror"]}} =
+               Registry.lookup("stripe", @local)
+    end
+
+    test "built-in entries are not local" do
+      assert {:ok, %{local?: false}} = Registry.lookup("stripe")
+    end
+
+    test "list/1 and versions/2 merge it in" do
+      assert "ohip_blk" in Registry.list(@local)
+      assert Registry.versions("ohip_blk", @local) == ["26.3", "26.2"]
     end
   end
 end

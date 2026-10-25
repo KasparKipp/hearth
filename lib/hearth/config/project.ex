@@ -15,19 +15,25 @@ if Code.ensure_loaded?(Igniter) do
 
     @spec read(Igniter.t()) :: {:ok, Igniter.t(), Config.integrations()} | {:error, String.t()}
     def read(igniter) do
+      with {:ok, igniter, config} <- load(igniter), do: {:ok, igniter, config.integrations}
+    end
+
+    # The integrations and the local registry (`Hearth.Config.load/1`).
+    @spec load(Igniter.t()) :: {:ok, Igniter.t(), map()} | {:error, String.t()}
+    def load(igniter) do
       path = Config.path()
       igniter = Igniter.include_existing_file(igniter, path)
 
       if Igniter.exists?(igniter, path) do
         with {:ok, content} <- Content.read(igniter, path),
-             {:ok, integrations} <- Config.parse(content) do
-          {:ok, igniter, integrations}
+             {:ok, config} <- Config.load(content) do
+          {:ok, igniter, config}
         else
           {:error, message} when is_binary(message) -> {:error, message}
           {:error, _reason} -> {:error, "could not read #{path}"}
         end
       else
-        {:ok, igniter, []}
+        {:ok, igniter, %{integrations: [], registry: %{}}}
       end
     end
 

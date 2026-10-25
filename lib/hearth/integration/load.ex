@@ -1,0 +1,118 @@
+if Code.ensure_loaded?(Igniter) do
+  defmodule Hearth.Integration.Load do
+    @moduledoc false
+
+    # Turns any source into a decoded spec — what `gen`, `regen --sync`
+    # and `diff` share:
+    #
+    #   * a file path — read through Igniter's Rewrite
+    #   * an http(s) URL — fetched with `Hearth.Spec.Fetcher` (or the
+    #     `:hearth_fetch` igniter assign, which tests use to stub the
+    #     network); the format comes from the URL's extension, or the
+    #     content when it has none
+    #   * a registry shortcut — `name@version` looked up in the project's
+    #     `.hearth.exs` registry, then Hearth's built-in one, and loaded
+    #     from the location it points at
+    #
+    # Errors are reasons for the callers to word.
+    #
+    # Guarded like the Mix tasks: Igniter is an optional dependency.
+
+    alias Hearth.Fs.Content
+    alias Hearth.Registry
+    alias Hearth.Spec.Fetcher
+    alias Hearth.Spec.Loader
+    alias Hearth.Spec.Source
+
+    @type loaded :: %{
+            spec: map(),
+            bytes: binary(),
+            location: String.t(),
+            entry: Registry.entry() | nil
+          }
+
+    @type reason ::
+            :unsupported
+            | :missing
+            | {:decode, term()}
+            | {:fetch, String.t(), term()}
+            | {:registry, Registry.lookup_error()}
+            | {:invalid, String.t()}
+
+    @spec load(Igniter.t(), String.t(), map()) ::
+            {:ok, Igniter.t(), loaded()} | {:error, reason()}
+    def load(igniter, source, registry \\ %{}) do
+      case Source.resolve(source) do
+        {:registry, name} ->
+          with {:ok, entry} <- lookup(name, registry),
+               {:ok, igniter, loaded} <- location(igniter, entry.location) do
+            {:ok, igniter, %{loaded | entry: entry}}
+          end
+
+        _location ->
+          location(igniter, source)
+      end
+    end
+
+    defp lookup(name, registry) do
+      case Registry.lookup(name, registry) do
+        {:ok, entry} -> {:ok, entry}
+        {:error, error} -> {:error, {:registry, error}}
+      end
+    end
+
+    # A registry entry points at a location, never at another shortcut.
+    defp location(igniter, location) do
+      case Source.resolve(location) do
+        {:file, path} -> file(igniter, path)
+        {:url, url} -> url(igniter, url)
+        {:registry, _name} -> {:error, {:invalid, location}}
+        {:error, message} -> {:error, {:invalid, message}}
+      end
+    end
+
+    defp file(igniter, path) do
+      with {:ok, igniter, spec} <- Content.read_spec(igniter, path),
+           {:ok, bytes} <- Content.read(igniter, path) do
+        {:ok, igniter, %{spec: spec, bytes: bytes, location: path, entry: nil}}
+      end
+    end
+
+    defp url(igniter, url) do
+      fetch = igniter.assigns[:hearth_fetch] || default_fetch(igniter)
+
+      with {:ok, bytes} <- fetched(fetch.(url), url),
+           {:ok, spec} <- decode(bytes, format(url, bytes)) do
+        {:ok, igniter, %{spec: spec, bytes: bytes, location: url, entry: nil}}
+      end
+    end
+
+    # Igniter's test mode never touches the network: a test that loads
+    # a URL stubs it with the `:hearth_fetch` assign.
+    defp default_fetch(igniter) do
+      if igniter.assigns[:test_mode?],
+        do: fn _url -> {:error, :network_disabled_in_test_mode} end,
+        else: &Fetcher.fetch/1
+    end
+
+    defp fetched({:ok, bytes}, _url), do: {:ok, bytes}
+    defp fetched({:error, reason}, url), do: {:error, {:fetch, url, reason}}
+
+    defp format(url, bytes) do
+      case Loader.sniff(url) do
+        :unknown ->
+          if String.starts_with?(String.trim_leading(bytes), ["{", "["]), do: :json, else: :yaml
+
+        format ->
+          format
+      end
+    end
+
+    defp decode(bytes, format) do
+      case Loader.decode(bytes, format) do
+        {:ok, spec} -> {:ok, spec}
+        {:error, reason} -> {:error, {:decode, reason}}
+      end
+    end
+  end
+end

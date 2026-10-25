@@ -144,7 +144,9 @@ if Code.ensure_loaded?(Igniter) do
 
     @impl Igniter.Mix.Task
     def igniter(igniter) do
-      with {:ok, igniter, integrations} <- Project.read(igniter),
+      with {:ok, igniter, %{integrations: integrations, registry: registry}} <-
+             Project.load(igniter),
+           igniter = Igniter.assign(igniter, :hearth_registry, registry),
            {:ok, selected} <- select(igniter, integrations),
            {:ok, target} <- target_module(igniter, selected),
            :ok <- confirm_sync_all(igniter, selected) do

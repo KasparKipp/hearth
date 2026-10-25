@@ -24,12 +24,37 @@ tasks only print an install hint.
 
 ## Generate an integration
 
-    mix hearth.gen <spec-file> --integration <Name>
+    mix hearth.gen <source> --integration <Name>
 
-Only local spec files generate code today: `priv/specs/stripe.yaml`
-(`.yaml`, `.yml`, or `.json`). URL sources and registry shortcuts
-(`stripe`, `stripe@latest`) are recognized but do not generate yet —
-they need the HTTP fetcher, which is coming soon.
+A source is a local spec file (`.yaml`, `.yml` or `.json`), an http(s)
+URL, or a registry shortcut (`stripe@2026-04-22.dahlia`; bare `stripe`
+means `stripe@latest`). All three generate code. A shortcut defaults
+`--integration` to its name.
+
+    mix hearth.gen priv/specs/acme.yaml --integration Acme
+    mix hearth.gen https://acme.example.com/openapi.json --integration Acme
+    mix hearth.gen stripe@2026-04-22.dahlia --tag "Customers:GetCustomers"
+
+URLs and shortcuts are fetched on every `gen`, `regen --sync` and
+`diff` — nothing is cached — and the `.hearth.exs` `source:` keeps the
+source as given, so `stripe@latest` follows upstream. Plain `regen`
+never fetches.
+
+Declare your own shortcuts in `.hearth.exs` — same shape as Hearth's
+built-in registry. A version points at a URL or a file;
+`{:alias, version}` points at another version. A name you declare
+shadows a built-in one:
+
+    [
+      registry: %{
+        "acme" => %{
+          "1.0" => "https://acme.example.com/openapi-1.0.json",
+          "1.1" => "priv/specs/acme-1.1.json",
+          "latest" => {:alias, "1.1"}
+        }
+      },
+      integrations: [...]
+    ]
 
 `<Name>` is the integration's module name. With the default domain
 it becomes:
