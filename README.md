@@ -72,8 +72,8 @@ mix hearth.gen priv/specs/stripe.yaml --integration Stripe --tag "Customers:crea
 # Pick the namespace (default: MyApp.Integrations.Stripe)
 mix hearth.gen priv/specs/stripe.yaml --integration Stripe --domain Billing
 
-# Regenerate from the pruned spec after editing it
-mix hearth.regen MyApp.Integrations.Stripe
+# Regenerate from the pruned spec after editing it (or --all)
+mix hearth.regen stripe
 ```
 
 Hand-edited a generated file? Put `hearth:owned` in its `@moduledoc` and

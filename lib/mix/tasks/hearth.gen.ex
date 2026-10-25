@@ -368,7 +368,7 @@ if Code.ensure_loaded?(Igniter) do
           {:error, Messages.missing_integration_message(path)}
 
         name ->
-          if valid_segment?(name),
+          if ModuleNames.valid_segment?(name),
             do: {:ok, name},
             else: {:error, Messages.bad_segment("--integration", name)}
       end
@@ -380,19 +380,10 @@ if Code.ensure_loaded?(Igniter) do
           :ok
 
         domain ->
-          if valid_segment?(domain),
+          if ModuleNames.valid_segment?(domain),
             do: :ok,
             else: {:error, Messages.bad_segment("--domain", domain)}
       end
-    end
-
-    # A `--integration` / `--domain` value must camelize to a single
-    # Elixir alias segment — a letter then letters/digits, no spaces,
-    # dots or empty. snake_case input is fine (`Macro.camelize` folds
-    # it). This catches names that would otherwise crash the renderers
-    # or generate corrupt module paths.
-    defp valid_segment?(name) when is_binary(name) do
-      Regex.match?(~r/^[A-Z][A-Za-z0-9]*$/, Macro.camelize(name))
     end
 
     defp write_layers(igniter, path, spec, operations, selected, integration) do
@@ -418,7 +409,7 @@ if Code.ensure_loaded?(Igniter) do
     # that already exist on disk.
     defp existing_artifacts(igniter, names) do
       module_paths =
-        Enum.map(Manifest.modules(names), fn {module, kind} ->
+        Enum.map(Manifest.modules(names), fn {module, kind, _policy} ->
           Igniter.Project.Module.proper_location(igniter, module, kind)
         end)
 
@@ -445,7 +436,7 @@ if Code.ensure_loaded?(Igniter) do
       pruned_spec_yaml =
         spec
         |> Hearth.Spec.Prune.prune(selected)
-        |> Hearth.Spec.Meta.put(base_path: prefix, source: path)
+        |> Hearth.Spec.Meta.put(base_path: prefix, source: path, module: inspect(names.layer1))
         |> Hearth.Spec.Prune.to_yaml()
 
       selected = BasePath.strip(selected, prefix)

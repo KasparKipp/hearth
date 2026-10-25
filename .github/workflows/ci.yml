@@ -12,8 +12,6 @@ env:
   MIX_ENV: test
 
 jobs:
-  # Mirrors `mix precommit` in check mode: `deps.unlock --check-unused`
-  # and `format --check-formatted` instead of the fixing variants.
   lint:
     name: Checks (format, compile, credo, audits)
     runs-on: ubuntu-latest

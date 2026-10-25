@@ -68,22 +68,46 @@ integration** — use `mix hearth.regen` instead. To start over,
 delete the generated files `gen` listed (the halt message names the
 ones still present) and `priv/hearth/<int>.yaml`, then re-run `gen`.
 
-## Update an integration with `regen`
+## Update integrations with `regen`
 
-    mix hearth.regen <App>.Integrations.<Name>
+    mix hearth.regen stripe              # one integration
+    mix hearth.regen stripe,send_grid    # several
+    mix hearth.regen --all               # every pruned spec
+
+Name an integration by the `--integration` it was generated with, not
+by its module. With no name and no `--all`, `regen` halts.
 
 `regen` reads `priv/hearth/<int>.yaml` (the pruned spec — the
 versioned source of truth) and re-renders the three layers plus the
-auth test. It does **not** re-run config patches or rewrite the
+auth test. If any named integration fails, nothing is written. It does **not** re-run config patches or rewrite the
 pruned spec.
+
+To move one integration into a new namespace:
+
+    mix hearth.regen stripe --module MyApp.Payments.Stripe
+
+The module must end in the integration name. `--module` creates the
+new modules (halting if any exist), points `x-hearth.module` at them,
+wires their mock and config, and swaps the old Layer 2 for the new one
+in `:hearth_domains`. The old modules and their other config stay
+untouched — delete them once callers use the new module.
+
+Add `--remove-old` to remove the old module in the same run — its
+files, config entries and `defmock`:
+
+    mix hearth.regen stripe --module MyApp.Payments.Stripe --remove-old
+
+Files you've claimed (an ownership token, or the external test
+scaffold) are kept and listed. `--remove-old` without `--module` halts.
 
 To pull in upstream spec changes, edit `priv/hearth/<int>.yaml` and
 re-run `regen`.
 
-The pruned spec ends with an `x-hearth` block recording the base path
-`gen` folded into the client's base URL and the original spec source.
-Leave it as is. A new path must sit under the recorded `base_path` —
-`regen` halts otherwise.
+The pruned spec ends with an `x-hearth` block recording the Layer 1
+`module`, the base path `gen` folded into the client's base URL, and
+the original spec source. Leave it as is: `regen` derives every module
+from `module` and halts without it. A new path must sit under the
+recorded `base_path` — `regen` halts otherwise.
 
 ## Ownership tokens
 

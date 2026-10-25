@@ -33,7 +33,9 @@ if Code.ensure_loaded?(Igniter) do
     # Applies every host-project patch, in a fixed order (the order
     # determines the layout of the patched config files). `ctx` carries
     # `:otp_app`, `:names` (a `ModuleNames.from_layer1/1` map), `:auth`,
-    # `:servers`, and `:prefix`.
+    # `:servers`, and `:prefix`. An optional `:replaces` (the Layer 2
+    # module of the integration being moved by `regen --module`) is
+    # swapped out of `:hearth_domains` for the new one.
     @spec wire(Igniter.t(), map()) :: Igniter.t()
     def wire(igniter, ctx) do
       %{otp_app: otp_app, names: names, auth: auth, servers: servers, prefix: prefix} = ctx
@@ -44,7 +46,7 @@ if Code.ensure_loaded?(Igniter) do
       |> patch_credential_config(otp_app, names.layer1, names.integration, auth)
       |> patch_impl_config(otp_app, names.layer2, names.mock)
       |> patch_base_url_config(otp_app, names.layer1, servers, prefix)
-      |> patch_hearth_domains(otp_app, names.layer2)
+      |> patch_hearth_domains(otp_app, names.layer2, ctx[:replaces])
       |> patch_base_url_alternates(otp_app, names.layer1, servers, prefix)
       |> warn_servers(otp_app, names.layer1, servers)
     end
@@ -78,7 +80,7 @@ if Code.ensure_loaded?(Igniter) do
     defp append_alternates(igniter, _file, _otp_app, _layer1, [], _prefix), do: igniter
 
     defp append_alternates(igniter, file, otp_app, layer1, urls, prefix) do
-      marker = "# Hearth: alternate base URLs for #{inspect(layer1)}"
+      marker = alternates_marker(layer1)
 
       lines =
         Enum.map_join(urls, "\n", fn url ->
@@ -237,7 +239,9 @@ if Code.ensure_loaded?(Igniter) do
     # Appends the Layer 2 module to `:hearth_domains`. `append_new_to_list`
     # is idempotent, and returns `:error` (→ no-op) when the value is not
     # a list — so an explicit `false` opt-out is left untouched.
-    defp patch_hearth_domains(igniter, otp_app, layer2) do
+    defp patch_hearth_domains(igniter, otp_app, layer2, replaces) do
+      new = Sourceror.parse_string!(inspect(layer2))
+
       Igniter.Project.Config.configure(
         igniter,
         "config.exs",
@@ -245,9 +249,119 @@ if Code.ensure_loaded?(Igniter) do
         [:hearth_domains],
         {:code, Sourceror.parse_string!("[#{inspect(layer2)}]")},
         updater: fn zipper ->
-          Igniter.Code.List.append_new_to_list(zipper, Sourceror.parse_string!(inspect(layer2)))
+          with {:ok, zipper} <- drop_replaced(zipper, replaces, new) do
+            Igniter.Code.List.append_new_to_list(zipper, new)
+          end
         end
       )
+    end
+
+    # The moved integration's old Layer 2 takes the new one's place in
+    # the list — or is just removed when the new one is already listed.
+    # Not listed: the new one is appended.
+    defp drop_replaced(zipper, nil, _new), do: {:ok, zipper}
+
+    defp drop_replaced(zipper, replaces, new) do
+      old? = &Igniter.Code.Common.nodes_equal?(&1, Sourceror.parse_string!(inspect(replaces)))
+      new? = &Igniter.Code.Common.nodes_equal?(&1, new)
+
+      if Igniter.Code.List.find_list_item_index(zipper, new?),
+        do: Igniter.Code.List.remove_from_list(zipper, old?),
+        else: Igniter.Code.List.replace_in_list(zipper, old?, new)
+    end
+
+    defp alternates_marker(layer1), do: "# Hearth: alternate base URLs for #{inspect(layer1)}"
+
+    # Undoes `wire/2` for an integration `regen --module --remove-old`
+    # moved away: every `config` entry keyed by its Layer 1 or Layer 2
+    # module, the commented alternates, and its `defmock`. A
+    # `config_env()` block left empty goes too. `:hearth_domains` was
+    # already swapped by `wire/2` (`:replaces`).
+    @spec unwire(Igniter.t(), atom(), map()) :: Igniter.t()
+    def unwire(igniter, otp_app, names) do
+      modules = [names.layer1, names.layer2]
+      alternates = ~r/\n?#{Regex.escape(alternates_marker(names.layer1))}.*\n(# config .*\n)*/
+
+      ~w(config/config.exs config/test.exs config/runtime.exs)
+      |> Enum.reduce(igniter, fn path, acc ->
+        update_text(acc, path, fn content ->
+          content
+          |> String.replace(alternates, "")
+          |> cut(&config_for?(&1, otp_app, modules))
+          |> cut(&empty_env_block?/1)
+        end)
+      end)
+      |> update_text("test/support/mocks.ex", &cut(&1, fn z -> defmock_for?(z, names.mock) end))
+    end
+
+    defp update_text(igniter, path, fun) do
+      if Igniter.exists?(igniter, path) do
+        Igniter.update_file(igniter, path, fn source ->
+          Rewrite.Source.update(source, :content, fun.(Rewrite.Source.get(source, :content)))
+        end)
+      else
+        igniter
+      end
+    end
+
+    defp config_for?(zipper, otp_app, modules) do
+      Igniter.Code.Function.function_call?(zipper, :config, 3) and
+        Igniter.Code.Function.argument_equals?(zipper, 0, otp_app) and
+        Enum.any?(modules, &Igniter.Code.Function.argument_equals?(zipper, 1, &1))
+    end
+
+    defp empty_env_block?(zipper) do
+      match?(
+        {:if, _, [{:==, _, [{:config_env, _, _}, _]}, [{_do, {:__block__, _, []}}]]},
+        Sourceror.Zipper.node(zipper)
+      )
+    end
+
+    defp defmock_for?(zipper, mock) do
+      Igniter.Code.Function.function_call?(zipper, {Mox, :defmock}, 2) and
+        Igniter.Code.Function.argument_equals?(zipper, 0, mock)
+    end
+
+    # Cuts every node matching `pred` out of the source text, located by
+    # its Sourceror range. Editing the text rather than removing AST
+    # nodes keeps every comment and the surrounding formatting, and
+    # sidesteps Sourceror's trailing-comment blocks, which crash once
+    # their only expression is removed. Blank lines left behind are
+    # collapsed.
+    defp cut(content, pred) do
+      {_zipper, ranges} =
+        content
+        |> Sourceror.parse_string!()
+        |> Sourceror.Zipper.zip()
+        |> Sourceror.Zipper.traverse([], fn zipper, acc ->
+          if pred.(zipper),
+            do: {zipper, [Sourceror.get_range(Sourceror.Zipper.node(zipper)) | acc]},
+            else: {zipper, acc}
+        end)
+
+      ranges
+      |> Enum.sort_by(&{&1.start[:line], &1.start[:column]}, :desc)
+      |> Enum.reduce(String.split(content, "\n"), &cut_range/2)
+      |> Enum.join("\n")
+      |> tidy()
+    end
+
+    # Ranges are 1-based; the end column is exclusive.
+    defp cut_range(%{start: [line: sl, column: sc], end: [line: el, column: ec]}, lines) do
+      prefix = lines |> Enum.at(sl - 1) |> String.slice(0, sc - 1)
+      suffix = lines |> Enum.at(el - 1) |> String.slice((ec - 1)..-1//1)
+
+      Enum.take(lines, sl - 1) ++ [prefix <> suffix] ++ Enum.drop(lines, el)
+    end
+
+    defp tidy(content) do
+      content
+      |> String.replace(~r/[ \t]+$/m, "")
+      |> String.replace(~r/\n{3,}/, "\n\n")
+      |> String.replace(~r/(\bdo)\n\n+/, "\\1\n")
+      |> String.replace(~r/\n\n+(\s*end\b)/, "\n\\1")
+      |> String.trim()
+      |> Kernel.<>("\n")
     end
 
     def wired_files(auth) do

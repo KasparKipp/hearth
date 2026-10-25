@@ -34,6 +34,18 @@ defmodule Hearth.UsageRulesTest do
   test "explains the x-hearth block in the pruned spec" do
     assert @content =~ "x-hearth"
     assert @content =~ "base_path"
+    assert @content =~ "`module`"
+  end
+
+  test "regen takes integration names or --all, not a module" do
+    assert @content =~ "mix hearth.regen stripe"
+    assert @content =~ "mix hearth.regen --all"
+    refute @content =~ "mix hearth.regen <App>"
+  end
+
+  test "documents moving an integration with --module" do
+    assert @content =~ "mix hearth.regen stripe --module MyApp.Payments.Stripe"
+    assert @content =~ "--module MyApp.Payments.Stripe --remove-old"
   end
 
   test "documents the Mox test seam at <Layer2>.Mock" do
