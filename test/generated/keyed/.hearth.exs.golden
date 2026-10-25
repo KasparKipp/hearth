@@ -1,0 +1,12 @@
+# Hearth integrations: `mix hearth.gen` adds one entry per
+# integration, and `mix hearth.regen` reads it.
+[
+  integrations: [
+    keyed: [
+      module: Test.Integrations.Keyed,
+      source: "priv/specs/keyed-3.0.yaml",
+      base_path: "",
+      tags: [Items: :all]
+    ]
+  ]
+]

@@ -32,10 +32,19 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ "pruned"
   end
 
-  test "explains the x-hearth block in the pruned spec" do
-    assert @content =~ "x-hearth"
+  test "explains the .hearth.exs entry" do
+    assert @content =~ ".hearth.exs"
     assert @content =~ "base_path"
     assert @content =~ "`module`"
+    assert @content =~ "`tags`"
+    assert @content =~ "untagged:"
+    refute @content =~ "x-hearth"
+  end
+
+  test "selection changes go through tags: and regen --sync, not pruned-spec edits" do
+    assert @content =~ "mix hearth.regen stripe --sync"
+    assert @content =~ "`tags:`"
+    refute @content =~ "edit `priv/hearth/<int>.yaml` and"
   end
 
   test "regen takes integration names or --all, not a module" do

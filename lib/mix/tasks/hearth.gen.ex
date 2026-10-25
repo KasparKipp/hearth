@@ -87,8 +87,8 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         file / registry), registry lookup, install gating, YAML/JSON
         decode, operation extraction + tag filtering, Layer 1/2/3
         generation, a Layer 1 auth test, an external integration test
-        scaffold, the pruned spec at `priv/hearth/<name>.yaml`, and
-        Mox + config wiring. Update a generated integration with
+        scaffold, the pruned spec at `priv/hearth/<name>.yaml`, the
+        integration's `.hearth.exs` entry, and Mox + config wiring. Update a generated integration with
         `mix hearth.regen` — `hearth.gen` only creates.
       * Coming soon — on-disk cache and HTTP fetcher (for URL /
         registry sources).
@@ -117,7 +117,6 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Render.ModuleNames
     alias Hearth.Spec.BasePath
     alias Hearth.Spec.Filter
-    alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
     alias Hearth.Spec.Source
 
@@ -304,22 +303,17 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    # Sniff format → existence check → read through Igniter's Rewrite
-    # layer (so test fixtures and real files take the same path) →
-    # decode. Returns `{:ok, igniter, spec}` (the igniter now has the
-    # spec file in its Rewrite) or `{:error, user_message}`. Shared by
-    # the generation flow and `mix hearth.gen <file> --list`.
+    # Reads through Igniter's Rewrite layer (so test fixtures and real
+    # files take the same path). Returns `{:ok, igniter, spec}` (the
+    # igniter now has the spec file in its Rewrite) or
+    # `{:error, user_message}`. Shared by the generation flow and
+    # `mix hearth.gen <file> --list`.
     defp decode_file(igniter, path) do
-      with format when format in [:yaml, :json] <- Loader.sniff(path),
-           true <- Igniter.exists?(igniter, path) or :missing,
-           igniter = Igniter.include_existing_file(igniter, path),
-           {:ok, bytes} <- Content.read(igniter, path),
-           {:ok, spec} <- Loader.decode(bytes, format) do
-        {:ok, igniter, spec}
-      else
-        :unknown -> {:error, Messages.unsupported_format_message(path)}
-        :missing -> {:error, Messages.file_not_found_message(path)}
-        {:error, reason} -> {:error, Messages.decode_failed_message(path, reason)}
+      case Content.read_spec(igniter, path) do
+        {:ok, igniter, spec} -> {:ok, igniter, spec}
+        {:error, :unsupported} -> {:error, Messages.unsupported_format_message(path)}
+        {:error, :missing} -> {:error, Messages.file_not_found_message(path)}
+        {:error, {:decode, reason}} -> {:error, Messages.decode_failed_message(path, reason)}
       end
     end
 
@@ -431,13 +425,17 @@ if Code.ensure_loaded?(Igniter) do
 
       # The pruned spec is built from `selected` *before* the path
       # prefix is stripped — it must match the spec's original `paths`
-      # keys. It records the prefix and source so `regen` reproduces
-      # them rather than recomputing from the subset.
+      # keys. The `.hearth.exs` entry records the module, source and
+      # prefix so `regen` reproduces them rather than recomputing, and
+      # which tags and operations were selected and which left out.
       pruned_spec_yaml =
         spec
         |> Hearth.Spec.Prune.prune(selected)
-        |> Hearth.Spec.Meta.put(base_path: prefix, source: path, module: inspect(names.layer1))
         |> Hearth.Spec.Prune.to_yaml()
+
+      entry =
+        [module: names.layer1, source: path, base_path: prefix] ++
+          Hearth.Spec.Selection.describe(operations, selected)
 
       selected = BasePath.strip(selected, prefix)
       pruned_spec_path = Manifest.pruned_spec_path(names.integration)
@@ -463,6 +461,7 @@ if Code.ensure_loaded?(Igniter) do
       |> write_files(files)
       # Re-derived each run — `on_exists: :overwrite`.
       |> Igniter.create_new_file(pruned_spec_path, pruned_spec_yaml, on_exists: :overwrite)
+      |> Hearth.Config.Project.put_integration(Hearth.Config.key(names.integration), entry)
       |> Patches.wire(%{
         otp_app: otp_app,
         names: names,
@@ -477,7 +476,8 @@ if Code.ensure_loaded?(Igniter) do
           operations,
           selected,
           Enum.map(files, &{&1.module, &1.location, &1.label}),
-          Patches.wired_files(auth) ++ ["#{pruned_spec_path} (pruned spec)"]
+          Patches.wired_files(auth) ++
+            ["#{pruned_spec_path} (pruned spec)", ".hearth.exs (integration entry)"]
         )
       )
     end

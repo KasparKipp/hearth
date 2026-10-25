@@ -30,6 +30,7 @@ and idempotent config patches:
 | `….PetstoreApi.Mock`              | Mox mock, wired in `config/test.exs`                        |
 | `PetstoreTest`, `PetstoreExternalTest` | `Req.Test` auth test; opt-in `:external` live-API tests |
 | `priv/hearth/petstore.yaml`       | the spec pruned to your operations — regen's source of truth |
+| `.hearth.exs`                     | one entry per integration: module, source, base path, and the tags and operations selected |
 
 ## Installation
 
@@ -72,8 +73,11 @@ mix hearth.gen priv/specs/stripe.yaml --integration Stripe --tag "Customers:crea
 # Pick the namespace (default: MyApp.Integrations.Stripe)
 mix hearth.gen priv/specs/stripe.yaml --integration Stripe --domain Billing
 
-# Regenerate from the pruned spec after editing it (or --all)
+# Regenerate from the pruned spec (or --all)
 mix hearth.regen stripe
+
+# Changed `tags:` in .hearth.exs, or pointed `source:` at a newer spec? Re-prune
+mix hearth.regen stripe --sync
 ```
 
 Hand-edited a generated file? Put `hearth:owned` in its `@moduledoc` and

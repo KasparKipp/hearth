@@ -67,12 +67,13 @@ files already exist. **Do not re-run `gen` to update an
 integration** — use `mix hearth.regen` instead. To start over,
 delete the generated files `gen` listed (the halt message names the
 ones still present) and `priv/hearth/<int>.yaml`, then re-run `gen`.
+`gen` replaces the integration's `.hearth.exs` entry.
 
 ## Update integrations with `regen`
 
     mix hearth.regen stripe              # one integration
     mix hearth.regen stripe,send_grid    # several
-    mix hearth.regen --all               # every pruned spec
+    mix hearth.regen --all               # every integration in .hearth.exs
 
 Name an integration by the `--integration` it was generated with, not
 by its module. With no name and no `--all`, `regen` halts.
@@ -80,15 +81,31 @@ by its module. With no name and no `--all`, `regen` halts.
 `regen` reads `priv/hearth/<int>.yaml` (the pruned spec — the
 versioned source of truth) and re-renders the three layers plus the
 auth test. If any named integration fails, nothing is written. It does **not** re-run config patches or rewrite the
-pruned spec.
+pruned spec — unless you pass `--sync`.
+
+The `.hearth.exs` entry's `tags:` decides which operations the pruned
+spec holds. To add or drop operations, edit `tags:` and re-prune from
+`source:`:
+
+    mix hearth.regen stripe --sync
+
+`--sync` rewrites the pruned spec and `tags:`, lists the operations it
+added and removed, and regenerates. Plain `regen` halts when `tags:`
+no longer matches the pruned spec, pointing at `--sync`. Don't add or
+remove operations in `priv/hearth/<int>.yaml` by hand: `regen` halts,
+and `--sync` would undo it. `source:` must be a local spec file.
+
+`--sync` never rewrites the external test. It asks before appending
+tests for the operations it added (`--yes` accepts), and names tests
+that still call an operation it removed — delete those yourself.
 
 To move one integration into a new namespace:
 
     mix hearth.regen stripe --module MyApp.Payments.Stripe
 
 The module must end in the integration name. `--module` creates the
-new modules (halting if any exist), points `x-hearth.module` at them,
-and wires their mock and config. The old modules and their config stay
+new modules (halting if any exist), points the `.hearth.exs` entry at
+them, and wires their mock and config. The old modules and their config stay
 untouched — delete them once callers use the new module.
 
 Add `--remove-old` to remove the old module in the same run — its
@@ -99,14 +116,41 @@ files, config entries and `defmock`:
 Files you've claimed (an ownership token, or the external test
 scaffold) are kept and listed. `--remove-old` without `--module` halts.
 
-To pull in upstream spec changes, edit `priv/hearth/<int>.yaml` and
-re-run `regen`.
+To pull in a newer version of the spec, point `source:` at it and run
+`mix hearth.regen <int> --sync`.
 
-The pruned spec ends with an `x-hearth` block recording the Layer 1
-`module`, the base path `gen` folded into the client's base URL, and
-the original spec source. Leave it as is: `regen` derives every module
-from `module` and halts without it. A new path must sit under the
-recorded `base_path` — `regen` halts otherwise.
+## `.hearth.exs`
+
+`gen` records each integration in `.hearth.exs` at the project root,
+keyed by its snake_case name:
+
+    [
+      integrations: [
+        stripe: [
+          module: MyApp.Integrations.Stripe,
+          source: "priv/specs/stripe.yaml",
+          base_path: "/v1",
+          tags: [
+            Customers: [include: ["GetCustomers"], exclude: ["DeleteCustomersCustomer"]],
+            Subscriptions: :all,
+            Invoices: :none
+          ]
+        ]
+      ]
+    ]
+
+* `module` — the Layer 1 module. `regen` derives every other module
+  from it and halts without it.
+* `source` — the spec `gen` ran on.
+* `base_path` — the path prefix `gen` folded into the client's base
+  URL. A new path in the pruned spec must sit under it — `regen` halts
+  otherwise.
+* `tags` — every tag in the source spec and what `gen` selected from
+  it: `:all`, `:none`, or `include:` / `exclude:` lists of
+  operationIds. Operations without a tag go under `untagged:`.
+
+Commit it alongside `priv/hearth/`. The pruned spec itself is plain
+OpenAPI.
 
 ## Ownership tokens
 

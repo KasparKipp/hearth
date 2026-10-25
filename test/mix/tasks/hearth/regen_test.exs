@@ -5,10 +5,10 @@ defmodule Mix.Tasks.Hearth.RegenTest do
 
   @petstore_3_0_yaml File.read!("test/fixtures/specs/petstore-3.0.yaml")
 
-  # A pruned spec as `gen` writes it: the spec plus an `x-hearth`
-  # block naming the integration's Layer 1 module.
-  @petstore_pruned @petstore_3_0_yaml <>
-                     "\nx-hearth:\n  module: Test.Integrations.Petstore\n"
+  # A pruned spec is plain OpenAPI; `.hearth.exs` names each
+  # integration's Layer 1 module (plus gen's source and base path).
+  @petstore_entry "petstore: [module: Test.Integrations.Petstore]"
+  @shop_entry ~s|shop: [module: Test.Integrations.Shop, source: "priv/specs/shop.json", base_path: ""]|
 
   @shop_pruned """
   openapi: 3.0.0
@@ -17,8 +17,18 @@ defmodule Mix.Tasks.Hearth.RegenTest do
   paths:
     /customers:
       get: {operationId: listCustomers}
-  x-hearth: {base_path: "", source: priv/specs/shop.json, module: Test.Integrations.Shop}
   """
+
+  @petstore %{
+    "priv/hearth/petstore.yaml" => @petstore_3_0_yaml,
+    ".hearth.exs" => "[integrations: [#{@petstore_entry}]]"
+  }
+
+  @petstore_and_shop %{
+    "priv/hearth/petstore.yaml" => @petstore_3_0_yaml,
+    "priv/hearth/shop.yaml" => @shop_pruned,
+    ".hearth.exs" => "[integrations: [#{@petstore_entry}, #{@shop_entry}]]"
+  }
 
   @layer1 "lib/test/integrations/petstore.ex"
   @layer2 "lib/test/integrations/petstore/petstore_api.ex"
@@ -58,7 +68,7 @@ defmodule Mix.Tasks.Hearth.RegenTest do
   describe "the pruned spec" do
     test "regenerates the layers from priv/hearth/<name>.yaml" do
       igniter =
-        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_pruned})
+        test_project(files: @petstore)
         |> regen()
 
       assert_creates(igniter, @layer1)
@@ -71,17 +81,23 @@ defmodule Mix.Tasks.Hearth.RegenTest do
 
     test "halts when the pruned spec is missing" do
       igniter =
-        test_project()
+        test_project(files: Map.delete(@petstore, "priv/hearth/petstore.yaml"))
         |> regen()
 
       assert has_issue?(igniter, ["no pruned spec for Petstore", "priv/hearth/petstore.yaml"])
+    end
+
+    test "is plain OpenAPI: regen leaves it untouched" do
+      test_project(files: @petstore)
+      |> regen()
+      |> assert_unchanged("priv/hearth/petstore.yaml")
     end
   end
 
   describe "naming integrations" do
     test "halts with a helpful message when nothing is named and --all is absent" do
       igniter =
-        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_pruned})
+        test_project(files: @petstore)
         |> regen([])
 
       assert has_issue?(igniter, ["--all", "mix hearth.regen stripe"])
@@ -89,28 +105,25 @@ defmodule Mix.Tasks.Hearth.RegenTest do
     end
 
     test "the name is case-insensitive: Petstore reads priv/hearth/petstore.yaml" do
-      test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_pruned})
+      test_project(files: @petstore)
       |> regen(["Petstore"])
       |> assert_creates(@layer1)
     end
 
-    test "a snake_case name maps to its snake_case pruned spec" do
-      pruned =
-        @petstore_3_0_yaml <> "\nx-hearth:\n  module: Test.Integrations.SendGrid\n"
+    test "a snake_case name maps to its snake_case entry and pruned spec" do
+      files = %{
+        "priv/hearth/send_grid.yaml" => @petstore_3_0_yaml,
+        ".hearth.exs" => "[integrations: [send_grid: [module: Test.Integrations.SendGrid]]]"
+      }
 
-      test_project(files: %{"priv/hearth/send_grid.yaml" => pruned})
+      test_project(files: files)
       |> regen(["SendGrid"])
       |> assert_creates("lib/test/integrations/send_grid.ex")
     end
 
     test "comma-separated names regenerate each integration" do
       igniter =
-        test_project(
-          files: %{
-            "priv/hearth/petstore.yaml" => @petstore_pruned,
-            "priv/hearth/shop.yaml" => @shop_pruned
-          }
-        )
+        test_project(files: @petstore_and_shop)
         |> regen(["petstore, shop"])
 
       assert_creates(igniter, @layer1)
@@ -121,46 +134,70 @@ defmodule Mix.Tasks.Hearth.RegenTest do
 
     test "one missing integration halts the whole run" do
       igniter =
-        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_pruned})
+        test_project(files: @petstore)
         |> regen(["petstore,stripe"])
 
-      assert has_issue?(igniter, ["no pruned spec for Stripe"])
+      assert has_issue?(igniter, ["stripe", ".hearth.exs"])
+      refute Rewrite.has_source?(igniter.rewrite, @layer1)
+    end
+
+    test "halts when .hearth.exs has no entry for the integration" do
+      igniter =
+        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_3_0_yaml})
+        |> regen()
+
+      assert has_issue?(igniter, ["no integration named petstore", ".hearth.exs"])
+    end
+
+    test "halts when .hearth.exs can't be read" do
+      igniter =
+        test_project(files: Map.put(@petstore, ".hearth.exs", "[integrations: :oops]"))
+        |> regen()
+
+      assert has_issue?(igniter, [".hearth.exs", "integrations:"])
+      refute Rewrite.has_source?(igniter.rewrite, @layer1)
     end
 
     test "rejects a name that isn't a single alias segment" do
       igniter =
-        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_pruned})
+        test_project(files: @petstore)
         |> regen(["Test.Integrations.Petstore"])
 
       assert has_issue?(igniter, ["\"Test.Integrations.Petstore\"", "integration name"])
       refute Rewrite.has_source?(igniter.rewrite, @layer1)
     end
 
-    test "--all regenerates every pruned spec under priv/hearth" do
+    test "--all regenerates every integration in .hearth.exs" do
       igniter =
-        test_project(
-          files: %{
-            "priv/hearth/petstore.yaml" => @petstore_pruned,
-            "priv/hearth/shop.yaml" => @shop_pruned
-          }
-        )
+        test_project(files: @petstore_and_shop)
         |> regen(["--all"])
 
       assert_creates(igniter, @layer1)
       assert_creates(igniter, @shop_layer1)
     end
 
-    test "--all halts when there are no pruned specs" do
+    test "--all skips a pruned spec with no entry" do
       igniter =
-        test_project()
+        test_project(files: Map.put(@petstore, "priv/hearth/shop.yaml", @shop_pruned))
         |> regen(["--all"])
 
-      assert has_issue?(igniter, ["no pruned specs", "priv/hearth/"])
+      assert_creates(igniter, @layer1)
+      refute Rewrite.has_source?(igniter.rewrite, @shop_layer1)
+    end
+
+    test "--all halts when .hearth.exs has no integrations" do
+      for files <- [%{}, %{".hearth.exs" => "[integrations: []]"}] do
+        igniter =
+          test_project(files: files)
+          |> regen(["--all"])
+
+        assert has_issue?(igniter, ["no integrations", ".hearth.exs"])
+      end
     end
 
     test "--all together with names halts rather than guess" do
       igniter =
-        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_pruned})
+        test_project(files: @petstore)
         |> regen(["petstore", "--all"])
 
       assert has_issue?(igniter, ["--all"])
@@ -197,19 +234,14 @@ defmodule Mix.Tasks.Hearth.RegenTest do
       assert_unchanged(igniter, [@layer1, @layer2, @layer3, @external])
     end
 
-    test "points x-hearth.module at the new module, changing nothing else in the spec" do
-      gen = gen_petstore()
-      {:ok, before} = Rewrite.source(gen.rewrite, "priv/hearth/petstore.yaml")
-      before = Rewrite.Source.get(before, :content)
+    test "points the .hearth.exs entry at the new module, leaving the pruned spec alone" do
+      igniter = gen_petstore() |> move_petstore()
 
-      after_move = gen |> move_petstore() |> created_file("priv/hearth/petstore.yaml")
+      {:ok, [petstore: entry]} = igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
 
-      assert after_move ==
-               String.replace(
-                 before,
-                 "module: Test.Integrations.Petstore",
-                 "module: Test.Billing.Petstore"
-               )
+      assert entry[:module] == Test.Billing.Petstore
+      assert entry[:source] == "priv/specs/petstore.yaml"
+      assert_unchanged(igniter, "priv/hearth/petstore.yaml")
     end
 
     test "wires the new module's mock and config like gen does" do
@@ -248,33 +280,15 @@ defmodule Mix.Tasks.Hearth.RegenTest do
     test "halts when the new module's files already exist" do
       igniter =
         test_project(
-          files: %{
-            "priv/hearth/petstore.yaml" => @petstore_pruned,
-            @billing_layer1 => "defmodule Test.Billing.Petstore do\nend\n"
-          }
+          files: Map.put(@petstore, @billing_layer1, "defmodule Test.Billing.Petstore do\nend\n")
         )
         |> move_petstore()
 
       assert has_issue?(igniter, ["Test.Billing.Petstore already exists", @billing_layer1])
     end
 
-    test "updates a module written in a form the line edit can't match" do
-      pruned = @petstore_3_0_yaml <> "\nx-hearth: {\"module\": \"Test.Integrations.Petstore\"}\n"
-
-      {:ok, spec} =
-        test_project(files: %{"priv/hearth/petstore.yaml" => pruned})
-        |> move_petstore()
-        |> created_file("priv/hearth/petstore.yaml")
-        |> YamlElixir.read_from_string()
-
-      assert spec["x-hearth"]["module"] == "Test.Billing.Petstore"
-    end
-
     test "needs exactly one integration" do
-      files = %{
-        "priv/hearth/petstore.yaml" => @petstore_pruned,
-        "priv/hearth/shop.yaml" => @shop_pruned
-      }
+      files = @petstore_and_shop
 
       for argv <- [
             ["petstore,shop", "--module", "Test.Billing.Petstore"],
@@ -287,7 +301,7 @@ defmodule Mix.Tasks.Hearth.RegenTest do
 
     test "rejects a value that isn't a module name" do
       igniter =
-        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_pruned})
+        test_project(files: @petstore)
         |> regen(["petstore", "--module", "test.billing.petstore"])
 
       assert has_issue?(igniter, ["--module", "\"test.billing.petstore\""])
@@ -295,7 +309,7 @@ defmodule Mix.Tasks.Hearth.RegenTest do
 
     test "rejects a module that renames the integration" do
       igniter =
-        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_pruned})
+        test_project(files: @petstore)
         |> regen(["petstore", "--module", "Test.Billing.PetstoreV2"])
 
       assert has_issue?(igniter, ["Test.Billing.PetstoreV2", "must end in Petstore"])
@@ -434,7 +448,7 @@ defmodule Mix.Tasks.Hearth.RegenTest do
     end
 
     test "halts without --module, or with the current module" do
-      files = %{"priv/hearth/petstore.yaml" => @petstore_pruned}
+      files = @petstore
 
       for argv <- [
             ["petstore", "--remove-old"],
@@ -446,12 +460,15 @@ defmodule Mix.Tasks.Hearth.RegenTest do
     end
   end
 
-  describe "x-hearth.module" do
-    test "names the Layer 1 module, keeping the domain gen chose" do
-      pruned = @petstore_3_0_yaml <> "\nx-hearth:\n  module: Test.Billing.Petstore\n"
+  describe "the .hearth.exs entry" do
+    test "its module names Layer 1, keeping the domain gen chose" do
+      files = %{
+        @petstore
+        | ".hearth.exs" => "[integrations: [petstore: [module: Test.Billing.Petstore]]]"
+      }
 
       igniter =
-        test_project(files: %{"priv/hearth/petstore.yaml" => pruned})
+        test_project(files: files)
         |> regen()
 
       assert_creates(igniter, "lib/test/billing/petstore.ex")
@@ -460,22 +477,27 @@ defmodule Mix.Tasks.Hearth.RegenTest do
                "defmodule Test.Billing.Petstore do"
     end
 
-    test "halts when the pruned spec doesn't name its module" do
+    test "halts when it doesn't name a module" do
+      files = %{@petstore | ".hearth.exs" => ~s|[integrations: [petstore: [source: "x.yaml"]]]|}
+
       igniter =
-        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_3_0_yaml})
+        test_project(files: files)
         |> regen()
 
-      assert has_issue?(igniter, ["priv/hearth/petstore.yaml", "x-hearth", "module:"])
+      assert has_issue?(igniter, [".hearth.exs", "petstore", "module:"])
     end
 
-    test "halts when x-hearth.module isn't a module name" do
-      pruned = @petstore_3_0_yaml <> "\nx-hearth:\n  module: test.integrations.petstore\n"
+    test "halts when its module isn't a module alias" do
+      files = %{
+        @petstore
+        | ".hearth.exs" => ~s|[integrations: [petstore: [module: "Test.Integrations.Petstore"]]]|
+      }
 
       igniter =
-        test_project(files: %{"priv/hearth/petstore.yaml" => pruned})
+        test_project(files: files)
         |> regen()
 
-      assert has_issue?(igniter, ["priv/hearth/petstore.yaml", "test.integrations.petstore"])
+      assert has_issue?(igniter, [".hearth.exs", ~s|"Test.Integrations.Petstore"|])
     end
   end
 
@@ -522,7 +544,7 @@ defmodule Mix.Tasks.Hearth.RegenTest do
       |> assert_unchanged()
     end
 
-    test "gen records the base path and source in the pruned spec" do
+    test "gen records the module, source and base path in .hearth.exs" do
       igniter =
         test_project(files: %{"priv/specs/shop.json" => @subset_prefix_spec})
         |> Igniter.compose_task("hearth.gen", [
@@ -533,14 +555,17 @@ defmodule Mix.Tasks.Hearth.RegenTest do
           "Customers"
         ])
 
-      {:ok, pruned} =
-        created_file(igniter, "priv/hearth/shop.yaml") |> YamlElixir.read_from_string()
+      assert {:ok, [shop: entry]} =
+               igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
 
-      assert pruned["x-hearth"] == %{
-               "base_path" => "/v1",
-               "source" => "priv/specs/shop.json",
-               "module" => "Test.Integrations.Shop"
-             }
+      assert entry == [
+               module: Test.Integrations.Shop,
+               source: "priv/specs/shop.json",
+               base_path: "/v1",
+               tags: [Customers: :all, Orders: :none]
+             ]
+
+      refute created_file(igniter, "priv/hearth/shop.yaml") =~ "x-hearth"
     end
 
     test "halts when an edited pruned spec has a path outside the recorded base path" do
@@ -552,11 +577,16 @@ defmodule Mix.Tasks.Hearth.RegenTest do
           get: {operationId: listCustomers}
         /v2/customers/list:
           get: {operationId: listCustomersV2}
-      x-hearth: {base_path: /v1, source: priv/specs/shop.json, module: Test.Integrations.Shop}
       """
 
       igniter =
-        test_project(files: %{"priv/hearth/shop.yaml" => pruned})
+        test_project(
+          files: %{
+            "priv/hearth/shop.yaml" => pruned,
+            ".hearth.exs" =>
+              "[integrations: [shop: [module: Test.Integrations.Shop, base_path: \"/v1\"]]]"
+          }
+        )
         |> regen(["shop"])
 
       assert Enum.any?(igniter.issues, fn issue ->
@@ -574,15 +604,228 @@ defmodule Mix.Tasks.Hearth.RegenTest do
     end
   end
 
+  describe "tags: in .hearth.exs" do
+    @list_and_create [include: ["listPets", "createPets"], exclude: ["showPetById"]]
+
+    # gen with `--tag pets:listPets`, applied — the pruned spec holds
+    # only GET /pets.
+    defp gen_list_pets do
+      test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+      |> Igniter.compose_task("hearth.gen", [
+        "priv/specs/petstore.yaml",
+        "--integration",
+        "Petstore",
+        "--tag",
+        "pets:listPets"
+      ])
+      |> apply_igniter!()
+    end
+
+    defp entry(tags, extra \\ []) do
+      [
+        module: Test.Integrations.Petstore,
+        source: "priv/specs/petstore.yaml",
+        base_path: "",
+        tags: tags
+      ] ++ extra
+    end
+
+    defp set_entry(igniter, entry) do
+      igniter
+      |> Igniter.create_new_file(
+        ".hearth.exs",
+        "[integrations: [petstore: #{inspect(entry)}]]",
+        on_exists: :overwrite
+      )
+      |> apply_igniter!()
+    end
+
+    defp pruned_paths(igniter) do
+      igniter
+      |> created_file("priv/hearth/petstore.yaml")
+      |> YamlElixir.read_from_string!()
+      |> Map.fetch!("paths")
+      |> Enum.flat_map(fn {path, ops} -> Enum.map(Map.keys(ops), &"#{&1} #{path}") end)
+      |> Enum.sort()
+    end
+
+    test "regen halts when an excluded operation was moved to include:, pointing at --sync" do
+      igniter = gen_list_pets() |> set_entry(entry(pets: @list_and_create)) |> regen()
+
+      assert has_issue?(igniter, ["createPets", "mix hearth.regen petstore --sync"])
+      assert_unchanged(igniter)
+    end
+
+    test "regen halts when an included operation was moved to exclude:" do
+      tags = [pets: [include: [], exclude: ["listPets", "createPets", "showPetById"]]]
+      igniter = gen_list_pets() |> set_entry(entry(tags)) |> regen()
+
+      assert has_issue?(igniter, ["listPets", "--sync"])
+    end
+
+    test "--sync right after gen is a no-op" do
+      gen_list_pets()
+      |> regen(["petstore", "--sync"])
+      |> assert_unchanged()
+    end
+
+    test "--sync re-prunes from the source with the edited tags and regenerates" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(entry(pets: @list_and_create))
+        |> regen(["petstore", "--sync"])
+
+      assert pruned_paths(igniter) == ["get /pets", "post /pets"]
+
+      assert created_file(igniter, "lib/test/integrations/petstore/petstore_api.ex") =~
+               "def create_pets("
+
+      assert {:ok, [petstore: synced]} =
+               igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
+
+      assert synced[:tags] == [pets: @list_and_create]
+      assert notice_text(igniter) =~ "+ post /pets (createPets)"
+    end
+
+    test "a plain regen after --sync is a no-op" do
+      gen_list_pets()
+      |> set_entry(entry(pets: @list_and_create))
+      |> regen(["petstore", "--sync"])
+      |> apply_igniter!()
+      |> regen()
+      |> assert_unchanged()
+    end
+
+    test "--sync re-records tags: in its canonical form" do
+      igniter = gen_list_pets() |> set_entry(entry(pets: :all)) |> regen(["petstore", "--sync"])
+
+      assert pruned_paths(igniter) == ["get /pets", "get /pets/{petId}", "post /pets"]
+      assert notice_text(igniter) =~ "+ get /pets/{petId} (showPetById)"
+
+      assert {:ok, [petstore: synced]} =
+               igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
+
+      assert synced[:tags] == [pets: :all]
+    end
+
+    test "--sync lists the operations it removed" do
+      tags = [pets: [include: ["showPetById"], exclude: ["listPets", "createPets"]]]
+      igniter = gen_list_pets() |> set_entry(entry(tags)) |> regen(["petstore", "--sync"])
+
+      assert pruned_paths(igniter) == ["get /pets/{petId}"]
+      assert notice_text(igniter) =~ "- get /pets (listPets)"
+    end
+
+    test "--sync halts when the tags select nothing" do
+      tags = [pets: :none]
+      igniter = gen_list_pets() |> set_entry(entry(tags)) |> regen(["petstore", "--sync"])
+
+      assert has_issue?(igniter, ["petstore", "tags:", "selects no operations"])
+    end
+
+    test "--sync halts when the entry records no tags:" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(Keyword.delete(entry(:unused), :tags))
+        |> regen(["petstore", "--sync"])
+
+      assert has_issue?(igniter, ["petstore", "tags:"])
+    end
+
+    test "--sync halts when the source file is gone" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(Keyword.put(entry(pets: :all), :source, "priv/specs/gone.yaml"))
+        |> regen(["petstore", "--sync"])
+
+      assert has_issue?(igniter, ["priv/specs/gone.yaml", "not found"])
+    end
+
+    test "--sync halts on a URL source until the fetcher lands" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(Keyword.put(entry(pets: :all), :source, "https://example.com/spec.yaml"))
+        |> regen(["petstore", "--sync"])
+
+      assert has_issue?(igniter, ["https://example.com/spec.yaml", "local"])
+    end
+
+    test "--sync offers to append external tests for the added operations" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(entry(pets: @list_and_create))
+        |> regen(["petstore", "--sync"])
+
+      external = created_file(igniter, @external)
+      assert external =~ ~s|test "list_pets reaches the live API"|
+      assert external =~ ~s|test "create_pets reaches the live API"|
+      assert external =~ "PetstoreApi.Req.create_pets([])"
+      assert notice_text(igniter) =~ "create_pets"
+      assert notice_text(igniter) =~ @external
+    end
+
+    test "--sync keeps the user's edits to the external test when appending" do
+      igniter = gen_list_pets()
+
+      edited =
+        String.replace(
+          created_file(igniter, @external),
+          "list_pets([])",
+          "list_pets(params: [limit: 1])"
+        )
+
+      external =
+        igniter
+        |> Igniter.create_new_file(@external, edited, on_exists: :overwrite)
+        |> apply_igniter!()
+        |> set_entry(entry(pets: @list_and_create))
+        |> regen(["petstore", "--sync"])
+        |> created_file(@external)
+
+      assert external =~ "list_pets(params: [limit: 1])"
+      assert external =~ ~s|test "create_pets reaches the live API"|
+    end
+
+    test "--sync doesn't append a test the external test already has" do
+      igniter = gen_list_pets()
+
+      with_create =
+        String.replace(
+          created_file(igniter, @external),
+          ~s|  test "list_pets|,
+          ~s|  test "mine" do\n    PetstoreApi.Req.create_pets(json: %{})\n  end\n\n  test "list_pets|
+        )
+
+      external =
+        igniter
+        |> Igniter.create_new_file(@external, with_create, on_exists: :overwrite)
+        |> apply_igniter!()
+        |> set_entry(entry(pets: @list_and_create))
+        |> regen(["petstore", "--sync"])
+        |> created_file(@external)
+
+      refute external =~ ~s|test "create_pets reaches the live API"|
+    end
+
+    test "--sync points at external tests that call a removed operation" do
+      tags = [pets: [include: ["showPetById"], exclude: ["listPets", "createPets"]]]
+      igniter = gen_list_pets() |> set_entry(entry(tags)) |> regen(["petstore", "--sync"])
+
+      assert created_file(igniter, @external) =~ "list_pets"
+      assert notice_text(igniter) =~ "still calls list_pets"
+    end
+
+    test "a malformed tags: halts regen" do
+      igniter = gen_list_pets() |> set_entry(entry(pets: :some)) |> regen()
+
+      assert has_issue?(igniter, ["petstore", "tags:"])
+    end
+  end
+
   describe "ownership tokens" do
     test "a hearth:owned file is skipped, keeping its hand-edits" do
       igniter =
-        test_project(
-          files: %{
-            "priv/hearth/petstore.yaml" => @petstore_pruned,
-            @layer1 => owned_layer1()
-          }
-        )
+        test_project(files: Map.put(@petstore, @layer1, owned_layer1()))
         |> regen()
 
       assert created_file(igniter, @layer1) =~ "def hand_written, do: :mine"
@@ -593,10 +836,7 @@ defmodule Mix.Tasks.Hearth.RegenTest do
     test "a file with no token is overwritten" do
       igniter =
         test_project(
-          files: %{
-            "priv/hearth/petstore.yaml" => @petstore_pruned,
-            @layer1 => "defmodule Test.Integrations.Petstore do\nend\n"
-          }
+          files: Map.put(@petstore, @layer1, "defmodule Test.Integrations.Petstore do\nend\n")
         )
         |> regen()
 
@@ -609,12 +849,7 @@ defmodule Mix.Tasks.Hearth.RegenTest do
         "defmodule Test.Integrations.Petstore do\n  @moduledoc \"hearth:collaborating\"\nend\n"
 
       igniter =
-        test_project(
-          files: %{
-            "priv/hearth/petstore.yaml" => @petstore_pruned,
-            @layer1 => collaborating
-          }
-        )
+        test_project(files: Map.put(@petstore, @layer1, collaborating))
         |> regen()
 
       # test mode auto-accepts the per-file prompt
@@ -626,7 +861,7 @@ defmodule Mix.Tasks.Hearth.RegenTest do
   describe "the external test scaffold" do
     test "is created when absent" do
       igniter =
-        test_project(files: %{"priv/hearth/petstore.yaml" => @petstore_pruned})
+        test_project(files: @petstore)
         |> regen()
 
       assert_creates(igniter, @external)
@@ -636,12 +871,7 @@ defmodule Mix.Tasks.Hearth.RegenTest do
       edited = "defmodule Test.Integrations.PetstoreExternalTest do\n  # user edited\nend\n"
 
       igniter =
-        test_project(
-          files: %{
-            "priv/hearth/petstore.yaml" => @petstore_pruned,
-            @external => edited
-          }
-        )
+        test_project(files: Map.put(@petstore, @external, edited))
         |> regen()
 
       assert created_file(igniter, @external) =~ "# user edited"

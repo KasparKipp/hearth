@@ -1,0 +1,183 @@
+defmodule Hearth.Spec.SelectionTest do
+  use ExUnit.Case, async: true
+
+  alias Hearth.Spec.Operation
+  alias Hearth.Spec.Selection
+
+  # pets: listPets, createPets, showPetById · store: getInventory ·
+  # users: getUser, listUsers · getUser is tagged users AND admin ·
+  # health has no tags and no operationId.
+  @spec_map %{
+    "paths" => %{
+      "/pets" => %{
+        "get" => %{"operationId" => "listPets", "tags" => ["pets"]},
+        "post" => %{"operationId" => "createPets", "tags" => ["pets"]}
+      },
+      "/pets/{petId}" => %{"get" => %{"operationId" => "showPetById", "tags" => ["pets"]}},
+      "/store/inventory" => %{"get" => %{"operationId" => "getInventory", "tags" => ["store"]}},
+      "/users" => %{"get" => %{"operationId" => "listUsers", "tags" => ["users"]}},
+      "/users/{id}" => %{"get" => %{"operationId" => "getUser", "tags" => ["users", "admin"]}},
+      "/health" => %{"get" => %{}}
+    }
+  }
+
+  defp operations, do: Operation.extract(@spec_map)
+
+  defp pick(ids), do: Enum.filter(operations(), &(&1.operation_id in ids))
+
+  describe "describe/2" do
+    test "a partly selected tag lists what's included and what's excluded" do
+      result = Selection.describe(operations(), pick(["listPets"]))
+
+      assert result[:tags][:pets] == [
+               include: ["listPets"],
+               exclude: ["createPets", "showPetById"]
+             ]
+    end
+
+    test "a fully selected tag is :all, an unselected one :none" do
+      result = Selection.describe(operations(), pick(["getInventory"]))
+
+      assert result[:tags][:store] == :all
+      assert result[:tags][:pets] == :none
+    end
+
+    test "lists every tag in the spec, in first-seen operation order" do
+      result = Selection.describe(operations(), pick(["listPets"]))
+
+      assert Keyword.keys(result[:tags]) == [:pets, :store, :users, :admin]
+    end
+
+    test "an operation tagged twice counts under both tags" do
+      result = Selection.describe(operations(), pick(["getUser"]))
+
+      assert result[:tags][:users] == [include: ["getUser"], exclude: ["listUsers"]]
+      assert result[:tags][:admin] == :all
+    end
+
+    test "untagged operations are recorded under :untagged, by derived id without an operationId" do
+      assert Selection.describe(operations(), pick(["listPets"]))[:untagged] == :none
+      assert Selection.describe(operations(), operations())[:untagged] == :all
+
+      partial = %{
+        "paths" => %{
+          "/health" => %{"get" => %{}},
+          "/ping" => %{"get" => %{"operationId" => "ping"}}
+        }
+      }
+
+      ops = Operation.extract(partial)
+      selected = Enum.filter(ops, &(&1.operation_id == "ping"))
+
+      assert Selection.describe(ops, selected)[:untagged] ==
+               [include: ["ping"], exclude: ["get_health"]]
+    end
+
+    test "omits :untagged when every operation has a tag" do
+      ops = Enum.reject(operations(), &(&1.tags == []))
+
+      refute Keyword.has_key?(Selection.describe(ops, ops), :untagged)
+    end
+
+    test "a tag name that isn't a plain atom still round-trips through .hearth.exs" do
+      spec = %{
+        "paths" => %{"/a" => %{"get" => %{"operationId" => "a", "tags" => ["Customer Accounts"]}}}
+      }
+
+      ops = Operation.extract(spec)
+      result = Selection.describe(ops, ops)
+
+      assert result[:tags] == [{:"Customer Accounts", :all}]
+    end
+  end
+
+  describe "rule/1" do
+    test "reads tags: and untagged: from an entry" do
+      entry = [module: X, tags: [pets: :all, "Customer Accounts": :none], untagged: :all]
+
+      assert {:ok, rule} = Selection.rule(entry)
+      assert rule.tags == %{"pets" => :all, "Customer Accounts" => :none}
+      assert rule.untagged == :all
+    end
+
+    test "an entry without tags: has no rule" do
+      assert Selection.rule(module: X) == :none
+    end
+
+    test "rejects a malformed tags: value" do
+      for tags <- [:all, [pets: :some], [pets: [include: "listPets"]], [pets: [only: []]]] do
+        assert {:error, message} = Selection.rule(tags: tags)
+        assert message =~ "tags:"
+      end
+
+      assert {:error, message} = Selection.rule(tags: [], untagged: :maybe)
+      assert message =~ "untagged:"
+    end
+  end
+
+  describe "select/2" do
+    defp rule!(entry) do
+      {:ok, rule} = Selection.rule(entry)
+      rule
+    end
+
+    defp ids(operations), do: Enum.map(operations, & &1.operation_id)
+
+    test "selects :all tags, include: lists, and untagged operations per untagged:" do
+      rule =
+        rule!(tags: [pets: [include: ["listPets"], exclude: []], store: :all], untagged: :all)
+
+      assert operations() |> Selection.select(rule) |> ids() |> Enum.sort() ==
+               [nil, "getInventory", "listPets"]
+    end
+
+    test "an operation is selected when any of its tags selects it" do
+      rule = rule!(tags: [users: :none, admin: :all])
+
+      assert operations() |> Selection.select(rule) |> ids() == ["getUser"]
+    end
+
+    test "a tag the rule doesn't mention selects nothing" do
+      assert operations() |> Selection.select(rule!(tags: [])) |> ids() == []
+    end
+
+    test "is the inverse of describe/2" do
+      selected = pick(["listPets", "getUser", "getInventory"])
+      rule = rule!(Selection.describe(operations(), selected))
+
+      assert Selection.select(operations(), rule) == selected
+    end
+  end
+
+  describe "check/2" do
+    defp pruned(ids), do: pick(ids)
+
+    test "a pruned spec matching the rule has no problems" do
+      selected = pick(["listPets", "getInventory"])
+      rule = rule!(Selection.describe(operations(), selected))
+
+      assert Selection.check(rule, selected) == []
+    end
+
+    test "an included operation missing from the pruned spec is a problem" do
+      rule = rule!(tags: [pets: [include: ["listPets", "createPets"], exclude: ["showPetById"]]])
+
+      assert [problem] = Selection.check(rule, pruned(["listPets"]))
+      assert problem =~ "createPets"
+    end
+
+    test "a pruned operation the rule doesn't select is a problem" do
+      rule = rule!(tags: [pets: [include: ["listPets"], exclude: ["createPets"]]])
+
+      assert [problem] = Selection.check(rule, pruned(["listPets", "createPets"]))
+      assert problem =~ "createPets"
+    end
+
+    test "an :all tag with none of its operations pruned is a problem" do
+      rule = rule!(tags: [pets: :all, store: :all])
+
+      assert [problem] = Selection.check(rule, pruned(["listPets", "createPets", "showPetById"]))
+      assert problem =~ "store"
+    end
+  end
+end
