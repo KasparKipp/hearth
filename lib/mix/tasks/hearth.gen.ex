@@ -125,6 +125,7 @@ if Code.ensure_loaded?(Igniter) do
 
     use Igniter.Mix.Task
 
+    alias Hearth.Config
     alias Hearth.Config.Project
     alias Hearth.Gen.Messages
     alias Hearth.Gen.Patches
@@ -136,6 +137,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Spec.BasePath
     alias Hearth.Spec.Filter
     alias Hearth.Spec.Operation
+    alias Hearth.Spec.Overrides
     alias Hearth.Spec.Source
 
     # Default operation-count gate: above this, an unfiltered spec halts
@@ -300,17 +302,22 @@ if Code.ensure_loaded?(Igniter) do
     # `@latest`.
     defp dispatch_source(igniter) do
       with {:ok, source} <- normalize_source(igniter.args.positional[:source]),
-           {:ok, igniter, %{registry: registry}} <- Project.load(igniter),
-           {:ok, igniter, loaded} <- load(igniter, source, registry) do
+           {:ok, igniter, config} <- Project.load(igniter),
+           {:ok, igniter, loaded} <- load(igniter, source, config.registry),
+           {:ok, overrides} <- overrides(igniter, loaded, config.integrations) do
+        {spec, stale} = Overrides.apply(loaded.spec, overrides.parsed)
+
         input = %{
           source: source,
-          spec: loaded.spec,
+          spec: spec,
           sha256: Reprune.sha256(loaded.bytes),
-          entry: loaded.entry
+          entry: loaded.entry,
+          overrides: overrides.raw
         }
 
         igniter
         |> resolved_notice(input)
+        |> stale_notice(overrides.key, source, stale)
         |> select_and_report(input)
       else
         {:error, message} -> Igniter.add_issue(igniter, message)
@@ -334,6 +341,28 @@ if Code.ensure_loaded?(Igniter) do
           {:error, IntegrationMessages.load_message(:gen, source, reason, registry)}
       end
     end
+
+    # A `.hearth.exs` entry written before gen may carry `overrides:`;
+    # they apply to the source before selection, and gen keeps them.
+    defp overrides(igniter, loaded, integrations) do
+      name = igniter.args.options[:integration] || (loaded.entry && loaded.entry.integration)
+      key = if name && ModuleNames.valid_segment?(name), do: Config.key(name)
+      raw = key && integrations[key][:overrides]
+
+      case Overrides.parse(overrides: raw || []) do
+        {:ok, parsed} -> {:ok, %{key: key, raw: raw, parsed: parsed}}
+        {:error, detail} -> {:error, IntegrationMessages.bad_overrides_message(:gen, key, detail)}
+      end
+    end
+
+    defp stale_notice(igniter, _key, _source, []), do: igniter
+
+    defp stale_notice(igniter, key, source, stale),
+      do:
+        Igniter.add_notice(
+          igniter,
+          IntegrationMessages.stale_overrides_notice(key, source, stale)
+        )
 
     defp resolved_notice(igniter, %{entry: nil}), do: igniter
 
@@ -460,6 +489,7 @@ if Code.ensure_loaded?(Igniter) do
 
       entry =
         [module: names.layer1, source: path, source_sha256: input.sha256] ++
+          if(input.overrides, do: [overrides: input.overrides], else: []) ++
           [base_path: prefix] ++ Hearth.Spec.Selection.describe(operations, selected)
 
       selected = BasePath.strip(selected, prefix)
