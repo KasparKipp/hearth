@@ -109,6 +109,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Config.Project
     alias Hearth.Fs.Content
     alias Hearth.Fs.Ownership
+    alias Hearth.Gen.Patches
     alias Hearth.Integration.Manifest
     alias Hearth.Integration.Messages, as: IntegrationMessages
     alias Hearth.Integration.Names
@@ -214,6 +215,7 @@ if Code.ensure_loaded?(Igniter) do
             igniter
             |> Sync.extend_external_test(names, spec, changes)
             |> render(names, spec_path, spec, entry)
+            |> wire_new_auth(names, changes)
 
           true ->
             new = ModuleNames.from_layer1(target)
@@ -228,6 +230,15 @@ if Code.ensure_loaded?(Igniter) do
         {:halt, message} -> Igniter.add_issue(igniter, message)
       end
     end
+
+    # `--sync` changed the auth scheme: wire its credential config the
+    # way `gen` would (existing values are kept).
+    defp wire_new_auth(igniter, names, %{auth: auth}) when not is_nil(auth) do
+      otp_app = Igniter.Project.Application.app_name(igniter)
+      Patches.wire_credential(igniter, otp_app, names, auth)
+    end
+
+    defp wire_new_auth(igniter, _names, _changes), do: igniter
 
     defp layer1(key, entry) do
       case Config.module(entry) do
@@ -247,7 +258,8 @@ if Code.ensure_loaded?(Igniter) do
              igniter = Igniter.include_existing_file(igniter, spec_path),
              {:ok, bytes} <- Content.read(igniter, spec_path),
              {:ok, spec} <- Loader.decode(bytes, :yaml),
-             :ok <- check_selection(key, entry, spec_path, spec) do
+             :ok <- check_selection(key, entry, spec_path, spec),
+             :ok <- check_auth(key, entry, spec_path, spec) do
           {:ok, igniter, spec, nil}
         else
           :missing ->
@@ -270,6 +282,24 @@ if Code.ensure_loaded?(Igniter) do
         :none -> :ok
         [] -> :ok
         {:error, detail} -> {:halt, IntegrationMessages.bad_tags_message(:regen, key, detail)}
+      end
+    end
+
+    # The entry's `auth: [scheme: …]` must be the scheme the pruned spec
+    # wires; a changed choice is applied with `--sync`.
+    defp check_auth(key, entry, spec_path, spec) do
+      case Auth.auth_scheme(entry) do
+        {:ok, nil} ->
+          :ok
+
+        {:ok, scheme} ->
+          if Auth.primary(spec) == scheme,
+            do: :ok,
+            else:
+              {:halt, Messages.auth_mismatch_message(key, spec_path, scheme, Auth.primary(spec))}
+
+        {:error, value} ->
+          {:halt, IntegrationMessages.bad_auth_message(:regen, key, value, [])}
       end
     end
 

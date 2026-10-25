@@ -15,16 +15,18 @@ defmodule Hearth.Spec.Drift do
   #     request body and responses, with schemas compared by
   #     `Hearth.Spec.Drift.Schema`
   #   * `components/schemas`, by name: added, removed, changed
+  #   * the auth scheme Layer 1 wires (breaking when it changes)
   #
   # Documentation (`summary`, `description`, `example`, …) is ignored.
 
+  alias Hearth.Spec.Auth
   alias Hearth.Spec.Drift.Schema
   alias Hearth.Spec.Operation
 
   @methods ~w(get put post delete options head patch trace)
 
   @type change :: %{
-          area: :operation | :schema,
+          area: :auth | :operation | :schema,
           kind: :added | :removed | :changed,
           subject: String.t(),
           detail: String.t() | nil,
@@ -33,7 +35,7 @@ defmodule Hearth.Spec.Drift do
 
   @spec compare(map(), map()) :: [change()]
   def compare(current, candidate) do
-    operations(current, candidate) ++ schemas(current, candidate)
+    auth(current, candidate) ++ operations(current, candidate) ++ schemas(current, candidate)
   end
 
   @spec breaking?([change()]) :: boolean()
@@ -51,6 +53,21 @@ defmodule Hearth.Spec.Drift do
   defp sign(:added), do: "+"
   defp sign(:removed), do: "-"
   defp sign(:changed), do: "~"
+
+  # --- auth ---------------------------------------------------------------
+
+  # The scheme Layer 1 wires (`Hearth.Spec.Auth`). A change rewires the
+  # client and its credential config — breaking for callers.
+  defp auth(current, candidate) do
+    case {Auth.strategy(current), Auth.strategy(candidate)} do
+      {same, same} ->
+        []
+
+      {old, new} ->
+        detail = "#{Auth.label(old)} → #{Auth.label(new)}"
+        [%{area: :auth, kind: :changed, subject: "auth", detail: detail, breaking?: true}]
+    end
+  end
 
   # --- operations ---------------------------------------------------------
 

@@ -22,6 +22,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Integration.Messages, as: IntegrationMessages
     alias Hearth.Integration.Reprune
     alias Hearth.Regen.Messages
+    alias Hearth.Spec.Auth
     alias Hearth.Spec.Drift
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
@@ -30,7 +31,8 @@ if Code.ensure_loaded?(Igniter) do
     @type changes :: %{
             added: [{atom(), String.t()}],
             removed: [Operation.t()],
-            renamed: [{String.t(), String.t()}]
+            renamed: [{String.t(), String.t()}],
+            auth: Auth.strategy() | nil
           }
 
     @spec run(Igniter.t(), atom(), Config.entry(), String.t()) ::
@@ -44,19 +46,23 @@ if Code.ensure_loaded?(Igniter) do
         {:ok, igniter, result} ->
           {added, removed} = changes(Operation.extract(previous), result.selected)
           renamed = renamed(Operation.extract(previous), Operation.extract(result.pruned))
+          auth = auth_change(previous, result.pruned)
           drift = Drift.compare(previous, result.pruned)
           fields = Selection.describe(result.operations, result.selected)
 
           igniter =
             igniter
             |> Igniter.create_new_file(spec_path, result.yaml, on_exists: :overwrite)
-            |> Project.put_fields(key, fields ++ [source_sha256: result.sha256])
+            |> Project.put_fields(
+              key,
+              fields ++ auth_field(result) ++ [source_sha256: result.sha256]
+            )
             |> Igniter.add_notice(Messages.synced_notice(key, result.source, spec_path, drift))
 
           igniter = note_stale_overrides(igniter, key, result)
 
           {:ok, igniter, result.pruned,
-           %{added: Enum.map(added, &key/1), removed: removed, renamed: renamed}}
+           %{added: Enum.map(added, &key/1), removed: removed, renamed: renamed, auth: auth}}
 
         {:error, source, reason} ->
           {:halt, IntegrationMessages.reprune_message(:regen, key, source, reason, registry)}
@@ -176,6 +182,16 @@ if Code.ensure_loaded?(Igniter) do
           function = now_functions[key(op)],
           function && function != op.id,
           do: {op.id, function}
+    end
+
+    defp auth_field(%{auth: []}), do: []
+    defp auth_field(%{auth: auth}), do: [auth: auth]
+
+    # The new auth strategy when the sync changed it, so the task can
+    # wire its credential config; nil otherwise.
+    defp auth_change(previous, pruned) do
+      new = Auth.strategy(pruned)
+      if previous != %{} and Auth.strategy(previous) != new, do: new
     end
 
     defp key(%Operation{method: method, path: path}), do: {method, path}

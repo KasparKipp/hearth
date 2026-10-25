@@ -502,7 +502,7 @@ What exists, condensed. The blow-by-blow is in git history.
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
   with conventional top-level key order. Plain OpenAPI — no Hearth block.
 - **`.hearth.exs`** — `[integrations: [<snake_name>: [module:, source:,
-  source_sha256:, overrides:, base_path:, tags:]]]`, evaluated like `.formatter.exs`
+  source_sha256:, overrides:, base_path:, tags:, auth:]]]`, evaluated like `.formatter.exs`
   (`Hearth.Config.parse/1`). `source_sha256` is the source's checksum at
   the last gen / `--sync` (`Reprune.sha256/1`).
   `tags:` (`Hearth.Spec.Selection.describe/2`) lists every tag in the source
@@ -547,8 +547,18 @@ What exists, condensed. The blow-by-blow is in git history.
 - **Overrides** — an entry's `overrides:` (`Spec.Overrides`) corrects the
   source spec before selection: `parse/1` validates it (unknown kinds are an
   error naming the supported ones), `apply/2` rewrites the decoded source and
-  returns stale entries. Only `tags:` today — path globs (`*` crosses `/`),
-  `method /glob`, or operationIds; adds to upstream tags. Applied by gen (from
+  returns stale entries. `tags:` — path globs (`*` crosses `/`),
+  `method /glob`, or operationIds; adds to upstream tags.
+- **Auth choice** — the entry's `auth: [scheme:, available:]`
+  (`Spec.Auth.describe/2`) records the spec's schemes and the wired one.
+  `Auth.choose/2` applies `scheme:` — or `Auth.default/1`, the first scheme
+  Hearth can wire in the spec's `security` order — by making it the only
+  top-level `security` requirement (`Auth.select/2`), so the pruned spec
+  carries it. gen and `Reprune` choose (an unknown name halts); plain regen
+  halts when `scheme:` isn't `Auth.primary/1` of the pruned spec; `--sync` wires
+  the credential when the strategy changes (`Patches.wire_credential/4`);
+  `Drift` reports a change of strategy as breaking; gen's notice says where
+  the credential comes from, or why there isn't one. Applied by gen (from
   an entry written before gen, which gen keeps), and by `Integration.Reprune`
   for `--sync` and diff, so the pruned spec carries the result and plain regen
   needs nothing. Stale entries become a notice in gen, `--sync` and diff.

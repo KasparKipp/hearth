@@ -65,4 +65,60 @@ defmodule Hearth.Spec.AuthTest do
       assert Auth.strategy(spec(schemes)) == {:api_key, :header, "X-Key"}
     end
   end
+
+  describe "choosing a scheme" do
+    @stripe_like %{
+      "security" => [%{"basicAuth" => []}, %{"bearerAuth" => []}],
+      "components" => %{
+        "securitySchemes" => %{
+          "basicAuth" => %{"type" => "http", "scheme" => "basic"},
+          "bearerAuth" => %{"type" => "http", "scheme" => "bearer"},
+          "apiKey" => %{"type" => "apiKey", "in" => "header", "name" => "X-Key"}
+        }
+      }
+    }
+
+    test "schemes/1 lists them in the spec's security order, then the rest by name" do
+      assert Auth.schemes(@stripe_like) == [
+               {"basicAuth", {:unsupported, "http/basic"}},
+               {"bearerAuth", :bearer},
+               {"apiKey", {:api_key, :header, "X-Key"}}
+             ]
+
+      assert Auth.schemes(%{}) == []
+    end
+
+    test "default/1 is the first scheme Hearth can wire" do
+      assert Auth.default(@stripe_like) == "bearerAuth"
+      assert Auth.default(%{}) == nil
+
+      only_basic = %{
+        "components" => %{"securitySchemes" => %{"b" => %{"type" => "http", "scheme" => "basic"}}}
+      }
+
+      assert Auth.default(only_basic) == "b"
+    end
+
+    test "select/2 makes a scheme the one Layer 1 wires" do
+      assert {:ok, spec} = Auth.select(@stripe_like, "apiKey")
+      assert spec["security"] == [%{"apiKey" => []}]
+      assert Auth.strategy(spec) == {:api_key, :header, "X-Key"}
+      assert Auth.primary(spec) == "apiKey"
+
+      assert Auth.select(@stripe_like, "oauth") == {:error, ["basicAuth", "bearerAuth", "apiKey"]}
+    end
+
+    test "describe/2 is the .hearth.exs record" do
+      assert Auth.describe(@stripe_like, "bearerAuth") == [
+               scheme: "bearerAuth",
+               available: [
+                 basicAuth: "http/basic (not supported)",
+                 bearerAuth: "bearer",
+                 apiKey: "API key in header X-Key"
+               ]
+             ]
+
+      assert Auth.describe(%{}, nil) == []
+    end
+  end
 end

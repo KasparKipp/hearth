@@ -15,6 +15,7 @@ if Code.ensure_loaded?(Igniter) do
 
     alias Hearth.Config
     alias Hearth.Integration.Load
+    alias Hearth.Spec.Auth
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
     alias Hearth.Spec.Overrides
@@ -29,13 +30,15 @@ if Code.ensure_loaded?(Igniter) do
             selected: [Operation.t()],
             yaml: String.t(),
             pruned: map(),
-            stale_overrides: [Overrides.stale()]
+            stale_overrides: [Overrides.stale()],
+            auth: keyword()
           }
 
     @type reason ::
             :no_tags
             | {:bad_tags, String.t()}
             | {:bad_overrides, String.t()}
+            | {:bad_auth, term(), [String.t()]}
             | :no_source
             | :empty_selection
             | Load.reason()
@@ -54,6 +57,7 @@ if Code.ensure_loaded?(Igniter) do
            {:ok, overrides} <- overrides(entry),
            {:ok, igniter, loaded} <- Load.load(igniter, source, opts[:registry] || %{}),
            {spec, stale} = Overrides.apply(loaded.spec, overrides),
+           {:ok, spec, auth} <- Auth.choose(spec, entry),
            operations = Operation.extract(spec),
            rule = carry_renames(rule, opts[:current], operations),
            [_ | _] = selected <- Selection.select(operations, rule) do
@@ -69,7 +73,8 @@ if Code.ensure_loaded?(Igniter) do
            selected: selected,
            yaml: yaml,
            pruned: pruned,
-           stale_overrides: stale
+           stale_overrides: stale,
+           auth: auth
          }}
       else
         [] -> {:error, source, :empty_selection}

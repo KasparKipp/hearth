@@ -68,6 +68,16 @@ defmodule Hearth.Integration.Messages do
     """
   end
 
+  def bad_auth_message(task, key, name, available) do
+    schemes = if available == [], do: "none", else: Enum.join(available, ", ")
+
+    """
+    hearth.#{task}: the .hearth.exs entry for #{key} chooses an auth scheme the spec doesn't have: #{inspect(name)}.
+
+    `auth: [scheme: …]` must name one of the spec's security schemes: #{schemes}.
+    """
+  end
+
   def bad_overrides_message(task, key, detail) do
     """
     hearth.#{task}: the .hearth.exs entry for #{key} has malformed `overrides:`.
@@ -80,16 +90,14 @@ defmodule Hearth.Integration.Messages do
   # or an upstream rename. Reported, never fatal.
   def stale_overrides_notice(key, source, stale) do
     lines =
-      Enum.map_join(stale, "\n", fn {kind, tag, entry} ->
-        "  * #{kind} #{tag}: #{inspect(entry)}"
-      end)
+      Enum.map_join(stale, "\n", fn {kind, description} -> "  * #{kind} #{description}" end)
 
     """
     Overrides for #{key} that match nothing in #{source}:
 
     #{lines}
 
-    Check them for typos, or for paths and operationIds renamed upstream.
+    Check them for typos, or for paths, operationIds and schemes renamed upstream.
     """
   end
 
@@ -110,6 +118,9 @@ defmodule Hearth.Integration.Messages do
 
   def reprune_message(task, key, _source, {:bad_overrides, detail}, _registry),
     do: bad_overrides_message(task, key, detail)
+
+  def reprune_message(task, key, _source, {:bad_auth, name, available}, _registry),
+    do: bad_auth_message(task, key, name, available)
 
   def reprune_message(task, key, _source, :no_source, _registry) do
     """
