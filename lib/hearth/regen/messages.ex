@@ -169,6 +169,16 @@ defmodule Hearth.Regen.Messages do
     """
   end
 
+  def auth_mismatch_message(key, spec_path, scheme, wired) do
+    """
+    hearth.regen: `auth: [scheme: #{inspect(scheme)}]` for #{key} in .hearth.exs, but #{spec_path} wires #{inspect(wired)}.
+
+    Apply the choice from the source:
+
+      mix hearth.regen #{key} --sync
+    """
+  end
+
   def selection_mismatch_message(key, spec_path, problems) do
     lines = Enum.map_join(problems, "\n", &"  * #{&1}")
 

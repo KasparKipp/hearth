@@ -307,18 +307,26 @@ if Code.ensure_loaded?(Igniter) do
            {:ok, overrides} <- overrides(igniter, loaded, config.integrations) do
         {spec, stale} = Overrides.apply(loaded.spec, overrides.parsed)
 
-        input = %{
-          source: source,
-          spec: spec,
-          sha256: Reprune.sha256(loaded.bytes),
-          entry: loaded.entry,
-          overrides: overrides.raw
-        }
+        case Hearth.Spec.Auth.choose(spec, overrides.entry) do
+          {:ok, spec, auth} ->
+            input = %{
+              source: source,
+              spec: spec,
+              sha256: Reprune.sha256(loaded.bytes),
+              entry: loaded.entry,
+              overrides: overrides.raw,
+              auth: auth
+            }
 
-        igniter
-        |> resolved_notice(input)
-        |> stale_notice(overrides.key, source, stale)
-        |> select_and_report(input)
+            igniter
+            |> resolved_notice(input)
+            |> stale_notice(overrides.key, source, stale)
+            |> select_and_report(input)
+
+          {:error, {:bad_auth, name, available}} ->
+            message = IntegrationMessages.bad_auth_message(:gen, overrides.key, name, available)
+            Igniter.add_issue(igniter, message)
+        end
       else
         {:error, message} -> Igniter.add_issue(igniter, message)
       end
@@ -342,15 +350,17 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    # A `.hearth.exs` entry written before gen may carry `overrides:`;
-    # they apply to the source before selection, and gen keeps them.
+    # A `.hearth.exs` entry written before gen may carry `overrides:`
+    # (applied to the source before selection, and kept) and an
+    # `auth: [scheme: …]` choice.
     defp overrides(igniter, loaded, integrations) do
       name = igniter.args.options[:integration] || (loaded.entry && loaded.entry.integration)
       key = if name && ModuleNames.valid_segment?(name), do: Config.key(name)
-      raw = key && integrations[key][:overrides]
+      entry = (key && integrations[key]) || []
+      raw = entry[:overrides]
 
       case Overrides.parse(overrides: raw || []) do
-        {:ok, parsed} -> {:ok, %{key: key, raw: raw, parsed: parsed}}
+        {:ok, parsed} -> {:ok, %{key: key, entry: entry, raw: raw, parsed: parsed}}
         {:error, detail} -> {:error, IntegrationMessages.bad_overrides_message(:gen, key, detail)}
       end
     end
@@ -490,7 +500,9 @@ if Code.ensure_loaded?(Igniter) do
       entry =
         [module: names.layer1, source: path, source_sha256: input.sha256] ++
           if(input.overrides, do: [overrides: input.overrides], else: []) ++
-          [base_path: prefix] ++ Hearth.Spec.Selection.describe(operations, selected)
+          [base_path: prefix] ++
+          Hearth.Spec.Selection.describe(operations, selected) ++
+          if(input.auth == [], do: [], else: [auth: input.auth])
 
       selected = BasePath.strip(selected, prefix)
       pruned_spec_path = Manifest.pruned_spec_path(names.integration)
@@ -532,7 +544,8 @@ if Code.ensure_loaded?(Igniter) do
           selected,
           Enum.map(files, &{&1.module, &1.location, &1.label}),
           Patches.wired_files(auth) ++
-            ["#{pruned_spec_path} (pruned spec)", ".hearth.exs (integration entry)"]
+            ["#{pruned_spec_path} (pruned spec)", ".hearth.exs (integration entry)"],
+          Messages.credential_hint(auth, names)
         )
       )
     end

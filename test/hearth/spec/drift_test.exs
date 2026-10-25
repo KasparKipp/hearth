@@ -226,6 +226,26 @@ defmodule Hearth.Spec.DriftTest do
              ]
     end
 
+    test "a change of auth scheme is breaking" do
+      schemes = %{
+        "basicAuth" => %{"type" => "http", "scheme" => "basic"},
+        "keyAuth" => %{"type" => "apiKey", "in" => "header", "name" => "X-Key"}
+      }
+
+      with_auth = fn primary ->
+        base()
+        |> put_in(["components", "securitySchemes"], schemes)
+        |> Map.put("security", [%{primary => []}])
+      end
+
+      assert summary(Drift.compare(with_auth.("basicAuth"), with_auth.("keyAuth"))) == [
+               {:auth, :changed, "auth", "http/basic (not supported) → API key in header X-Key",
+                true}
+             ]
+
+      assert Drift.compare(with_auth.("keyAuth"), with_auth.("keyAuth")) == []
+    end
+
     test "ignores documentation-only changes" do
       documented =
         base()

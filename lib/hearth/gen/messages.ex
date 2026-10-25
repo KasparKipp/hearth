@@ -79,7 +79,7 @@ defmodule Hearth.Gen.Messages do
     end
   end
 
-  def generated_notice(path, spec, operations, selected, layers, wired) do
+  def generated_notice(path, spec, operations, selected, layers, wired, credential) do
     summary = summarize(spec)
     tag_count = selected |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> length()
 
@@ -103,8 +103,25 @@ defmodule Hearth.Gen.Messages do
     #{wired_lines}
 
     Business logic calls the behaviour directly — `<Integration>Api.<operation>(...)`.
-    Tests stub it with the generated Mox mock. Set the credential in config.
+    Tests stub it with the generated Mox mock.#{credential}
     """
+  end
+
+  # The last line of the generated notice: where the credential comes
+  # from, or why there isn't one.
+  def credential_hint(:none, _names), do: ""
+
+  def credential_hint({:unsupported, type}, names) do
+    "\n\nAuth isn't wired: Hearth doesn't support the spec's #{type} scheme\n" <>
+      "(see the TODO in #{inspect(names.layer1)}). The entry's `auth:` in\n" <>
+      ".hearth.exs lists the spec's schemes."
+  end
+
+  def credential_hint(_auth, names) do
+    env_var = String.upcase(Macro.underscore(names.integration)) <> "_API_KEY"
+
+    "\n\nSet the credential: the #{env_var} environment variable (read in\n" <>
+      "config/runtime.exs), or `api_key:` in #{inspect(names.layer1)}'s config."
   end
 
   def integration_exists_message(layer1, existing) do

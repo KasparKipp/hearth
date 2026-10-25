@@ -16,6 +16,7 @@ defmodule Hearth.Diff.Messages do
     [
       header(key, source, changes),
       source_line(source_state, changes, entry_source?),
+      section("Auth", Enum.filter(changes, &(&1.area == :auth))),
       section("Operations", Enum.filter(changes, &(&1.area == :operation))),
       section("Schemas", Enum.filter(changes, &(&1.area == :schema))),
       unlisted_section(unlisted),
@@ -44,7 +45,7 @@ defmodule Hearth.Diff.Messages do
 
   defp source_line(:unchanged, _changes, true) do
     "The source is unchanged since the last gen or sync, so the drift comes " <>
-      "from local edits — to `tags:` or to the pruned spec."
+      "from local edits — to `tags:`, `overrides:` or the pruned spec."
   end
 
   defp section(_title, []), do: nil

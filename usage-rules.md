@@ -179,10 +179,24 @@ keyed by its snake_case name:
 * `tags` — every tag in the source spec and what `gen` selected from
   it: `:all`, `:none`, or `include:` / `exclude:` lists of
   operationIds. Operations without a tag go under `untagged:`.
+* `auth` — the spec's security schemes and the one the client wires
+  (`scheme:`); see below.
 * `overrides` — your corrections to the source spec; see below.
 
 Commit it alongside `priv/hearth/`. The pruned spec itself is plain
 OpenAPI.
+
+## Auth
+
+`gen` records the spec's security schemes and wires the first one
+Hearth supports:
+
+    auth: [
+      scheme: "bearerAuth",
+      available: [basicAuth: "http/basic (not supported)", bearerAuth: "bearer"]
+    ]
+
+To use another, change `scheme:` and run `mix hearth.regen <int> --sync`.
 
 ## Overrides
 

@@ -1,0 +1,13 @@
+import Config
+
+if config_env() == :prod do
+  config :test, Test.Integrations.Tictactoe,
+    api_key:
+      System.get_env("TICTACTOE_API_KEY") ||
+        raise("missing TICTACTOE_API_KEY environment variable")
+end
+
+if config_env() == :dev do
+  config :test, Test.Integrations.Tictactoe,
+    api_key: System.get_env("TICTACTOE_API_KEY") || "DEV_NO_TICTACTOE_API_KEY"
+end

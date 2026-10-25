@@ -51,6 +51,8 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ "## Overrides"
     assert @content =~ ~s|Subscriptions: ["/v1/subscriptions*"]|
     assert @content =~ "matches nothing"
+    assert @content =~ "## Auth"
+    assert @content =~ ~s|scheme: "bearerAuth"|
   end
 
   test "documents hearth.diff for CI" do

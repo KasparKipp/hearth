@@ -25,7 +25,7 @@ defmodule Hearth.Spec.Overrides do
   @methods ~w(get put post delete options head patch trace)
 
   @type t :: %{tags: [{String.t(), [String.t()]}]}
-  @type stale :: {:tags, String.t(), String.t()}
+  @type stale :: {:tags, String.t()}
 
   @spec parse(keyword()) :: {:ok, t()} | {:error, String.t()}
   def parse(entry) do
@@ -46,18 +46,20 @@ defmodule Hearth.Spec.Overrides do
   end
 
   # Returns the overridden spec and the override entries that matched
-  # no operation.
+  # nothing.
   @spec apply(map(), t()) :: {map(), [stale()]}
-  def apply(spec, %{tags: []}), do: {spec, []}
+  def apply(spec, overrides), do: apply_tags(spec, overrides.tags)
 
-  def apply(spec, %{tags: tags}) do
+  defp apply_tags(spec, []), do: {spec, []}
+
+  defp apply_tags(spec, tags) do
     operations = operations(spec)
 
     stale =
       for {tag, entries} <- tags,
           entry <- entries,
           not Enum.any?(operations, &matches?(entry, &1)),
-          do: {:tags, tag, entry}
+          do: {:tags, "#{tag}: #{inspect(entry)}"}
 
     spec =
       Enum.reduce(operations, spec, fn {path, method, op} = operation, acc ->

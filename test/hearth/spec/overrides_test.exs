@@ -86,7 +86,7 @@ defmodule Hearth.Spec.OverridesTest do
       {_spec, stale} =
         apply_tags(Customers: ["/v1/custmers*", "GetCustomers"], Gone: ["NoSuchOp"])
 
-      assert stale == [{:tags, "Customers", "/v1/custmers*"}, {:tags, "Gone", "NoSuchOp"}]
+      assert stale == [{:tags, ~s|Customers: "/v1/custmers*"|}, {:tags, ~s|Gone: "NoSuchOp"|}]
     end
 
     test "no overrides leaves the spec as it is" do

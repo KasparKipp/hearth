@@ -6,6 +6,8 @@ info:
     and requesting the state of the board or of individual squares.
   title: Tic Tac Toe
   version: 1.0.0
+security:
+  - bearerHttpAuthentication: []
 tags:
   - name: Gameplay
 paths:

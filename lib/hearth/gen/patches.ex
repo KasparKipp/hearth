@@ -191,6 +191,12 @@ if Code.ensure_loaded?(Igniter) do
       )
     end
 
+    # Wires the credential alone — for `regen --sync` when the source's
+    # auth scheme changed. Keeps any value already configured.
+    @spec wire_credential(Igniter.t(), atom(), map(), term()) :: Igniter.t()
+    def wire_credential(igniter, otp_app, names, auth),
+      do: patch_credential_config(igniter, otp_app, names.layer1, names.integration, auth)
+
     # The credential lives in `config/runtime.exs`, keyed by the Layer 1
     # module (where `credential/1` reads it): prod raises if the env var
     # is unset, dev falls back to a placeholder. Skipped when the spec
