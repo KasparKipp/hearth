@@ -77,8 +77,8 @@ defmodule Hearth.Registry do
 
       # Floating pointer (master/HEAD).
       #
-      # TODO (step 4e — fetcher): once HTTP fetching exists, resolve
-      # this URL during `mix hearth.gen stripe --list` and annotate
+      # TODO: resolve this URL during `mix hearth.gen stripe --list`
+      # (`Hearth.Spec.Fetcher`) and annotate
       # the list as `* latest → <date>.<codename>` by reading
       # `info.version` from the fetched spec. If the fetch fails
       # (404, network error, Stripe restructured the repo), the
@@ -152,33 +152,39 @@ defmodule Hearth.Registry do
           name: String.t(),
           version: String.t(),
           resolved_version: String.t(),
-          url: String.t(),
-          integration: String.t()
+          location: String.t(),
+          integration: String.t(),
+          local?: boolean()
         }
+
+  # `local` is the project's own registry from `.hearth.exs` — same
+  # shape as `@entries`. A local name shadows a built-in one, and its
+  # locations may be file paths as well as URLs.
 
   @type lookup_error ::
           {:unknown_name, String.t()}
           | {:unknown_version, name :: String.t(), version :: String.t(),
              available :: [String.t()]}
 
-  @spec lookup(String.t()) :: {:ok, entry()} | {:error, lookup_error()}
-  def lookup(input) when is_binary(input) do
+  @spec lookup(String.t(), map()) :: {:ok, entry()} | {:error, lookup_error()}
+  def lookup(input, local \\ %{}) when is_binary(input) do
     {name, version} = parse(input)
 
-    case Map.get(@entries, name) do
+    case Map.get(entries(local), name) do
       nil ->
         {:error, {:unknown_name, name}}
 
       versions ->
         case follow_alias(versions, version) do
-          {:ok, resolved, url} ->
+          {:ok, resolved, location} ->
             {:ok,
              %{
                name: name,
                version: version,
                resolved_version: resolved,
-               url: url,
-               integration: Macro.camelize(name)
+               location: location,
+               integration: Macro.camelize(name),
+               local?: Map.has_key?(local, name)
              }}
 
           :unknown ->
@@ -187,20 +193,22 @@ defmodule Hearth.Registry do
     end
   end
 
-  @spec list() :: [String.t()]
-  def list, do: @entries |> Map.keys() |> Enum.sort()
+  @spec list(map()) :: [String.t()]
+  def list(local \\ %{}), do: local |> entries() |> Map.keys() |> Enum.sort()
 
   # Lists only canonical versions (those backed by a URL). Aliases
   # resolve at lookup time but are invisible to listings — surfacing
   # them confuses users who expect "available versions" to be the
   # source of truth, and aliases are convenience plumbing on top.
-  @spec versions(String.t()) :: [String.t()] | nil
-  def versions(name) when is_binary(name) do
-    case Map.get(@entries, name) do
+  @spec versions(String.t(), map()) :: [String.t()] | nil
+  def versions(name, local \\ %{}) when is_binary(name) do
+    case Map.get(entries(local), name) do
       nil -> nil
       versions -> canonical_versions(versions)
     end
   end
+
+  defp entries(local), do: Map.merge(@entries, local)
 
   defp parse(input) do
     case String.split(input, "@", parts: 2) do

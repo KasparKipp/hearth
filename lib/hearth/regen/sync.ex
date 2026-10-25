@@ -38,7 +38,9 @@ if Code.ensure_loaded?(Igniter) do
     def run(igniter, key, entry, spec_path) do
       previous = previous(igniter, spec_path)
 
-      case Reprune.run(igniter, entry, nil, previous) do
+      registry = igniter.assigns[:hearth_registry] || %{}
+
+      case Reprune.run(igniter, entry, current: previous, registry: registry) do
         {:ok, igniter, result} ->
           {added, removed} = changes(Operation.extract(previous), result.selected)
           renamed = renamed(Operation.extract(previous), Operation.extract(result.pruned))
@@ -55,7 +57,7 @@ if Code.ensure_loaded?(Igniter) do
            %{added: Enum.map(added, &key/1), removed: removed, renamed: renamed}}
 
         {:error, source, reason} ->
-          {:halt, IntegrationMessages.reprune_message(:regen, key, source, reason)}
+          {:halt, IntegrationMessages.reprune_message(:regen, key, source, reason, registry)}
       end
     end
 

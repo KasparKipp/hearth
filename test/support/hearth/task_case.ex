@@ -18,6 +18,9 @@ defmodule Hearth.TaskCase do
 
   def notice_text(igniter), do: Enum.join(igniter.notices, "\n\n")
 
+  # Every issue the task raised, joined into one string.
+  def issue_text(igniter), do: Enum.join(igniter.issues, "\n\n")
+
   # The content of a file the task created/updated, read back out of the
   # igniter's in-memory Rewrite (compose_task preserves rewrite changes).
   def created_file(igniter, path) do

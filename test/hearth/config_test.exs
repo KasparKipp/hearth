@@ -56,6 +56,50 @@ defmodule Hearth.ConfigTest do
     end
   end
 
+  describe "load/1" do
+    test "returns the integrations and the local registry" do
+      content = """
+      [
+        registry: %{
+          "OHIP_blk" => %{
+            "26.2" => "https://example.com/26.2/blk.json",
+            "26.3" => "priv/specs/blk-26.3.json",
+            "latest" => {:alias, "26.3"}
+          }
+        },
+        integrations: [blk: [module: MyApp.Integrations.Blk, source: "ohip_blk@26.2"]]
+      ]
+      """
+
+      assert {:ok, %{integrations: [blk: _], registry: registry}} = Config.load(content)
+
+      assert registry == %{
+               "ohip_blk" => %{
+                 "26.2" => "https://example.com/26.2/blk.json",
+                 "26.3" => "priv/specs/blk-26.3.json",
+                 "latest" => {:alias, "26.3"}
+               }
+             }
+    end
+
+    test "no registry: is an empty one" do
+      assert {:ok, %{registry: %{}}} = Config.load("[integrations: []]")
+    end
+
+    test "rejects a malformed registry" do
+      for registry <- [
+            ~s|[ohip: "x"]|,
+            ~s|%{"ohip" => "https://x"}|,
+            ~s|%{"ohip" => %{"1" => :url}}|,
+            ~s|%{"ohip" => %{"1" => {:alias, :two}}}|,
+            ~s|%{"bad name!" => %{"1" => "x.json"}}|
+          ] do
+        assert {:error, message} = Config.load("[registry: #{registry}]")
+        assert message =~ "registry:"
+      end
+    end
+  end
+
   describe "key/1" do
     test "is the snake_case integration name as an atom" do
       assert Config.key("Stripe") == :stripe

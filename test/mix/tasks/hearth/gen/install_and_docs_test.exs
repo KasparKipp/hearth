@@ -73,8 +73,8 @@ defmodule Mix.Tasks.Hearth.Gen.InstallAndDocsTest do
       doc = Mix.Tasks.Hearth.Gen.Docs.long_doc()
       assert doc =~ "Pipeline status"
       assert doc =~ "Available now"
-      assert doc =~ "Coming soon"
-      assert doc =~ "source recognition"
+      assert doc =~ "file, URL and registry sources"
+      refute doc =~ "Coming soon"
     end
 
     test "long_doc documents every task option" do
@@ -98,10 +98,12 @@ defmodule Mix.Tasks.Hearth.Gen.InstallAndDocsTest do
       refute Keyword.has_key?(schema, :refresh)
     end
 
-    test "long_doc says only file sources generate code today" do
+    test "long_doc says every kind of source generates code" do
       doc = Mix.Tasks.Hearth.Gen.Docs.long_doc()
-      assert doc =~ "Only local file sources generate code today"
-      refute doc =~ "Required for file and URL sources"
+      assert doc =~ "All three generate code"
+      assert doc =~ "registry: %{"
+      refute doc =~ "coming soon"
+      refute doc =~ "Only local file sources"
     end
 
     test "long_doc --list text covers file sources" do

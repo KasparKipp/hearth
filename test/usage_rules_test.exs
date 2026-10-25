@@ -80,9 +80,11 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ "mix test --include external"
   end
 
-  test "says only local spec files generate code today" do
-    assert @content =~ "Only local spec files generate code today"
-    refute @content =~ "HTTP fetcher coming soon"
+  test "says files, URLs and registry shortcuts all generate code" do
+    assert @content =~ "All three generate code"
+    assert @content =~ "registry: %{"
+    refute @content =~ "Only local spec files"
+    refute @content =~ "coming soon"
   end
 
   test "setup tells consumers to add igniter, an optional dependency of Hearth" do

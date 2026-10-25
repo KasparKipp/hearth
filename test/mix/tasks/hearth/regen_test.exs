@@ -801,13 +801,45 @@ defmodule Mix.Tasks.Hearth.RegenTest do
       assert has_issue?(igniter, ["priv/specs/gone.yaml", "not found"])
     end
 
-    test "--sync halts on a URL source until the fetcher lands" do
+    test "--sync re-prunes from a URL source" do
       igniter =
         gen_list_pets()
         |> set_entry(Keyword.put(entry(pets: :all), :source, "https://example.com/spec.yaml"))
+        |> Igniter.assign(:hearth_fetch, fn "https://example.com/spec.yaml" ->
+          {:ok, @petstore_3_0_yaml}
+        end)
         |> regen(["petstore", "--sync"])
 
-      assert has_issue?(igniter, ["https://example.com/spec.yaml", "local"])
+      assert pruned_paths(igniter) == ["get /pets", "get /pets/{petId}", "post /pets"]
+    end
+
+    test "--sync re-prunes from a .hearth.exs registry shortcut" do
+      igniter = gen_list_pets()
+
+      exs =
+        ~s|[registry: %{"pets" => %{"1" => "https://example.com/v1.yaml"}}, | <>
+          "integrations: [petstore: #{inspect(Keyword.put(entry(pets: :all), :source, "pets@1"))}]]"
+
+      igniter =
+        igniter
+        |> Igniter.create_new_file(".hearth.exs", exs, on_exists: :overwrite)
+        |> apply_igniter!()
+        |> Igniter.assign(:hearth_fetch, fn "https://example.com/v1.yaml" ->
+          {:ok, @petstore_3_0_yaml}
+        end)
+        |> regen(["petstore", "--sync"])
+
+      assert pruned_paths(igniter) == ["get /pets", "get /pets/{petId}", "post /pets"]
+    end
+
+    test "--sync names a fetch failure" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(Keyword.put(entry(pets: :all), :source, "https://example.com/spec.yaml"))
+        |> Igniter.assign(:hearth_fetch, fn _url -> {:error, {:status, 503}} end)
+        |> regen(["petstore", "--sync"])
+
+      assert has_issue?(igniter, ["could not fetch https://example.com/spec.yaml", "HTTP 503"])
     end
 
     test "--sync offers to append external tests for the added operations" do

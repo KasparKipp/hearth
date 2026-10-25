@@ -228,6 +228,44 @@ defmodule Mix.Tasks.Hearth.DiffTest do
     end
   end
 
+  describe "remote sources" do
+    test "a .hearth.exs registry shortcut is re-fetched on every run, so a moved `latest` is drift" do
+      igniter = gen()
+
+      exs =
+        igniter
+        |> Igniter.include_existing_file(".hearth.exs")
+        |> then(&Rewrite.source!(&1.rewrite, ".hearth.exs"))
+        |> Rewrite.Source.get(:content)
+        |> String.replace(~s|source: "priv/specs/pets.json"|, ~s|source: "pets@latest"|)
+        |> String.replace(
+          "[\n  integrations:",
+          ~s|[\n  registry: %{"pets" => %{"latest" => "https://pets.test/openapi.json"}},\n  integrations:|
+        )
+
+      igniter = put_source(igniter, exs, ".hearth.exs")
+
+      same = igniter |> Igniter.assign(:hearth_fetch, fn _ -> {:ok, spec()} end) |> diff()
+      assert notice_text(same) =~ "pets: no drift against pets@latest"
+
+      moved =
+        igniter |> Igniter.assign(:hearth_fetch, fn _ -> {:ok, spec(pet_age: true)} end) |> diff()
+
+      assert issue_text(moved) =~ "~ Pet: property age added"
+    end
+
+    test "--source takes a URL" do
+      igniter =
+        gen()
+        |> Igniter.assign(:hearth_fetch, fn "https://pets.test/v2.json" ->
+          {:ok, spec(pet_age: true)}
+        end)
+        |> diff(["pets", "--source", "https://pets.test/v2.json"])
+
+      assert issue_text(igniter) =~ "pets has drifted from https://pets.test/v2.json"
+    end
+  end
+
   describe "halts" do
     test "when nothing is named" do
       assert gen() |> diff([]) |> issue_text() =~ "mix hearth.diff stripe"

@@ -18,28 +18,45 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         mix hearth.gen <source> --integration <Name> [--tag <Tag>] [--domain <Name> | --no-domain] [--n-operations <N>] [--yes]
         mix hearth.gen --list                  # list shortcut names
         mix hearth.gen <name> --list           # list versions for a shortcut
-        mix hearth.gen <file> --list           # list a spec file's tags
+        mix hearth.gen <file | url> --list     # list a spec's tags
 
-    ## Source modes
+    ## Sources
 
-    Only local file sources generate code today. URL and registry
-    sources are recognized and validated, but generating from them
-    needs the HTTP fetcher, which is coming soon.
+    A source is a local spec file, an http(s) URL, or a registry
+    shortcut. All three generate code.
 
-        # Local file — generates the integration
+        # Local file
         mix hearth.gen priv/specs/petstore.yaml --integration Petstore
 
-        # URL — recognized; generation coming soon
+        # URL — fetched on every gen / sync / diff, never cached
         mix hearth.gen https://example.com/openapi.json --integration Acme
 
-        # Registry shortcut — resolves to a canonical URL; generation coming soon
-        mix hearth.gen stripe
+        # Registry shortcut — Hearth's, or one in your .hearth.exs
+        mix hearth.gen stripe@2026-04-22.dahlia --tag "Customers:GetCustomers"
+
+    The source is recorded as the integration's `.hearth.exs`
+    `source:` exactly as given (a bare shortcut as `name@latest`), so
+    `mix hearth.regen --sync` and `mix hearth.diff` re-read it. A
+    shortcut is resolved again each time — `stripe@latest` follows
+    Stripe's latest spec.
 
     ## Registry shortcuts
 
       Currently available:
 
         * `stripe` — the Stripe API (https://stripe.com).
+
+      Your project can declare its own in `.hearth.exs`, with the same
+      shape — a version points at a URL or a file, and
+      `{:alias, version}` points at another version. A project name
+      shadows a Hearth one:
+
+          registry: %{
+            "acme" => %{
+              "1.0" => "https://acme.example.com/openapi-1.0.json",
+              "latest" => {:alias, "1.0"}
+            }
+          }
 
       Each shortcut can be pinned to a version with `name@version`. Bare
       `stripe` is shorthand for `stripe@latest`. Run `mix hearth.gen
@@ -52,7 +69,8 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
     ## Options
 
       * `--integration <Name>` — module name for the generated integration
-        (e.g. `Stripe`, `Acme`). Required for file sources.
+        (e.g. `Stripe`, `Acme`). Required for a file or URL source; a
+        registry shortcut defaults it to the shortcut's name.
       * `--domain <Name>` — the single namespace segment between your
         app and the integration. Defaults to `Integrations`
         (`MyApp.Integrations.<Name>`); `--domain Billing` overrides it
@@ -73,25 +91,22 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
       * `--list` — introspect and exit, generating nothing. Without a
         source, prints the registry shortcut names. With a shortcut
         (`mix hearth.gen stripe --list`), prints its versions. With a
-        file (`mix hearth.gen priv/specs/petstore.yaml --list`), prints
-        the spec's tags and a ready-to-edit `--tag` command. A URL
-        source errors until the fetcher lands. Install is never run
-        under `--list`.
+        file (`mix hearth.gen priv/specs/petstore.yaml --list`) or a
+        URL, prints the spec's tags and a ready-to-edit `--tag`
+        command. Install is never run under `--list`.
       * `--yes` — non-interactive mode. Skips the prompt to run
         `mix hearth.install` on a fresh project and accepts any other
         confirmations.
 
     ## Pipeline status
 
-      * Available now (for file sources) — source recognition (URL /
-        file / registry), registry lookup, install gating, YAML/JSON
-        decode, operation extraction + tag filtering, Layer 1/2/3
+      * Available now — file, URL and registry sources (Hearth's and
+        `.hearth.exs`), install gating, YAML/JSON decode, operation
+        extraction + tag filtering, Layer 1/2/3
         generation, a Layer 1 auth test, an external integration test
         scaffold, the pruned spec at `priv/hearth/<name>.yaml`, the
         integration's `.hearth.exs` entry, and Mox + config wiring. Update a generated integration with
         `mix hearth.regen` — `hearth.gen` only creates.
-      * Coming soon — on-disk cache and HTTP fetcher (for URL /
-        registry sources).
 
     If your project is not yet set up (no `:hearth` in `.formatter.exs`),
     `hearth.gen` will
@@ -110,10 +125,13 @@ if Code.ensure_loaded?(Igniter) do
 
     use Igniter.Mix.Task
 
-    alias Hearth.Fs.Content
+    alias Hearth.Config.Project
     alias Hearth.Gen.Messages
     alias Hearth.Gen.Patches
+    alias Hearth.Integration.Load
     alias Hearth.Integration.Manifest
+    alias Hearth.Integration.Messages, as: IntegrationMessages
+    alias Hearth.Integration.Reprune
     alias Hearth.Render.ModuleNames
     alias Hearth.Spec.BasePath
     alias Hearth.Spec.Filter
@@ -167,33 +185,51 @@ if Code.ensure_loaded?(Igniter) do
 
     # --list semantics:
     #
-    #   * no source       → print the available shortcut names
+    #   * no source       → print the available shortcut names (Hearth's
+    #     and the project's `.hearth.exs` registry)
     #   * registry source → print available versions for that shortcut
     #     (the @version part of the source is ignored — same answer for
     #     `stripe`, `stripe@latest`, or `stripe@anything-else`)
-    #   * any other source → error: --list is registry-only
+    #   * a file or URL   → load it and print its tag discovery
     defp handle_list(igniter) do
       # --list is pure introspection. Suppress Igniter's end-of-run
       # "No proposed content changes!" line so query-mode commands
       # don't leave that noise behind their actual output.
       igniter = Igniter.assign(igniter, :quiet_on_no_changes?, true)
 
-      case igniter.args.positional[:source] do
-        nil ->
-          Mix.shell().info(Messages.format_shortcuts())
-          igniter
+      case Project.load(igniter) do
+        {:ok, igniter, %{registry: registry}} ->
+          list(igniter, igniter.args.positional[:source], registry)
 
-        source ->
-          list_for_source(igniter, source, Source.resolve(source))
+        {:error, message} ->
+          Igniter.add_issue(igniter, message)
       end
     end
 
-    defp list_for_source(igniter, _source, {:registry, name_with_version}) do
+    defp list(igniter, nil, registry) do
+      Mix.shell().info(Messages.format_shortcuts(registry))
+      igniter
+    end
+
+    defp list(igniter, source, registry) do
+      case Source.resolve(source) do
+        {:registry, name_with_version} -> list_versions(igniter, name_with_version, registry)
+        {:error, reason} -> Igniter.add_issue(igniter, "hearth.gen: #{reason}")
+        _location -> list_tags(igniter, source, registry)
+      end
+    end
+
+    defp list_versions(igniter, name_with_version, registry) do
       base = name_with_version |> String.split("@", parts: 2) |> hd()
 
-      case Hearth.Registry.versions(base) do
+      case Hearth.Registry.versions(base, registry) do
         nil ->
-          Igniter.add_issue(igniter, Messages.registry_unknown_name_message(base))
+          reason = {:registry, {:unknown_name, base}}
+
+          Igniter.add_issue(
+            igniter,
+            IntegrationMessages.load_message(:gen, base, reason, registry)
+          )
 
         versions ->
           Mix.shell().info(Messages.format_versions(base, versions))
@@ -201,14 +237,12 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp list_for_source(igniter, _source, {:file, path}) do
-      case decode_file(igniter, path) do
-        {:ok, igniter, spec} ->
-          operations = Operation.extract(spec)
-
+    defp list_tags(igniter, source, registry) do
+      case Load.load(igniter, source, registry) do
+        {:ok, igniter, loaded} ->
           Mix.shell().info(
-            Messages.tag_discovery(operations,
-              source: path,
+            Messages.tag_discovery(Operation.extract(loaded.spec),
+              source: source,
               integration: igniter.args.options[:integration],
               limit: nil
             )
@@ -216,19 +250,12 @@ if Code.ensure_loaded?(Igniter) do
 
           igniter
 
-        {:error, message} ->
-          Igniter.add_issue(igniter, message)
+        {:error, reason} ->
+          Igniter.add_issue(
+            igniter,
+            IntegrationMessages.load_message(:gen, source, reason, registry)
+          )
       end
-    end
-
-    defp list_for_source(igniter, source, _other) do
-      Igniter.add_issue(
-        igniter,
-        "hearth.gen: --list works without a source (registry shortcuts), " <>
-          "with a registry shortcut (its versions), or with a file path " <>
-          "(the spec's tags). A URL source needs the fetcher, which is not " <>
-          "yet wired. Got #{inspect(source)}."
-      )
     end
 
     # Speculatively compose `hearth.install` to find out what (if anything)
@@ -266,61 +293,57 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
+    # Any source — a file, a URL, or a registry shortcut (the project's
+    # `.hearth.exs` registry first, then Hearth's) — goes through
+    # `Hearth.Integration.Load`. What gen records as the entry's
+    # `source:` is the source as typed, with a bare shortcut pinned to
+    # `@latest`.
     defp dispatch_source(igniter) do
-      source = igniter.args.positional[:source]
+      with {:ok, source} <- normalize_source(igniter.args.positional[:source]),
+           {:ok, igniter, %{registry: registry}} <- Project.load(igniter),
+           {:ok, igniter, loaded} <- load(igniter, source, registry) do
+        input = %{
+          source: source,
+          spec: loaded.spec,
+          sha256: Reprune.sha256(loaded.bytes),
+          entry: loaded.entry
+        }
 
-      case Source.resolve(source) do
-        {:url, url} ->
-          Igniter.add_notice(igniter, Messages.url_notice(url))
-
-        {:file, path} ->
-          handle_file_source(igniter, path)
-
-        {:registry, name} ->
-          case Hearth.Registry.lookup(name) do
-            {:ok, entry} ->
-              Igniter.add_notice(igniter, Messages.registry_hit_notice(entry))
-
-            {:error, {:unknown_name, _}} ->
-              Igniter.add_issue(igniter, Messages.registry_unknown_name_message(name))
-
-            {:error, {:unknown_version, base, version, available}} ->
-              Igniter.add_issue(
-                igniter,
-                Messages.registry_unknown_version_message(base, version, available)
-              )
-          end
-
-        {:error, reason} ->
-          Igniter.add_issue(igniter, "hearth.gen: #{reason}")
-      end
-    end
-
-    defp handle_file_source(igniter, path) do
-      case decode_file(igniter, path) do
-        {:ok, igniter, spec} -> select_and_report(igniter, path, spec)
+        igniter
+        |> resolved_notice(input)
+        |> select_and_report(input)
+      else
         {:error, message} -> Igniter.add_issue(igniter, message)
       end
     end
 
-    # Reads through Igniter's Rewrite layer (so test fixtures and real
-    # files take the same path). Returns `{:ok, igniter, spec}` (the
-    # igniter now has the spec file in its Rewrite) or
-    # `{:error, user_message}`. Shared by the generation flow and
-    # `mix hearth.gen <file> --list`.
-    defp decode_file(igniter, path) do
-      case Content.read_spec(igniter, path) do
-        {:ok, igniter, spec} -> {:ok, igniter, spec}
-        {:error, :unsupported} -> {:error, Messages.unsupported_format_message(path)}
-        {:error, :missing} -> {:error, Messages.file_not_found_message(path)}
-        {:error, {:decode, reason}} -> {:error, Messages.decode_failed_message(path, reason)}
+    defp normalize_source(source) do
+      case Source.resolve(source) do
+        {:registry, name} -> {:ok, if(name =~ "@", do: name, else: name <> "@latest")}
+        {:error, reason} -> {:error, "hearth.gen: #{reason}"}
+        _location -> {:ok, source}
       end
     end
 
+    defp load(igniter, source, registry) do
+      case Load.load(igniter, source, registry) do
+        {:ok, igniter, loaded} ->
+          {:ok, igniter, loaded}
+
+        {:error, reason} ->
+          {:error, IntegrationMessages.load_message(:gen, source, reason, registry)}
+      end
+    end
+
+    defp resolved_notice(igniter, %{entry: nil}), do: igniter
+
+    defp resolved_notice(igniter, %{source: source, entry: entry}),
+      do: Igniter.add_notice(igniter, Messages.resolved_notice(source, entry))
+
     # Extract operations, then select a subset: an explicit `--tag`
     # filter, or — with no `--tag` — the operation-count gate.
-    defp select_and_report(igniter, path, spec) do
-      operations = Operation.extract(spec)
+    defp select_and_report(igniter, input) do
+      operations = Operation.extract(input.spec)
       # Igniter aggregates a `:keep` option into a single list and
       # defaults an absent one to `[]`, so `options[:tag]` is already
       # the full list of `--tag` values.
@@ -328,7 +351,7 @@ if Code.ensure_loaded?(Igniter) do
 
       with :ok <- validate_n_operations(igniter),
            {:ok, selected} <- resolve_selection(igniter, operations, tag_values) do
-        generate(igniter, path, spec, operations, selected)
+        generate(igniter, input, operations, selected)
       else
         {:error, message} -> Igniter.add_issue(igniter, message)
         {:halt, message} -> Igniter.add_issue(igniter, message)
@@ -343,23 +366,23 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    # `--integration` is required for file sources (registry sources
-    # auto-derive it, but registry codegen isn't wired yet). With it,
-    # render Layer 1 (raw client), Layer 2 (behaviour), and Layer 3
-    # (Req implementation) to disk.
-    defp generate(igniter, path, spec, operations, selected) do
-      with {:ok, integration} <- fetch_integration(igniter, path),
+    # `--integration` is required for a file or URL source; a registry
+    # shortcut defaults it to the shortcut's name. With it, render
+    # Layer 1 (raw client), Layer 2 (behaviour), and Layer 3 (Req
+    # implementation) to disk.
+    defp generate(igniter, input, operations, selected) do
+      with {:ok, integration} <- fetch_integration(igniter, input),
            :ok <- validate_domain(igniter) do
-        write_layers(igniter, path, spec, operations, selected, integration)
+        write_layers(igniter, input, operations, selected, integration)
       else
         {:error, message} -> Igniter.add_issue(igniter, message)
       end
     end
 
-    defp fetch_integration(igniter, path) do
-      case igniter.args.options[:integration] do
+    defp fetch_integration(igniter, input) do
+      case igniter.args.options[:integration] || (input.entry && input.entry.integration) do
         nil ->
-          {:error, Messages.missing_integration_message(path)}
+          {:error, Messages.missing_integration_message(input.source)}
 
         name ->
           if ModuleNames.valid_segment?(name),
@@ -380,7 +403,7 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp write_layers(igniter, path, spec, operations, selected, integration) do
+    defp write_layers(igniter, input, operations, selected, integration) do
       names =
         igniter
         |> module_names(integration)
@@ -392,7 +415,7 @@ if Code.ensure_loaded?(Igniter) do
       # still halt, never silently clobber the surviving files.
       case existing_artifacts(igniter, names) do
         [] ->
-          render_layers(igniter, path, spec, operations, selected, names)
+          render_layers(igniter, input, operations, selected, names)
 
         existing ->
           Igniter.add_issue(igniter, Messages.integration_exists_message(names.layer1, existing))
@@ -413,7 +436,9 @@ if Code.ensure_loaded?(Igniter) do
       )
     end
 
-    defp render_layers(igniter, path, spec, operations, selected, names) do
+    defp render_layers(igniter, input, operations, selected, names) do
+      %{source: path, spec: spec} = input
+
       otp_app = Igniter.Project.Application.app_name(igniter)
       auth = Hearth.Spec.Auth.strategy(spec)
       servers = Hearth.Spec.Servers.resolve(spec)
@@ -434,7 +459,7 @@ if Code.ensure_loaded?(Igniter) do
         |> Hearth.Spec.Prune.to_yaml()
 
       entry =
-        [module: names.layer1, source: path, source_sha256: source_sha256(igniter, path)] ++
+        [module: names.layer1, source: path, source_sha256: input.sha256] ++
           [base_path: prefix] ++ Hearth.Spec.Selection.describe(operations, selected)
 
       selected = BasePath.strip(selected, prefix)
@@ -480,13 +505,6 @@ if Code.ensure_loaded?(Igniter) do
             ["#{pruned_spec_path} (pruned spec)", ".hearth.exs (integration entry)"]
         )
       )
-    end
-
-    # Lets `mix hearth.diff` say "the source hasn't changed since gen".
-    # The spec is already in the Rewrite — `decode_file/2` read it.
-    defp source_sha256(igniter, path) do
-      {:ok, bytes} = Content.read(igniter, path)
-      Hearth.Integration.Reprune.sha256(bytes)
     end
 
     # Tracked files are Hearth-owned (`:overwrite`); the scaffold — the

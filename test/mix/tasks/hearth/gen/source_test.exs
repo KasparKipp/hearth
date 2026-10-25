@@ -9,18 +9,167 @@ defmodule Mix.Tasks.Hearth.Gen.SourceTest do
   @petstore_3_0_json File.read!("test/fixtures/specs/petstore-3.0.json")
   @tictactoe_3_1_yaml File.read!("test/fixtures/specs/tictactoe-3.1.yaml")
 
-  describe "source recognition" do
-    test "URL source emits a URL-specific notice" do
+  # Stubs the network: every URL serves `body` and is reported back to
+  # the test as `{:fetched, url}`.
+  defp serve(igniter, body \\ File.read!("test/fixtures/specs/petstore-3.0.yaml")) do
+    test = self()
+
+    Igniter.assign(igniter, :hearth_fetch, fn url ->
+      send(test, {:fetched, url})
+      {:ok, body}
+    end)
+  end
+
+  defp entry(igniter, key) do
+    {:ok, integrations} = igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
+    integrations[key]
+  end
+
+  describe "remote sources" do
+    test "a URL is fetched and generates the integration, recorded as its source" do
       igniter =
         test_project()
-        |> Igniter.compose_task("hearth.gen", ["https://example.com/openapi.json"])
+        |> serve()
+        |> Igniter.compose_task("hearth.gen", [
+          "https://specs.example.com/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
 
-      notice = notice_text(igniter)
-      assert notice =~ "Source recognized: URL"
-      assert notice =~ "https://example.com/openapi.json"
-      assert notice =~ "HTTP fetch"
+      assert_received {:fetched, "https://specs.example.com/petstore.yaml"}
+      assert_creates(igniter, "lib/test/integrations/petstore/petstore_api.ex")
+      assert entry(igniter, :petstore)[:source] == "https://specs.example.com/petstore.yaml"
+      assert notice_text(igniter) =~ "Spec loaded from https://specs.example.com/petstore.yaml"
     end
 
+    test "a URL needs --integration" do
+      igniter =
+        test_project()
+        |> serve()
+        |> Igniter.compose_task("hearth.gen", ["https://specs.example.com/petstore.yaml"])
+
+      assert issue_text(igniter) =~ "--integration is required for a file or URL source"
+    end
+
+    test "a fetch failure halts naming the URL and why" do
+      igniter =
+        test_project()
+        |> Igniter.assign(:hearth_fetch, fn _url -> {:error, {:status, 404}} end)
+        |> Igniter.compose_task("hearth.gen", [
+          "https://specs.example.com/gone.yaml",
+          "--integration",
+          "Gone"
+        ])
+
+      assert issue_text(igniter) =~ "could not fetch https://specs.example.com/gone.yaml"
+      assert issue_text(igniter) =~ "HTTP 404"
+    end
+
+    test "test mode never touches the network unless the fetch is stubbed" do
+      igniter =
+        Igniter.compose_task(test_project(), "hearth.gen", [
+          "https://specs.example.com/petstore.yaml",
+          "--integration",
+          "Petstore"
+        ])
+
+      assert issue_text(igniter) =~ "network_disabled_in_test_mode"
+    end
+
+    test "a bare shortcut is pinned to @latest, fetches its URL and names the integration" do
+      igniter = test_project() |> serve() |> Igniter.compose_task("hearth.gen", ["STRIPE"])
+
+      assert_received {:fetched, url}
+      assert url =~ "refs/heads/master"
+      assert_creates(igniter, "lib/test/integrations/stripe.ex")
+      assert entry(igniter, :stripe)[:source] == "stripe@latest"
+      assert notice_text(igniter) =~ "Resolved `stripe@latest` to:"
+    end
+
+    test "an alias says what it resolved to" do
+      notices =
+        test_project()
+        |> serve()
+        |> Igniter.compose_task("hearth.gen", ["stripe@dahlia"])
+        |> notice_text()
+
+      assert notices =~ "Resolved `stripe@dahlia` (alias for `stripe@2026-04-22.dahlia`) to:"
+      assert_received {:fetched, url}
+      assert url =~ "v2266"
+    end
+
+    test "codename aliases resolve to the most recent dated release" do
+      test_project() |> serve() |> Igniter.compose_task("hearth.gen", ["stripe@basil"])
+      assert_received {:fetched, basil}
+      assert basil =~ "v2017"
+
+      test_project() |> serve() |> Igniter.compose_task("hearth.gen", ["stripe@clover"])
+      assert_received {:fetched, clover}
+      assert clover =~ "v2203"
+    end
+
+    test "a .hearth.exs registry shortcut resolves to its URL or file" do
+      exs = """
+      [
+        registry: %{
+          "acme" => %{
+            "1" => "https://acme.test/v1.yaml",
+            "2" => "priv/specs/acme-2.yaml",
+            "latest" => {:alias, "2"}
+          }
+        }
+      ]
+      """
+
+      igniter =
+        test_project(files: %{".hearth.exs" => exs})
+        |> serve()
+        |> Igniter.compose_task("hearth.gen", ["acme@1"])
+
+      assert_received {:fetched, "https://acme.test/v1.yaml"}
+      assert_creates(igniter, "lib/test/integrations/acme.ex")
+      assert entry(igniter, :acme)[:source] == "acme@1"
+      assert notice_text(igniter) =~ "Resolved `acme@1` from .hearth.exs to:"
+
+      from_file =
+        test_project(
+          files: %{".hearth.exs" => exs, "priv/specs/acme-2.yaml" => @petstore_3_0_yaml}
+        )
+        |> Igniter.compose_task("hearth.gen", ["acme"])
+
+      assert entry(from_file, :acme)[:source] == "acme@latest"
+      assert notice_text(from_file) =~ "priv/specs/acme-2.yaml"
+    end
+
+    test "a URL + --list prints its tag discovery" do
+      output =
+        capture_io(fn ->
+          test_project()
+          |> serve()
+          |> Igniter.compose_task("hearth.gen", [
+            "https://specs.example.com/petstore.yaml",
+            "--list"
+          ])
+        end)
+
+      assert output =~ ":list_pets"
+    end
+
+    test "--list marks shortcuts from .hearth.exs" do
+      exs = ~s|[registry: %{"acme" => %{"1" => "https://acme.test/v1.yaml"}}]|
+
+      output =
+        capture_io(fn ->
+          test_project(files: %{".hearth.exs" => exs})
+          |> Igniter.compose_task("hearth.gen", ["--list"])
+        end)
+
+      assert output =~ "acme (.hearth.exs)"
+      assert output =~ "stripe"
+    end
+  end
+
+  describe "source recognition" do
     test "YAML file source decodes, summarizes, and generates the behaviour" do
       igniter =
         test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
@@ -102,42 +251,6 @@ defmodule Mix.Tasks.Hearth.Gen.SourceTest do
              end)
     end
 
-    test "bare shortcut resolves to @latest" do
-      igniter =
-        test_project()
-        |> Igniter.compose_task("hearth.gen", ["stripe"])
-
-      notice = notice_text(igniter)
-      assert notice =~ "Source recognized: registry shorthand `stripe@latest`"
-      assert notice =~ "Resolved to:"
-      assert notice =~ "raw.githubusercontent.com/stripe"
-      assert notice =~ "Default integration name: Stripe"
-      assert notice =~ "HTTP fetch"
-    end
-
-    test "explicit @latest is equivalent to bare shortcut" do
-      bare =
-        test_project()
-        |> Igniter.compose_task("hearth.gen", ["stripe"])
-        |> notice_text()
-
-      pinned =
-        test_project()
-        |> Igniter.compose_task("hearth.gen", ["stripe@latest"])
-        |> notice_text()
-
-      assert bare == pinned
-    end
-
-    test "registry name is normalized to lowercase before lookup" do
-      igniter =
-        test_project()
-        |> Igniter.compose_task("hearth.gen", ["STRIPE"])
-
-      assert notice_text(igniter) =~ "`stripe@latest`"
-      assert notice_text(igniter) =~ "Resolved to:"
-    end
-
     test "unknown registry name halts with the available shortcuts" do
       igniter =
         test_project()
@@ -160,42 +273,6 @@ defmodule Mix.Tasks.Hearth.Gen.SourceTest do
                String.contains?(issue, "registry shortcut `stripe` has no version `2099-01-01`") and
                  String.contains?(issue, "stripe@latest")
              end)
-    end
-
-    test "alias notice surfaces the alias relationship in the header" do
-      igniter =
-        test_project()
-        |> Igniter.compose_task("hearth.gen", ["stripe@dahlia"])
-
-      notice = notice_text(igniter)
-
-      assert notice =~
-               "registry shorthand `stripe@dahlia` (alias for `stripe@2026-04-22.dahlia`)"
-
-      assert notice =~ "Resolved to:"
-      assert notice =~ "raw.githubusercontent.com/stripe"
-    end
-
-    test "@latest is a canonical entry with its own floating URL, no alias annotation" do
-      igniter =
-        test_project()
-        |> Igniter.compose_task("hearth.gen", ["stripe@latest"])
-
-      notice = notice_text(igniter)
-      assert notice =~ "registry shorthand `stripe@latest`."
-      refute notice =~ "alias for"
-      assert notice =~ "refs/heads/master"
-    end
-
-    test "@2026-04-22.dahlia is a canonical entry with the tagged URL" do
-      igniter =
-        test_project()
-        |> Igniter.compose_task("hearth.gen", ["stripe@2026-04-22.dahlia"])
-
-      notice = notice_text(igniter)
-      assert notice =~ "registry shorthand `stripe@2026-04-22.dahlia`."
-      refute notice =~ "alias for"
-      assert notice =~ "v2266"
     end
   end
 
@@ -298,24 +375,6 @@ defmodule Mix.Tasks.Hearth.Gen.SourceTest do
       refute output =~ "https://"
     end
 
-    test "codename aliases resolve to the most recent dated release" do
-      basil =
-        test_project()
-        |> Igniter.compose_task("hearth.gen", ["stripe@basil"])
-        |> notice_text()
-
-      assert basil =~ "registry shorthand `stripe@basil` (alias for `stripe@2025-08-27.basil`)"
-      assert basil =~ "v2017"
-
-      clover =
-        test_project()
-        |> Igniter.compose_task("hearth.gen", ["stripe@clover"])
-        |> notice_text()
-
-      assert clover =~ "registry shorthand `stripe@clover` (alias for `stripe@2026-02-25.clover`)"
-      assert clover =~ "v2203"
-    end
-
     test "@version on the source is ignored — same answer for any @version" do
       bare =
         capture_io(fn ->
@@ -358,17 +417,6 @@ defmodule Mix.Tasks.Hearth.Gen.SourceTest do
       assert output =~ ~s("pets":)
       assert output =~ ":list_pets"
       assert output =~ "Generate a subset"
-    end
-
-    test "URL source + --list errors — the fetcher is not yet wired" do
-      igniter =
-        test_project()
-        |> Igniter.compose_task("hearth.gen", ["https://example.com/openapi.json", "--list"])
-
-      assert Enum.any?(igniter.issues, fn issue ->
-               String.contains?(issue, "URL source needs the fetcher") and
-                 String.contains?(issue, "https://example.com")
-             end)
     end
   end
 end

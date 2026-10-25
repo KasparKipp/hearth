@@ -23,7 +23,8 @@ defmodule Hearth.Config do
   #     (and `config/test.exs`). Recomputed from the pruned subset, it
   #     can come out longer and desync from that config.
   #
-  # The file is evaluated like `.formatter.exs`. Pure: the Igniter side
+  # An optional `registry:` declares the project's own source shortcuts
+  # (see `load/1`). The file is evaluated like `.formatter.exs`. Pure: the Igniter side
   # (reading through Rewrite, writing entries) is `Hearth.Config.Project`.
 
   alias Hearth.Render.ModuleNames
@@ -47,8 +48,20 @@ defmodule Hearth.Config do
 
   @spec parse(binary()) :: {:ok, integrations()} | {:error, String.t()}
   def parse(content) when is_binary(content) do
-    with {:ok, term} <- evaluate(content) do
-      integrations(term)
+    with {:ok, %{integrations: integrations}} <- load(content), do: {:ok, integrations}
+  end
+
+  # The whole file: the integrations and the project's own registry —
+  # `%{name => %{version => location | {:alias, version}}}`, the shape
+  # of `Hearth.Registry`'s built-in entries, which a local name shadows.
+  # Names are lowercased, like registry sources are.
+  @spec load(binary()) ::
+          {:ok, %{integrations: integrations(), registry: map()}} | {:error, String.t()}
+  def load(content) when is_binary(content) do
+    with {:ok, term} <- evaluate(content),
+         {:ok, integrations} <- integrations(term),
+         {:ok, registry} <- registry(term) do
+      {:ok, %{integrations: integrations, registry: registry}}
     end
   end
 
@@ -89,6 +102,38 @@ defmodule Hearth.Config do
   rescue
     error -> {:error, "#{@path} could not be evaluated: #{Exception.message(error)}"}
   end
+
+  # `integrations/1` has already checked `term` is a keyword list.
+  defp registry(nil), do: {:ok, %{}}
+
+  defp registry(term) do
+    registry = Keyword.get(term, :registry, %{})
+
+    if valid_registry?(registry) do
+      {:ok, Map.new(registry, fn {name, versions} -> {String.downcase(name), versions} end)}
+    else
+      {:error,
+       "#{@path}: `registry:` must be a map of name → %{version => URL or file path}, " <>
+         ~s|e.g. `registry: %{"ohip_blk" => %{"26.3" => "https://…/blk.json", "latest" => {:alias, "26.3"}}}`.|}
+    end
+  end
+
+  defp valid_registry?(registry) when is_map(registry) do
+    Enum.all?(registry, fn {name, versions} ->
+      is_binary(name) and Regex.match?(~r/^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$/, name) and
+        is_map(versions) and Enum.all?(versions, &valid_version?/1)
+    end)
+  end
+
+  defp valid_registry?(_registry), do: false
+
+  defp valid_version?({version, location}) when is_binary(version) and is_binary(location),
+    do: true
+
+  defp valid_version?({version, {:alias, target}}) when is_binary(version) and is_binary(target),
+    do: true
+
+  defp valid_version?(_version), do: false
 
   defp integrations(nil), do: {:ok, []}
 

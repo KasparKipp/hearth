@@ -61,8 +61,10 @@ OpenAPI. Running `regen` straight after `gen` is a no-op. The entry's
 `tags:` records the selection: to add or drop operations, or to pull in a
 newer spec, edit `tags:` / `source:` and run `mix hearth.regen stripe --sync`.
 
-Only local spec files generate code today. URL and registry sources are
-recognized and validated; generating from them needs the fetcher (pending).
+A source is a local spec file, an http(s) URL, or a registry shortcut —
+Hearth's built-in one (`stripe@2026-04-22.dahlia`) or the project's own
+`registry:` in `.hearth.exs`. URLs are fetched on every gen / sync / diff
+(OTP `:httpc`, no cache); plain `regen` never fetches.
 
 ---
 
@@ -218,7 +220,8 @@ all live there and rarely round-trip back into the spec.
       live-API scaffold.
 - [x] **Generic response typing.** `{:ok, Req.Response.t()} | {:error, Exception.t()}`
       for every callback.
-- [ ] **URL and registry sources** — needs the fetcher + cache (steps 4d–4f).
+- [x] **URL and registry sources** — fetched with OTP `:httpc`, no cache; a
+      project registry in `.hearth.exs` shadows the built-in one.
 - [ ] **`--style {verbose|tight|split}`** — designed, not wired:
       `tight` → `…Stripe.Api` / `.Api.Req`; `split` → `…Stripe.Client` / `.Api`.
 
@@ -364,13 +367,14 @@ lib/
     hearth.regen.ex            # pruned spec → refreshed integration
     hearth.diff.ex             # pruned spec vs source → drift report (read-only)
   hearth/
-    registry.ex                # curated, versioned spec shortcuts (stripe@…)
+    registry.ex                # curated, versioned spec shortcuts (stripe@…), + .hearth.exs ones
     config.ex                  # pure: .hearth.exs — parse, keys, entry fields
     config/
       project.ex               # read / write .hearth.exs (Igniter-guarded)
     spec/                      # pure: decoded spec → data
       source.ex                # argv → {:file | :url | :registry | :error, _}
       loader.ex                # sniff format, decode YAML/JSON
+      fetcher.ex               # GET a spec over http(s) with OTP :httpc
       operation.ex             # paths → %Operation{}; safe names, path args
       filter.ex                # --tag parsing + selection
       auth.ex                  # securitySchemes → auth strategy
@@ -388,6 +392,7 @@ lib/
     integration/
       manifest.ex              # the files an integration consists of (gen + regen)
       names.ex                 # pick integrations from names / --all (regen + diff)
+      load.ex                  # any source (file / URL / shortcut) → spec (Igniter-guarded)
       reprune.ex               # source + tags: → pruned spec (Igniter-guarded)
       messages.ex              # text shared by regen and diff
     gen/
@@ -430,17 +435,24 @@ What exists, condensed. The blow-by-blow is in git history.
   prints an "installed" or "already installed" notice. It writes no config:
   integrations are tracked by their pruned specs in `priv/hearth/` (the old
   `:hearth_domains` list was dropped).
-- **`hearth.gen` pipeline** — `Source.resolve/1` classifies the argument;
-  install is auto-composed (gated: silent if install would be a no-op,
-  `--yes`/test mode accept, else prompt). For a file: sniff → existence via
-  `Igniter.exists?/2` → read through Rewrite → decode → `Operation.extract/1`
+- **`hearth.gen` pipeline** — install is auto-composed (gated: silent if
+  install would be a no-op, `--yes`/test mode accept, else prompt). The
+  source — file, URL, or shortcut (normalized to `name@latest` when bare) —
+  goes through `Integration.Load` with the `.hearth.exs` registry
+  (`Project.load/1`): a file is read through Rewrite; a URL is fetched by
+  `Spec.Fetcher` (`:httpc`, TLS verified against the OS store, redirects
+  followed; the `:hearth_fetch` igniter assign stubs it, and Igniter test mode
+  refuses the network without one) with its format from the extension or the
+  content; a shortcut is looked up with `Registry.lookup/2` (project entries
+  shadow built-in ones) and loaded from its location. Then decode →
+  `Operation.extract/1`
   → selection (`--tag` filter, or the `--n-operations` gate, default 25, which
   halts with a copy-and-edit tag-discovery command). `--integration` and
   `--domain` must camelize to a single alias segment. If **any** generated file
   already exists, gen halts. Otherwise it writes the `Manifest` files, the
   pruned spec, and applies `Patches`.
-- **`--list`** — no source: registry shortcuts; a shortcut: its versions; a
-  file: the tag-discovery listing. Output goes through `Mix.shell().info/1`
+- **`--list`** — no source: registry shortcuts (project ones marked); a
+  shortcut: its versions; a file or URL: the tag-discovery listing. Output goes through `Mix.shell().info/1`
   with `quiet_on_no_changes?` set.
 - **Registry** — Stripe only: 14 dated versions (basil / clover / dahlia) plus
   a floating `latest`; codename and date aliases resolve at lookup and are
@@ -599,9 +611,9 @@ Learned the hard way; every change must keep them:
 
 ### Pending
 
-- **Steps 4d–4f** — `Hearth.Spec.Cache`, `Hearth.Spec.Fetcher` (Req + cache;
-  bundles `latest` resolution — TODO on the `latest` entry in
-  `lib/hearth/registry.ex`), end-to-end URL/registry codegen.
+- **Resolve `stripe@latest` in `--list`** — fetch the floating spec and show
+  which dated release it is (TODO on the `latest` entry in
+  `lib/hearth/registry.ex`).
 
 ---
 
