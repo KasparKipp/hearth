@@ -18,7 +18,7 @@ paths:
   /v1/customers:
     get:
       description: <p>Returns a list of your customers. The customers are returned sorted by creation date, with the most recent customers appearing first.</p>
-      operationId: GetCustomers
+      operationId: ListCustomers
       parameters:
         - description: Only return customers that were created during the given date interval.
           explode: true
@@ -144,7 +144,7 @@ paths:
         - Customers
     post:
       description: <p>Creates a new customer object.</p>
-      operationId: PostCustomers
+      operationId: CreateCustomer
       requestBody:
         content:
           application/x-www-form-urlencoded:
@@ -566,7 +566,7 @@ paths:
   /v1/customers/{customer}:
     get:
       description: <p>Retrieves a Customer object.</p>
-      operationId: GetCustomersCustomer
+      operationId: GetCustomer
       parameters:
         - in: path
           name: customer

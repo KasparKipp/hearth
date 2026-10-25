@@ -14,8 +14,9 @@ mix deps.get
 ## 1. How the client was made
 
 Stripe's spec has 587 operations and none of them carry a tag, so
-`--tag` has nothing to select from. `.hearth.exs` tags the ones this demo
-uses, with overrides written before the first gen:
+`--tag` has nothing to select from, and its operationIds make long
+function names (`GetCustomersCustomer` → `get_customers_customer`).
+`.hearth.exs` fixes both with overrides written before the first gen:
 
 ```elixir
 stripe: [
@@ -23,13 +24,19 @@ stripe: [
     tags: [
       Customers: ["get /v1/customers", "post /v1/customers", "get /v1/customers/{customer}"],
       Subscriptions: ["/v1/subscriptions*"]
-    ]
+    ],
+    operation_ids: %{
+      "GetCustomers" => "ListCustomers",
+      "PostCustomers" => "CreateCustomer",
+      "GetCustomersCustomer" => "GetCustomer"
+    }
   ]
 ]
 ```
 
-Each entry is a path glob (`*` matches anything, `/` included), a method
-plus a path, or an operationId. Then:
+A tag entry is a path glob (`*` matches anything, `/` included), a method
+plus a path, or an operationId. `operation_ids` renames an operation; the
+function follows. Then:
 
 ```bash
 mix hearth.gen stripe@2026-04-22.dahlia --tag Customers --yes
@@ -42,7 +49,7 @@ directory that `mix new` didn't:
 | File | What it is |
 | --- | --- |
 | `lib/stripe_demo/integrations/stripe.ex` | the raw Req client — base URL `https://api.stripe.com/v1` |
-| `lib/stripe_demo/integrations/stripe/stripe_api.ex` | the behaviour your code calls: `get_customers/1`, `post_customers/1`, `get_customers_customer/2` |
+| `lib/stripe_demo/integrations/stripe/stripe_api.ex` | the behaviour your code calls: `list_customers/1`, `create_customer/1`, `get_customer/2` |
 | `lib/stripe_demo/integrations/stripe/stripe_api/req.ex` | the Req implementation |
 | `test/stripe_demo/integrations/stripe_test.exs` | the client's `Req.Test` test |
 | `test/stripe_demo/integrations/stripe_external_test.exs` | live-API tests, yours to edit |
@@ -101,7 +108,7 @@ test per operation against the real API, with placeholder arguments to
 replace. Hearth creates that file once and never overwrites it.
 
 In your own code you'd call the behaviour,
-`StripeDemo.Integrations.Stripe.StripeApi.get_customers(params: [limit: 3])`,
+`StripeDemo.Integrations.Stripe.StripeApi.list_customers(params: [limit: 3])`,
 and stub it in tests with `StripeDemo.Integrations.Stripe.StripeApi.Mock`.
 
 ## 3. Check it's in sync
@@ -141,7 +148,7 @@ hearth.diff: stripe has drifted from stripe@latest.
 It differs from the source recorded at the last gen or sync.
 
 Operations:
-  ~ post /v1/customers (PostCustomers): request body application/x-www-form-urlencoded: tax_id_data[].type: enum gains ic_nif
+  ~ post /v1/customers (CreateCustomer): request body application/x-www-form-urlencoded: tax_id_data[].type: enum gains ic_nif
 
 Schemas:
   ~ account_business_profile: property specified_commercial_transactions_act_url added
@@ -192,5 +199,5 @@ The raw client sends `Authorization: Bearer <key>`, with the key from
 call:
 
 ```elixir
-StripeDemo.Integrations.Stripe.StripeApi.get_customers(api_key: "sk_test_…", params: [limit: 3])
+StripeDemo.Integrations.Stripe.StripeApi.list_customers(api_key: "sk_test_…", params: [limit: 3])
 ```
