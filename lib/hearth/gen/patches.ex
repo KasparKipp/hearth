@@ -4,8 +4,8 @@ if Code.ensure_loaded?(Igniter) do
 
     # The host-project wiring `mix hearth.gen` applies around the
     # generated files: consumer deps, the Mox mock, `test_helper.exs`,
-    # and the config patches (credential, impl, base URL, alternates,
-    # `:hearth_domains`). Every patch is idempotent.
+    # and the config patches (credential, impl, base URL, alternates).
+    # Every patch is idempotent.
     #
     # Guarded like the Mix tasks: Igniter is an optional dependency.
 
@@ -33,9 +33,7 @@ if Code.ensure_loaded?(Igniter) do
     # Applies every host-project patch, in a fixed order (the order
     # determines the layout of the patched config files). `ctx` carries
     # `:otp_app`, `:names` (a `ModuleNames.from_layer1/1` map), `:auth`,
-    # `:servers`, and `:prefix`. An optional `:replaces` (the Layer 2
-    # module of the integration being moved by `regen --module`) is
-    # swapped out of `:hearth_domains` for the new one.
+    # `:servers`, and `:prefix`.
     @spec wire(Igniter.t(), map()) :: Igniter.t()
     def wire(igniter, ctx) do
       %{otp_app: otp_app, names: names, auth: auth, servers: servers, prefix: prefix} = ctx
@@ -47,7 +45,6 @@ if Code.ensure_loaded?(Igniter) do
       |> patch_credential_config(otp_app, names.layer1, names.integration, auth)
       |> patch_impl_config(otp_app, names.layer2, names.mock)
       |> patch_base_url_config(otp_app, names.layer1, servers, prefix)
-      |> patch_hearth_domains(otp_app, names.layer2, ctx[:replaces])
       |> patch_base_url_alternates(otp_app, names.layer1, servers, prefix)
       |> warn_servers(otp_app, names.layer1, servers)
     end
@@ -244,47 +241,12 @@ if Code.ensure_loaded?(Igniter) do
       )
     end
 
-    # Appends the Layer 2 module to `:hearth_domains`. `append_new_to_list`
-    # is idempotent, and returns `:error` (→ no-op) when the value is not
-    # a list — so an explicit `false` opt-out is left untouched.
-    defp patch_hearth_domains(igniter, otp_app, layer2, replaces) do
-      new = Sourceror.parse_string!(inspect(layer2))
-
-      Igniter.Project.Config.configure(
-        igniter,
-        "config.exs",
-        otp_app,
-        [:hearth_domains],
-        {:code, Sourceror.parse_string!("[#{inspect(layer2)}]")},
-        updater: fn zipper ->
-          with {:ok, zipper} <- drop_replaced(zipper, replaces, new) do
-            Igniter.Code.List.append_new_to_list(zipper, new)
-          end
-        end
-      )
-    end
-
-    # The moved integration's old Layer 2 takes the new one's place in
-    # the list — or is just removed when the new one is already listed.
-    # Not listed: the new one is appended.
-    defp drop_replaced(zipper, nil, _new), do: {:ok, zipper}
-
-    defp drop_replaced(zipper, replaces, new) do
-      old? = &Igniter.Code.Common.nodes_equal?(&1, Sourceror.parse_string!(inspect(replaces)))
-      new? = &Igniter.Code.Common.nodes_equal?(&1, new)
-
-      if Igniter.Code.List.find_list_item_index(zipper, new?),
-        do: Igniter.Code.List.remove_from_list(zipper, old?),
-        else: Igniter.Code.List.replace_in_list(zipper, old?, new)
-    end
-
     defp alternates_marker(layer1), do: "# Hearth: alternate base URLs for #{inspect(layer1)}"
 
     # Undoes `wire/2` for an integration `regen --module --remove-old`
     # moved away: every `config` entry keyed by its Layer 1 or Layer 2
     # module, the commented alternates, and its `defmock`. A
-    # `config_env()` block left empty goes too. `:hearth_domains` was
-    # already swapped by `wire/2` (`:replaces`).
+    # `config_env()` block left empty goes too.
     @spec unwire(Igniter.t(), atom(), map()) :: Igniter.t()
     def unwire(igniter, otp_app, names) do
       modules = [names.layer1, names.layer2]
@@ -377,7 +339,6 @@ if Code.ensure_loaded?(Igniter) do
         "test/support/mocks.ex",
         "mix.exs (test/support in elixirc_paths)",
         "test/test_helper.exs (:external exclude)",
-        "config/config.exs (:hearth_domains)",
         "config/test.exs (impl, base_url)"
       ]
 

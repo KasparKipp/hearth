@@ -9,6 +9,7 @@ defmodule Hearth.MixProject do
       version: @version,
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
       package: package(),
       docs: docs(),
@@ -24,6 +25,10 @@ defmodule Hearth.MixProject do
       preferred_envs: [precommit: :test]
     ]
   end
+
+  # `test/support` holds shared test helpers (`Hearth.TaskCase`).
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   # Run "mix help compile.app" to learn about applications.
   def application do

@@ -54,7 +54,7 @@ defmodule Hearth.Gen.Messages do
   def install_prompt do
     """
     hearth.gen needs `mix hearth.install` to set up your project's
-    formatter import and :hearth_domains config. Run install now?
+    formatter import. Run install now?
     """
   end
 

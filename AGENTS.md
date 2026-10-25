@@ -110,27 +110,9 @@ with it) is wrapped in the same `if Code.ensure_loaded?(Igniter)` guard —
 
 | Task                 | Purpose                                                                     |
 | -------------------- | --------------------------------------------------------------------------- |
-| `mix hearth.install` | One-time per-project setup (formatter import, `:hearth_domains` config).    |
+| `mix hearth.install` | One-time per-project setup (formatter import).                              |
 | `mix hearth.gen`     | Generate the three-layer integration from an OpenAPI spec. Create-only.     |
 | `mix hearth.regen`   | Regenerate integrations from their pruned specs, ownership-aware.           |
-
-### `:hearth_domains` config
-
-Hearth tracks managed integrations in application config — the same shape as
-`:ash_domains`. `hearth.install` sets it to `[]`; each `gen` appends the
-integration's **Layer 2** module:
-
-```elixir
-config :my_app, :hearth_domains, [
-  MyApp.Billing.Stripe.StripeApi,
-  MyApp.Notifications.SendGrid.SendGridApi
-]
-```
-
-Set the value to `false` to opt out of tracking (`gen` leaves a non-list
-untouched). `mix hearth.regen --all` does not read it — it walks
-`priv/hearth/`, where each pruned spec names its own Layer 1 module. Open
-question: does the list still earn its keep?
 
 ---
 
@@ -195,6 +177,11 @@ end
 | _(none)_               | Overwrite silently. Default.                              |
 | `hearth:owned`         | Skip entirely: `* skipping <path> (hearth:owned)`.        |
 | `hearth:collaborating` | Prompt `y/N` per file (`--yes` / test mode accept).       |
+
+Only `@moduledoc` text is scanned (`Ownership.classify/1` parses the file), so
+a token copied into a Layer 2 `@doc` from a spec description, or mentioned in a
+comment, doesn't count. A file that doesn't parse falls back to a whole-file
+scan, erring toward owned.
 
 The external test is a user-owned **scaffold**: created once, never
 overwritten. A file whose token can't be read is skipped, never overwritten
@@ -267,37 +254,41 @@ all live there and rarely round-trip back into the spec.
 - [ ] **Multipart uploads, streaming, server-sent events.** Each is a template
       special-case. Done when a real integration needs them.
 - [ ] **Generated reusable request steps — `<App>.Hearth.Steps`.** A module
-      generated into the consumer's project to hold hand-portable Req request
-      steps that Layer 1's `new/1` wires in via `Req.Request.append_request_steps/2`.
+      generated once into the consumer's project (`hearth:owned`, never
+      regenerated) to hold user-editable Req request steps that every
+      Layer 1's `new/1` appends.
 
-      The motivating case: when every GET operation in the spec follows REST
-      and declares no `requestBody`, Hearth can safely generate a step that
-      promotes a GET *carrying* a binary body to a POST — for APIs
-      (Elasticsearch-style search) that accept a query body only over POST.
-      Because the spec proves no GET legitimately has a body, a body present
-      at runtime is unambiguously the "too big for the query string" case.
+      The problem it solves: custom steps written into Layer 1 are lost on
+      the next `regen` unless the user marks the whole file `hearth:owned`,
+      which also freezes the generated parts (base URL, auth). A separate,
+      seeded module keeps the user's steps out of regenerated code. Layer 1
+      already appends a generated step the same way (`put_api_key/1`), so
+      the hook pattern is in place.
 
       ```elixir
-      # Layer 1 — generated new/1 gains the step
+      # Layer 1 — generated new/1 gains the shared steps
       def new(opts \\ []) do
-        Req.new(base_url: @base_url, auth: {:bearer, credential(opts)})
-        |> Req.Request.append_request_steps(
-          post_binary_body: &MyApp.Hearth.Steps.post_binary_body/1
-        )
+        Req.new(base_url: base_url())
+        |> Req.Request.register_options([:api_key])
+        |> Req.Request.append_request_steps(put_api_key: &put_api_key/1)
+        |> MyApp.Hearth.Steps.attach()
         |> Req.merge(opts)
       end
 
       # MyApp.Hearth.Steps — generated once, hearth:owned, user-editable
-      def post_binary_body(req) do
-        with %{method: :get, body: <<_::binary>>} <- req do
-          %{req | method: :post}
-        end
+      def attach(request) do
+        request
+        |> Req.Request.append_request_steps(user_agent: &put_user_agent/1)
+      end
+
+      defp put_user_agent(request) do
+        Req.Request.put_header(request, "user-agent", "my_app/1.0")
       end
       ```
 
-      `<App>.Hearth.Steps` is the home for any future reusable, user-editable
-      step (retry policy, custom headers, pagination cursors): Hearth seeds
-      it, the user evolves it.
+      Candidates to seed it with: retry policy, custom headers, logging and
+      telemetry, pagination cursors. (Not "promote a GET with a body to a
+      POST" — Req 0.7 does that itself.)
 - [ ] **Prefixed-ID URL shorthand.** Many APIs use type-prefixed resource IDs
       (Stripe: `cus_…` customers, `sub_…` subscriptions, `pi_…` payment
       intents). When a spec's IDs carry such prefixes, Hearth could generate a
@@ -396,11 +387,14 @@ lib/
       patches.ex               # deps, mock, test_helper, config (Igniter-guarded)
     regen/
       messages.ex              # regen's user-facing text
+      move.ex                  # --module / --remove-old (Igniter-guarded)
     fs/
       ownership.ex             # hearth:owned / hearth:collaborating
       content.ex               # read through Igniter's Rewrite (Igniter-guarded)
 test/
   hearth/…  mix/tasks/hearth/… # mirror lib/
+  mix/tasks/hearth/gen/        # gen's tests, one file per concern
+  support/hearth/task_case.ex  # Hearth.TaskCase — Igniter.Test + read-back helpers
   fixtures/specs/              # OAI petstore (3.0), tictactoe (3.1), keyed (API key in query)
   generated/<case>/…golden     # golden snapshots of everything gen writes
   golden_test.exs  usage_rules_test.exs
@@ -421,10 +415,10 @@ doubles as the syntax check.
 
 What exists, condensed. The blow-by-blow is in git history.
 
-- **`hearth.install`** — adds `:hearth` to `.formatter.exs` `import_deps`,
-  initializes `hearth_domains: []` (existing values, including `false`,
-  survive), and prints a notice with three branches: first install, repeat
-  with changes, repeat no-op.
+- **`hearth.install`** — adds `:hearth` to `.formatter.exs` `import_deps` and
+  prints an "installed" or "already installed" notice. It writes no config:
+  integrations are tracked by their pruned specs in `priv/hearth/` (the old
+  `:hearth_domains` list was dropped).
 - **`hearth.gen` pipeline** — `Source.resolve/1` classifies the argument;
   install is auto-composed (gated: silent if install would be a no-op,
   `--yes`/test mode accept, else prompt). For a file: sniff → existence via
@@ -479,7 +473,7 @@ What exists, condensed. The blow-by-blow is in git history.
   (a project that already sets `elixirc_paths` is left alone); `config/runtime.exs` credential (prod
   raises, dev falls back to `"DEV_NO_<INT>_API_KEY"`); `config/test.exs`
   `impl:` mock and a non-prod `base_url:`; extra servers as commented
-  alternates; `:hearth_domains` appended.
+  alternates.
 - **Pruned spec** — `Prune.prune/2` keeps the selected paths and the
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
   with conventional top-level key order, plus an `x-hearth` block
@@ -495,8 +489,9 @@ What exists, condensed. The blow-by-blow is in git history.
   name, module must end in it. It creates the new modules (halts if any
   exist; the old ones are untouched), rewrites only the `module:` value in the
   pruned spec (`Meta.replace_module/3`, re-encodes as a fallback), and wires
-  config via `Patches.wire/2` with `replaces:` — the old Layer 2 is swapped
-  for the new one in `:hearth_domains` (in place; appended if absent).
+  config via `Patches.wire/2`.
+  Lives in `Hearth.Regen.Move`; the task passes it a `render` callback and
+  the wiring context.
   `--remove-old` (requires a `--module` that differs from the current one)
   also `Igniter.rm`s the old untokened tracked files — scaffold, owned,
   collaborating and unreadable files are kept and listed — and
@@ -513,7 +508,7 @@ Learned the hard way; every change must keep them:
 - **Every commit produces visibly different behavior for distinct user
   inputs.** Skeletons that no-op identically on every input are misleading.
 - **Consumer-facing text never references internal docs or step numbers.**
-  Enforced in `gen_test.exs` "consumer-facing docs".
+  Enforced in `gen/install_and_docs_test.exs` "consumer-facing docs".
 - **`long_doc` and `usage-rules.md` only advertise what works today.**
   Lock-in tests refute stale wording and copy-paste traps.
 - **Tasks that need install state open with the gated compose pattern**
@@ -554,9 +549,6 @@ Learned the hard way; every change must keep them:
 - **Steps 4d–4f** — `Hearth.Spec.Cache`, `Hearth.Spec.Fetcher` (Req + cache;
   bundles `latest` resolution — TODO on the `latest` entry in
   `lib/hearth/registry.ex`), end-to-end URL/registry codegen.
-- **Open review items:**
-  - `Ownership.classify/1` scans the whole file, not just the `@moduledoc`;
-  - `gen_test.exs` (~1500 lines) wants splitting by concern.
 
 ---
 

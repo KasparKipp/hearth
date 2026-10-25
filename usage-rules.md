@@ -17,8 +17,8 @@ Or manually — add to `mix.exs`:
     {:hearth, "~> 0.0", only: [:dev, :test], runtime: false},
     {:igniter, "~> 0.5", only: [:dev, :test]}
 
-then run `mix deps.get` and `mix hearth.install` (formatter import +
-`:hearth_domains` config). Hearth's tasks run on Igniter, which Hearth
+then run `mix deps.get` and `mix hearth.install` (formatter import).
+Hearth's tasks run on Igniter, which Hearth
 declares as an optional dependency — without `igniter` in your deps the
 tasks only print an install hint.
 
@@ -88,8 +88,7 @@ To move one integration into a new namespace:
 
 The module must end in the integration name. `--module` creates the
 new modules (halting if any exist), points `x-hearth.module` at them,
-wires their mock and config, and swaps the old Layer 2 for the new one
-in `:hearth_domains`. The old modules and their other config stay
+and wires their mock and config. The old modules and their config stay
 untouched — delete them once callers use the new module.
 
 Add `--remove-old` to remove the old module in the same run — its
@@ -123,6 +122,10 @@ Hand-edited a generated file? Mark it in the moduledoc:
 * `hearth:collaborating` — `regen` prompts y/N before overwriting.
 * _(no token)_ — `regen` overwrites silently. The default for
   freshly-generated files.
+
+Only the `@moduledoc` counts — a token in a comment, a `@doc` or a
+string is ignored. The generated auth test starts with
+`@moduledoc false`; replace it with a string to mark that file.
 
 `:owned` is the common case for Layer 1 (custom auth flows, request
 steps, retry policies).
@@ -180,12 +183,6 @@ The generated external test is `:external`-tagged and excluded by
 default. Run live calls with:
 
     mix test --include external
-
-## Tracked integrations — `:hearth_domains`
-
-`hearth.install` initializes `config :<app>, hearth_domains: []`.
-Each `gen` appends the new Layer 2 module. Set the value to `false`
-to opt out of tracking.
 
 ## Common pitfalls
 

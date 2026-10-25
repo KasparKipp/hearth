@@ -93,8 +93,8 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
       * Coming soon — on-disk cache and HTTP fetcher (for URL /
         registry sources).
 
-    If your project is not yet set up (no `:hearth` in `.formatter.exs`
-    or no `:hearth_domains` in `config/config.exs`), `hearth.gen` will
+    If your project is not yet set up (no `:hearth` in `.formatter.exs`),
+    `hearth.gen` will
     prompt to run `mix hearth.install` first. Pass `--yes` to skip the
     prompt. On an already-installed project the install step is silently
     skipped — no extra noise.
