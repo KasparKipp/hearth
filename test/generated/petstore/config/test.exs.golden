@@ -1,0 +1,6 @@
+import Config
+
+config :test, Test.Integrations.Petstore, base_url: "http://petstore.swagger.io/v1"
+
+config :test, Test.Integrations.Petstore.PetstoreApi,
+  impl: Test.Integrations.Petstore.PetstoreApi.Mock

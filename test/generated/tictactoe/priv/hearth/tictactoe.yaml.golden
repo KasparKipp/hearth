@@ -1,0 +1,232 @@
+---
+openapi: 3.1.0
+info:
+  description: |
+    This API allows writing down marks on a Tic Tac Toe board
+    and requesting the state of the board or of individual squares.
+  title: Tic Tac Toe
+  version: 1.0.0
+tags:
+  - name: Gameplay
+paths:
+  /board:
+    get:
+      description: Retrieves the current state of the board and the winner.
+      operationId: get-board
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/status'
+          description: OK
+      security:
+        - defaultApiKey: []
+        - app2AppOauth:
+            - board:read
+      summary: Get the whole board
+      tags:
+        - Gameplay
+  /board/{row}/{column}:
+    get:
+      description: Retrieves the requested square.
+      operationId: get-square
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/mark'
+          description: OK
+          links:
+            markSquare:
+              description: Operation to use if the mark value returned indicates the square is empty
+              operationId: put-square
+              parameters:
+                column: $request.path.column
+                row: $request.path.row
+        '400':
+          content:
+            text/html:
+              example: Illegal coordinates
+              schema:
+                $ref: '#/components/schemas/errorMessage'
+          description: The provided parameters are incorrect
+      security:
+        - bearerHttpAuthentication: []
+        - user2AppOauth:
+            - board:read
+      summary: Get a single board square
+      tags:
+        - Gameplay
+    parameters:
+      - $ref: '#/components/parameters/rowParam'
+      - $ref: '#/components/parameters/columnParam'
+    put:
+      callbacks:
+        statusCallback:
+          '{$request.header.progressUrl}':
+            post:
+              description: Provides the status of the mark operation
+              operationId: markOperationCallback
+              requestBody:
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/status'
+              responses:
+                '200':
+                  description: Mark operation status received
+              summary: Status of mark operation
+      description: Places a mark on the board and retrieves the whole board and the winner (if any).
+      operationId: put-square
+      parameters:
+        - description: Progress URL that should be called if asynchronous response is returned
+          in: header
+          name: progressUrl
+          required: false
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/mark'
+        required: true
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/status'
+          description: OK
+        '202':
+          description: Mark operation has not completed. Use callback to check for progress
+          headers:
+            Location:
+              description: Callback URL
+              schema:
+                type: string
+        '400':
+          content:
+            text/html:
+              examples:
+                illegalCoordinates:
+                  value: Illegal coordinates.
+                invalidMark:
+                  value: Invalid Mark (X or O).
+                notEmpty:
+                  value: Square is not empty.
+              schema:
+                $ref: '#/components/schemas/errorMessage'
+          description: The provided parameters are incorrect
+      security:
+        - bearerHttpAuthentication: []
+        - user2AppOauth:
+            - board:write
+      summary: Set a single board square
+      tags:
+        - Gameplay
+webhooks:
+  markStatus:
+    post:
+      description: Provides the status of the mark operation on completion
+      operationId: markOperationWebhook
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/status'
+          description: Mark operation has completed successfully
+      summary: Status of mark operation
+components:
+  parameters:
+    columnParam:
+      description: Board column (horizontal coordinate)
+      in: path
+      name: column
+      required: true
+      schema:
+        $ref: '#/components/schemas/coordinate'
+    rowParam:
+      description: Board row (vertical coordinate)
+      in: path
+      name: row
+      required: true
+      schema:
+        $ref: '#/components/schemas/coordinate'
+  schemas:
+    board:
+      items:
+        items:
+          $ref: '#/components/schemas/mark'
+        maxItems: 3
+        minItems: 3
+        type: array
+      maxItems: 3
+      minItems: 3
+      type: array
+    coordinate:
+      example: 1
+      maximum: 3
+      minimum: 1
+      type: integer
+    errorMessage:
+      description: A text message describing an error
+      maxLength: 256
+      type: string
+    mark:
+      description: Possible values for a board square. `.` means empty square.
+      enum:
+        - .
+        - X
+        - O
+      example: .
+      type: string
+    status:
+      properties:
+        board:
+          $ref: '#/components/schemas/board'
+        winner:
+          $ref: '#/components/schemas/winner'
+      type: object
+    winner:
+      description: Winner of the game. `.` means nobody has won yet.
+      enum:
+        - .
+        - X
+        - O
+      example: .
+      type: string
+  securitySchemes:
+    app2AppOauth:
+      flows:
+        clientCredentials:
+          scopes:
+            board:read: Read the board
+          tokenUrl: https://learn.openapis.org/oauth/2.0/token
+      type: oauth2
+    basicHttpAuthentication:
+      description: Basic HTTP Authentication
+      scheme: Basic
+      type: http
+    bearerHttpAuthentication:
+      bearerFormat: JWT
+      description: Bearer token using a JWT
+      scheme: Bearer
+      type: http
+    defaultApiKey:
+      description: API key provided in console
+      in: header
+      name: api-key
+      type: apiKey
+    user2AppOauth:
+      flows:
+        authorizationCode:
+          authorizationUrl: https://learn.openapis.org/oauth/2.0/auth
+          scopes:
+            board:read: Read the board
+            board:write: Write to the board
+          tokenUrl: https://learn.openapis.org/oauth/2.0/token
+      type: oauth2

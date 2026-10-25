@@ -1,0 +1,29 @@
+defmodule Test.Integrations.TictactoeExternalTest do
+  @moduledoc false
+
+  # Generated once by Hearth — a scaffold for real HTTP calls
+  # against the live API. Hearth never overwrites this file; edit
+  # it freely. Tagged `:external` and skipped by `mix test` — run
+  # it with `mix test --include external`.
+
+  use ExUnit.Case, async: true
+
+  @moduletag :external
+
+  alias Test.Integrations.Tictactoe.TictactoeApi
+
+  # TODO: replace the placeholder args/opts and assert on your use-case.
+  test "get_board reaches the live API" do
+    assert {:ok, %Req.Response{}} = TictactoeApi.Req.get_board([])
+  end
+
+  # TODO: replace the placeholder args/opts and assert on your use-case.
+  test "get_square reaches the live API" do
+    assert {:ok, %Req.Response{}} = TictactoeApi.Req.get_square([])
+  end
+
+  # TODO: replace the placeholder args/opts and assert on your use-case.
+  test "put_square reaches the live API" do
+    assert {:ok, %Req.Response{}} = TictactoeApi.Req.put_square([])
+  end
+end

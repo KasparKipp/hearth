@@ -1,0 +1,29 @@
+defmodule Test.Integrations.PetstoreExternalTest do
+  @moduledoc false
+
+  # Generated once by Hearth — a scaffold for real HTTP calls
+  # against the live API. Hearth never overwrites this file; edit
+  # it freely. Tagged `:external` and skipped by `mix test` — run
+  # it with `mix test --include external`.
+
+  use ExUnit.Case, async: true
+
+  @moduletag :external
+
+  alias Test.Integrations.Petstore.PetstoreApi
+
+  # TODO: replace the placeholder args/opts and assert on your use-case.
+  test "list_pets reaches the live API" do
+    assert {:ok, %Req.Response{}} = PetstoreApi.Req.list_pets([])
+  end
+
+  # TODO: replace the placeholder args/opts and assert on your use-case.
+  test "create_pets reaches the live API" do
+    assert {:ok, %Req.Response{}} = PetstoreApi.Req.create_pets([])
+  end
+
+  # TODO: replace the placeholder args/opts and assert on your use-case.
+  test "show_pet_by_id reaches the live API" do
+    assert {:ok, %Req.Response{}} = PetstoreApi.Req.show_pet_by_id("TODO", [])
+  end
+end

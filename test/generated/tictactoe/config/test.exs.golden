@@ -1,0 +1,6 @@
+import Config
+
+config :test, Test.Integrations.Tictactoe, base_url: "https://api.example.com"
+
+config :test, Test.Integrations.Tictactoe.TictactoeApi,
+  impl: Test.Integrations.Tictactoe.TictactoeApi.Mock
