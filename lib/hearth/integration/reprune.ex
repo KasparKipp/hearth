@@ -17,6 +17,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Integration.Load
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
+    alias Hearth.Spec.Overrides
     alias Hearth.Spec.Prune
     alias Hearth.Spec.Selection
 
@@ -27,11 +28,17 @@ if Code.ensure_loaded?(Igniter) do
             rule: Selection.rule(),
             selected: [Operation.t()],
             yaml: String.t(),
-            pruned: map()
+            pruned: map(),
+            stale_overrides: [Overrides.stale()]
           }
 
     @type reason ::
-            :no_tags | {:bad_tags, String.t()} | :no_source | :empty_selection | Load.reason()
+            :no_tags
+            | {:bad_tags, String.t()}
+            | {:bad_overrides, String.t()}
+            | :no_source
+            | :empty_selection
+            | Load.reason()
 
     # Options: `:source` — another source to re-prune instead of the
     # entry's; `:current` — the pruned spec, so upstream renames are
@@ -44,11 +51,13 @@ if Code.ensure_loaded?(Igniter) do
 
       with {:ok, rule} <- rule(entry),
            {:ok, source} <- present(source),
+           {:ok, overrides} <- overrides(entry),
            {:ok, igniter, loaded} <- Load.load(igniter, source, opts[:registry] || %{}),
-           operations = Operation.extract(loaded.spec),
+           {spec, stale} = Overrides.apply(loaded.spec, overrides),
+           operations = Operation.extract(spec),
            rule = carry_renames(rule, opts[:current], operations),
            [_ | _] = selected <- Selection.select(operations, rule) do
-        yaml = loaded.spec |> Prune.prune(selected) |> Prune.to_yaml()
+        yaml = spec |> Prune.prune(selected) |> Prune.to_yaml()
         {:ok, pruned} = Loader.decode(yaml, :yaml)
 
         {:ok, igniter,
@@ -59,7 +68,8 @@ if Code.ensure_loaded?(Igniter) do
            rule: rule,
            selected: selected,
            yaml: yaml,
-           pruned: pruned
+           pruned: pruned,
+           stale_overrides: stale
          }}
       else
         [] -> {:error, source, :empty_selection}
@@ -74,6 +84,13 @@ if Code.ensure_loaded?(Igniter) do
 
     defp carry_renames(rule, current, operations),
       do: Selection.carry_renames(rule, Operation.extract(current), operations)
+
+    defp overrides(entry) do
+      case Overrides.parse(entry) do
+        {:ok, overrides} -> {:ok, overrides}
+        {:error, detail} -> {:error, {:bad_overrides, detail}}
+      end
+    end
 
     defp rule(entry) do
       case Selection.rule(entry) do

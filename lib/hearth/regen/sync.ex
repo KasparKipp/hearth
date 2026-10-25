@@ -53,12 +53,23 @@ if Code.ensure_loaded?(Igniter) do
             |> Project.put_fields(key, fields ++ [source_sha256: result.sha256])
             |> Igniter.add_notice(Messages.synced_notice(key, result.source, spec_path, drift))
 
+          igniter = note_stale_overrides(igniter, key, result)
+
           {:ok, igniter, result.pruned,
            %{added: Enum.map(added, &key/1), removed: removed, renamed: renamed}}
 
         {:error, source, reason} ->
           {:halt, IntegrationMessages.reprune_message(:regen, key, source, reason, registry)}
       end
+    end
+
+    defp note_stale_overrides(igniter, _key, %{stale_overrides: []}), do: igniter
+
+    defp note_stale_overrides(igniter, key, result) do
+      notice =
+        IntegrationMessages.stale_overrides_notice(key, result.source, result.stale_overrides)
+
+      Igniter.add_notice(igniter, notice)
     end
 
     @spec extend_external_test(Igniter.t(), map(), map(), changes() | nil) :: Igniter.t()

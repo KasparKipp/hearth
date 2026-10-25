@@ -47,6 +47,12 @@ defmodule Hearth.UsageRulesTest do
     refute @content =~ "edit `priv/hearth/<int>.yaml` and"
   end
 
+  test "documents tag overrides" do
+    assert @content =~ "## Overrides"
+    assert @content =~ ~s|Subscriptions: ["/v1/subscriptions*"]|
+    assert @content =~ "matches nothing"
+  end
+
   test "documents hearth.diff for CI" do
     assert @content =~ "mix hearth.diff stripe"
     assert @content =~ "--fail-on breaking"

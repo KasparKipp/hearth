@@ -148,9 +148,12 @@ if Code.ensure_loaded?(Igniter) do
             result.source == Config.source(entry)
           )
 
-        if fails?(changes, fail_on),
-          do: Igniter.add_issue(igniter, report),
-          else: Igniter.add_notice(igniter, report)
+        igniter =
+          if fails?(changes, fail_on),
+            do: Igniter.add_issue(igniter, report),
+            else: Igniter.add_notice(igniter, report)
+
+        note_stale_overrides(igniter, key, result)
       else
         {:halt, message} -> Igniter.add_issue(igniter, message)
       end
@@ -190,6 +193,15 @@ if Code.ensure_loaded?(Igniter) do
              igniter.assigns[:hearth_registry]
            )}
       end
+    end
+
+    defp note_stale_overrides(igniter, _key, %{stale_overrides: []}), do: igniter
+
+    defp note_stale_overrides(igniter, key, result) do
+      notice =
+        IntegrationMessages.stale_overrides_notice(key, result.source, result.stale_overrides)
+
+      Igniter.add_notice(igniter, notice)
     end
 
     defp source_state(entry, sha256) do
