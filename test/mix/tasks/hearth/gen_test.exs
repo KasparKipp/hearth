@@ -20,6 +20,40 @@ defmodule Mix.Tasks.Hearth.GenTest do
     Rewrite.Source.get(source, :content)
   end
 
+  # A consumer `mix.exs` with the given deps, Phoenix-style
+  # `elixirc_paths` unless `elixirc_paths?: false`.
+  defp mix_exs(opts) do
+    {paths, clauses} =
+      if Keyword.get(opts, :elixirc_paths?, true) do
+        {"\n      elixirc_paths: elixirc_paths(Mix.env()),",
+         """
+
+           defp elixirc_paths(:test), do: ["lib", "test/support"]
+           defp elixirc_paths(_), do: ["lib"]
+         """}
+      else
+        {"", ""}
+      end
+
+    """
+    defmodule Test.MixProject do
+      use Mix.Project
+
+      def project do
+        [
+          app: :test,
+          version: "0.1.0",#{paths}
+          deps: deps()
+        ]
+      end
+    #{clauses}
+      defp deps do
+        [#{Keyword.fetch!(opts, :deps)}]
+      end
+    end
+    """
+  end
+
   # A JSON spec with `count` GET operations, all under one "Things" tag,
   # for exercising the operation-count gate.
   defp big_spec_json(count) do
@@ -549,6 +583,52 @@ defmodule Mix.Tasks.Hearth.GenTest do
         |> gen("priv/specs/petstore.yaml", "Petstore")
 
       assert {"deps.get", []} in igniter.tasks
+    end
+
+    # A `mix new` project doesn't compile test/support — without this
+    # the generated Mox mock never exists in the test env.
+    test "adds test/support to elixirc_paths(:test) in a plain project" do
+      igniter =
+        test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+        |> gen("priv/specs/petstore.yaml", "Petstore")
+
+      mix_exs = created_file(igniter, "mix.exs")
+      assert mix_exs =~ "elixirc_paths: elixirc_paths(Mix.env())"
+
+      assert mix_exs =~
+               ~r/defp elixirc_paths\(:test\),\s+do: elixirc_paths\(:dev\) \+\+ \["test\/support"\]/
+
+      assert mix_exs =~ ~r/defp elixirc_paths\(_\),\s+do: \["lib"\]/
+      assert notice_text(igniter) =~ "mix.exs (test/support in elixirc_paths)"
+    end
+
+    test "leaves an existing elixirc_paths alone (e.g. a Phoenix app)" do
+      test_project(
+        files: %{
+          "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
+          "mix.exs" => mix_exs(deps: ~s|{:req, "~> 0.5"}, {:mox, "~> 1.0", only: [:test]}|)
+        }
+      )
+      |> gen("priv/specs/petstore.yaml", "Petstore")
+      |> assert_unchanged("mix.exs")
+    end
+
+    test "doesn't queue `mix deps.get` when only elixirc_paths changed" do
+      igniter =
+        test_project(
+          files: %{
+            "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
+            "mix.exs" =>
+              mix_exs(
+                deps: ~s|{:req, "~> 0.5"}, {:mox, "~> 1.0", only: [:test]}|,
+                elixirc_paths?: false
+              )
+          }
+        )
+        |> gen("priv/specs/petstore.yaml", "Petstore")
+
+      assert created_file(igniter, "mix.exs") =~ "elixirc_paths"
+      refute {"deps.get", []} in igniter.tasks
     end
 
     test "a second integration appends without clobbering the first" do

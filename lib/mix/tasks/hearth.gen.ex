@@ -459,6 +459,7 @@ if Code.ensure_loaded?(Igniter) do
 
       igniter
       |> Patches.add_deps()
+      |> Patches.fetch_deps_if_changed()
       |> write_files(files)
       # Re-derived each run — `on_exists: :overwrite`.
       |> Igniter.create_new_file(pruned_spec_path, pruned_spec_yaml, on_exists: :overwrite)
@@ -479,7 +480,6 @@ if Code.ensure_loaded?(Igniter) do
           Patches.wired_files(auth) ++ ["#{pruned_spec_path} (pruned spec)"]
         )
       )
-      |> Patches.fetch_deps_if_changed()
     end
 
     # Tracked files are Hearth-owned (`:overwrite`); the scaffold — the
