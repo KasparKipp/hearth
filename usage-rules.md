@@ -92,7 +92,8 @@ files already exist. **Do not re-run `gen` to update an
 integration** — use `mix hearth.regen` instead. To start over,
 delete the generated files `gen` listed (the halt message names the
 ones still present) and `priv/hearth/<int>.yaml`, then re-run `gen`.
-`gen` replaces the integration's `.hearth.exs` entry.
+`gen` replaces the integration's `.hearth.exs` entry, keeping its
+`overrides:`.
 
 ## Update integrations with `regen`
 
@@ -178,9 +179,41 @@ keyed by its snake_case name:
 * `tags` — every tag in the source spec and what `gen` selected from
   it: `:all`, `:none`, or `include:` / `exclude:` lists of
   operationIds. Operations without a tag go under `untagged:`.
+* `overrides` — your corrections to the source spec; see below.
 
 Commit it alongside `priv/hearth/`. The pruned spec itself is plain
 OpenAPI.
+
+## Overrides
+
+An entry's `overrides:` corrects the source spec as published. Hearth
+applies it to the source before selecting, pruning or comparing, so
+the pruned spec, `tags:` and `diff` all see the corrected spec. Write
+it against the source's own paths and operationIds.
+
+    stripe: [
+      source: "stripe@2026-04-22.dahlia",
+      overrides: [
+        tags: [
+          Customers: ["get /v1/customers", "post /v1/customers", "GetCustomersCustomer"],
+          Subscriptions: ["/v1/subscriptions*"]
+        ]
+      ],
+      ...
+    ]
+
+* `tags` — adds a tag to every operation an entry matches: a path glob
+  (`/v1/subscriptions*` — `*` matches anything, `/` included), a method
+  and a glob (`get /v1/customers`), or an operationId. Upstream tags
+  stay. Use it when a spec has no tags (Stripe's has none), or tags
+  that don't fit how you want to select.
+
+For a first `gen`, write the entry with just `overrides:` (and
+`source:` if you like) before running it — `gen` applies the
+overrides, keeps them, and fills in the rest. Later, edit them and run
+`mix hearth.regen <int> --sync`; `diff` shows the effect first. An
+override that matches nothing is reported, so a typo or an upstream
+rename doesn't go unnoticed. More override kinds will follow.
 
 ## Check for drift with `diff`
 

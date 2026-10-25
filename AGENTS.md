@@ -382,6 +382,7 @@ lib/
       base_path.ex             # shared path prefix (stops at templated segments)
       prune.ex                 # spec → pruned spec + YAML encoding
       selection.ex             # the tags / operations gen selected, for .hearth.exs
+      overrides.ex             # an entry's overrides: applied to the source spec
       drift.ex                 # pruned spec vs re-pruned source → changes
       drift/schema.ex          # JSON schema shape changes (additive / breaking)
     render/                    # pure: data → source strings
@@ -501,7 +502,7 @@ What exists, condensed. The blow-by-blow is in git history.
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
   with conventional top-level key order. Plain OpenAPI — no Hearth block.
 - **`.hearth.exs`** — `[integrations: [<snake_name>: [module:, source:,
-  source_sha256:, base_path:, tags:]]]`, evaluated like `.formatter.exs`
+  source_sha256:, overrides:, base_path:, tags:]]]`, evaluated like `.formatter.exs`
   (`Hearth.Config.parse/1`). `source_sha256` is the source's checksum at
   the last gen / `--sync` (`Reprune.sha256/1`).
   `tags:` (`Hearth.Spec.Selection.describe/2`) lists every tag in the source
@@ -543,6 +544,14 @@ What exists, condensed. The blow-by-blow is in git history.
   `Patches.unwire/3` cuts its config entries, alternates and `defmock`
   by Sourceror range from the text (AST removal crashes Sourceror on its
   trailing-comment blocks and drops comments).
+- **Overrides** — an entry's `overrides:` (`Spec.Overrides`) corrects the
+  source spec before selection: `parse/1` validates it (unknown kinds are an
+  error naming the supported ones), `apply/2` rewrites the decoded source and
+  returns stale entries. Only `tags:` today — path globs (`*` crosses `/`),
+  `method /glob`, or operationIds; adds to upstream tags. Applied by gen (from
+  an entry written before gen, which gen keeps), and by `Integration.Reprune`
+  for `--sync` and diff, so the pruned spec carries the result and plain regen
+  needs nothing. Stale entries become a notice in gen, `--sync` and diff.
 - **`hearth.diff`** — same names / `--all` as regen (`Integration.Names`).
   Per integration: reads the pruned spec, re-prunes `source:` (or
   `--source`, one integration only) with `tags:` via

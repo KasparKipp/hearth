@@ -68,6 +68,31 @@ defmodule Hearth.Integration.Messages do
     """
   end
 
+  def bad_overrides_message(task, key, detail) do
+    """
+    hearth.#{task}: the .hearth.exs entry for #{key} has malformed `overrides:`.
+
+    #{detail}
+    """
+  end
+
+  # Override entries that matched nothing in the source — usually a typo,
+  # or an upstream rename. Reported, never fatal.
+  def stale_overrides_notice(key, source, stale) do
+    lines =
+      Enum.map_join(stale, "\n", fn {kind, tag, entry} ->
+        "  * #{kind} #{tag}: #{inspect(entry)}"
+      end)
+
+    """
+    Overrides for #{key} that match nothing in #{source}:
+
+    #{lines}
+
+    Check them for typos, or for paths and operationIds renamed upstream.
+    """
+  end
+
   # Why `Hearth.Integration.Reprune` couldn't re-prune `key` from `source`.
   def reprune_message(task, key, source, reason, registry \\ %{})
 
@@ -82,6 +107,9 @@ defmodule Hearth.Integration.Messages do
 
   def reprune_message(task, key, _source, {:bad_tags, detail}, _registry),
     do: bad_tags_message(task, key, detail)
+
+  def reprune_message(task, key, _source, {:bad_overrides, detail}, _registry),
+    do: bad_overrides_message(task, key, detail)
 
   def reprune_message(task, key, _source, :no_source, _registry) do
     """
