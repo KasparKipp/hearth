@@ -876,6 +876,43 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert layer3 =~ "Srv.request(\"/notices\", opts)"
       assert layer3 =~ "Srv.request(\"/notices/search\", opts)"
     end
+
+    @templated_prefix_spec JSON.encode!(%{
+                             "openapi" => "3.0.0",
+                             "info" => %{"title" => "Accounts", "version" => "1.0"},
+                             "servers" => [%{"url" => "https://api.example.com"}],
+                             "paths" => %{
+                               "/v1/accounts/{account_id}/charges" => %{
+                                 "get" => %{
+                                   "operationId" => "listCharges",
+                                   "parameters" => [%{"name" => "account_id", "in" => "path"}]
+                                 }
+                               },
+                               "/v1/accounts/{account_id}/payouts" => %{
+                                 "get" => %{
+                                   "operationId" => "listPayouts",
+                                   "parameters" => [%{"name" => "account_id", "in" => "path"}]
+                                 }
+                               }
+                             }
+                           })
+
+    test "a shared path param stays in the operation path, not the base URL" do
+      igniter =
+        test_project(files: %{"priv/specs/accounts.json" => @templated_prefix_spec})
+        |> Igniter.compose_task("hearth.gen", [
+          "priv/specs/accounts.json",
+          "--integration",
+          "Accounts"
+        ])
+
+      layer1 = created_file(igniter, "lib/test/integrations/accounts.ex")
+      assert layer1 =~ ~s(@base_url "https://api.example.com/v1/accounts")
+
+      layer3 = created_file(igniter, "lib/test/integrations/accounts/accounts_api/req.ex")
+      assert layer3 =~ "def list_charges(account_id, opts \\\\ [])"
+      assert layer3 =~ "Accounts.request(\"/\#{account_id}/charges\", opts)"
+    end
   end
 
   describe "Layer 3 generation" do

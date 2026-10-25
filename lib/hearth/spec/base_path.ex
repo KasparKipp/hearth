@@ -9,7 +9,9 @@ defmodule Hearth.Spec.BasePath do
   # than `request("/api/v1/customers", …)`.
   #
   # The prefix never consumes a whole operation path — every stripped
-  # path keeps at least one segment.
+  # path keeps at least one segment. It also stops before the first
+  # templated segment (`{id}`, `{file}.json`): a path param folded into
+  # the base URL would be sent literally and its function arg lost.
 
   alias Hearth.Spec.Operation
 
@@ -17,7 +19,8 @@ defmodule Hearth.Spec.BasePath do
   The common leading path prefix of `operations`, e.g. `"/api/v1"`.
 
   Returns `""` when the operations share no leading segment, when the
-  shortest path is a single segment, or when the list is empty.
+  shortest path is a single segment, when the first shared segment is
+  templated, or when the list is empty.
   """
   @spec common_prefix([Operation.t()]) :: String.t()
   def common_prefix([]), do: ""
@@ -59,9 +62,11 @@ defmodule Hearth.Spec.BasePath do
   defp common_leading(a, b) do
     a
     |> Enum.zip(b)
-    |> Enum.take_while(fn {x, y} -> x == y end)
+    |> Enum.take_while(fn {x, y} -> x == y and not templated?(x) end)
     |> Enum.map(&elem(&1, 0))
   end
+
+  defp templated?(segment), do: String.contains?(segment, "{")
 
   defp segments(path), do: String.split(path, "/", trim: true)
 

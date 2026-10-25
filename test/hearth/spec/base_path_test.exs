@@ -34,6 +34,26 @@ defmodule Hearth.Spec.BasePathTest do
     test ~s(returns "" for an empty operation list) do
       assert BasePath.common_prefix([]) == ""
     end
+
+    test "stops before a templated segment — a path param never folds into the base URL" do
+      paths = [
+        "/v1/accounts/{account_id}/charges",
+        "/v1/accounts/{account_id}/payouts"
+      ]
+
+      assert BasePath.common_prefix(ops(paths)) == "/v1/accounts"
+    end
+
+    test ~s(returns "" when the first shared segment is templated) do
+      assert BasePath.common_prefix(ops(["/{tenant}/users", "/{tenant}/orders"])) == ""
+    end
+
+    test "treats a segment with an embedded template as templated" do
+      # `{file}.json` still carries a path param.
+      paths = ["/v1/files/{file}.json/meta", "/v1/files/{file}.json/data"]
+
+      assert BasePath.common_prefix(ops(paths)) == "/v1/files"
+    end
   end
 
   describe "strip/2" do
