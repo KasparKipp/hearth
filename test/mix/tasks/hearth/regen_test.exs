@@ -181,15 +181,6 @@ defmodule Mix.Tasks.Hearth.RegenTest do
       |> apply_igniter!()
     end
 
-    # The :hearth_domains list with whitespace stripped — the formatter
-    # may wrap it.
-    defp hearth_domains(igniter) do
-      [_, list] =
-        Regex.run(~r/hearth_domains:\s*(\[[^\]]*\])/, created_file(igniter, "config/config.exs"))
-
-      String.replace(list, ~r/\s+/, "")
-    end
-
     defp move_petstore(igniter),
       do: regen(igniter, ["petstore", "--module", "Test.Billing.Petstore"])
 
@@ -230,70 +221,6 @@ defmodule Mix.Tasks.Hearth.RegenTest do
       test_config = created_file(igniter, "config/test.exs")
       assert test_config =~ "impl: Test.Billing.Petstore.PetstoreApi.Mock"
       assert test_config =~ "impl: Test.Integrations.Petstore.PetstoreApi.Mock"
-    end
-
-    test "replaces the old Layer 2 in :hearth_domains, in place" do
-      config = """
-      import Config
-      config :test, hearth_domains: [Test.A.AApi, Test.Integrations.Petstore.PetstoreApi, Test.Z.ZApi]
-      """
-
-      igniter =
-        test_project(
-          files: %{"priv/hearth/petstore.yaml" => @petstore_pruned, "config/config.exs" => config}
-        )
-        |> move_petstore()
-
-      assert hearth_domains(igniter) ==
-               "[Test.A.AApi,Test.Billing.Petstore.PetstoreApi,Test.Z.ZApi]"
-    end
-
-    test "appends to :hearth_domains when the old Layer 2 isn't listed" do
-      config = """
-      import Config
-      config :test, hearth_domains: [Test.A.AApi]
-      """
-
-      igniter =
-        test_project(
-          files: %{"priv/hearth/petstore.yaml" => @petstore_pruned, "config/config.exs" => config}
-        )
-        |> move_petstore()
-
-      assert hearth_domains(igniter) == "[Test.A.AApi,Test.Billing.Petstore.PetstoreApi]"
-    end
-
-    test "leaves a false :hearth_domains opt-out alone" do
-      config = """
-      import Config
-      config :test, :hearth_domains, false
-      """
-
-      source =
-        test_project(
-          files: %{"priv/hearth/petstore.yaml" => @petstore_pruned, "config/config.exs" => config}
-        )
-        |> move_petstore()
-        |> created_file("config/config.exs")
-
-      assert source =~ "hearth_domains, false"
-      refute source =~ "PetstoreApi"
-    end
-
-    test "doesn't duplicate a new Layer 2 that is already listed" do
-      config = """
-      import Config
-      config :test,
-        hearth_domains: [Test.Integrations.Petstore.PetstoreApi, Test.Billing.Petstore.PetstoreApi]
-      """
-
-      igniter =
-        test_project(
-          files: %{"priv/hearth/petstore.yaml" => @petstore_pruned, "config/config.exs" => config}
-        )
-        |> move_petstore()
-
-      assert hearth_domains(igniter) == "[Test.Billing.Petstore.PetstoreApi]"
     end
 
     test "the notice says the old module was left in place" do

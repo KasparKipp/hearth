@@ -24,6 +24,7 @@ defmodule Hearth.UsageRulesTest do
   test "documents both ownership tokens" do
     assert @content =~ "hearth:owned"
     assert @content =~ "hearth:collaborating"
+    assert @content =~ "Only the `@moduledoc` counts"
   end
 
   test "names the pruned spec as the regen source of truth" do
@@ -73,13 +74,8 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ ~s({:igniter, "~> 0.5", only: [:dev, :test]})
   end
 
-  test "shows valid :hearth_domains config syntax" do
-    assert @content =~ "hearth_domains: []"
-    refute @content =~ "hearth_domains, []"
-  end
-
-  test "does not call :hearth_domains 'the registry' (that is the shortcut registry)" do
-    refute @content =~ "The registry — `:hearth_domains`"
+  test "does not mention :hearth_domains (dropped)" do
+    refute @content =~ "hearth_domains"
   end
 
   test "start-over instructions do not assume the default Integrations domain" do

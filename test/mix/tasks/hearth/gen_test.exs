@@ -468,7 +468,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
 
       notice = notice_text(igniter)
       assert notice =~ "wiring test/support/mocks.ex"
-      assert notice =~ "wiring config/config.exs"
+      refute notice =~ "hearth_domains"
       assert notice =~ "wiring config/test.exs"
     end
   end
@@ -669,7 +669,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
       assert source =~ "impl: Test.Integrations.Petstore.PetstoreApi.Mock"
     end
 
-    test "the Layer 2 module is appended to :hearth_domains" do
+    test "writes no :hearth_domains config" do
       igniter =
         test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
         |> Igniter.compose_task("hearth.gen", [
@@ -678,9 +678,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
           "Petstore"
         ])
 
-      source = created_file(igniter, "config/config.exs")
-      assert source =~ "hearth_domains"
-      assert source =~ "Test.Integrations.Petstore.PetstoreApi"
+      refute created_file(igniter, "config/config.exs") =~ "hearth_domains"
     end
 
     test "an API-key spec wires a runtime.exs credential for prod and dev" do
@@ -711,12 +709,12 @@ defmodule Mix.Tasks.Hearth.GenTest do
       refute Igniter.exists?(igniter, "config/runtime.exs")
     end
 
-    test "a :hearth_domains opt-out (false) is left untouched" do
+    test "leaves an existing :hearth_domains entry alone" do
       igniter =
         test_project(
           files: %{
             "priv/specs/petstore.yaml" => @petstore_3_0_yaml,
-            "config/config.exs" => "import Config\n\nconfig :test, :hearth_domains, false\n"
+            "config/config.exs" => "import Config\n\nconfig :test, hearth_domains: [Other.Api]\n"
           }
         )
         |> Igniter.compose_task("hearth.gen", [
@@ -726,7 +724,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
         ])
 
       source = created_file(igniter, "config/config.exs")
-      assert source =~ "hearth_domains, false"
+      assert source =~ "hearth_domains: [Other.Api]"
       refute source =~ "PetstoreApi"
     end
   end
@@ -1572,20 +1570,13 @@ defmodule Mix.Tasks.Hearth.GenTest do
       + |  import_deps: [:hearth]
       """)
 
-      assert_creates(igniter, "config/config.exs", """
-      import Config
-      config :test, hearth_domains: []
-      """)
+      refute Igniter.has_changes?(igniter, ["config/config.exs"])
     end
 
     test "is silent on already-installed projects" do
       project =
         test_project(
           files: %{
-            "config/config.exs" => """
-            import Config
-            config :test, hearth_domains: []
-            """,
             ".formatter.exs" => """
             [
               inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"],
@@ -1597,7 +1588,7 @@ defmodule Mix.Tasks.Hearth.GenTest do
 
       igniter = Igniter.compose_task(project, "hearth.gen", ["stripe"])
 
-      assert_unchanged(igniter, [".formatter.exs", "config/config.exs"])
+      assert_unchanged(igniter, ".formatter.exs")
 
       # On an already-installed project we drop install's "already installed"
       # notice so consumers don't see redundant chatter when running gen.

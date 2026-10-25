@@ -26,30 +26,14 @@ defmodule Mix.Tasks.Hearth.InstallTest do
     end
   end
 
-  describe ":hearth_domains config" do
-    test "initializes :hearth_domains to [] when unset" do
-      test_project()
-      |> Igniter.compose_task("hearth.install", [])
-      |> assert_creates("config/config.exs", """
-      import Config
-      config :test, hearth_domains: []
-      """)
+  describe "config" do
+    test "writes no config" do
+      igniter = Igniter.compose_task(test_project(), "hearth.install", [])
+
+      refute Igniter.has_changes?(igniter, ["config/config.exs"])
     end
 
-    test "preserves an explicit false opt-out on re-run" do
-      test_project(
-        files: %{
-          "config/config.exs" => """
-          import Config
-          config :test, :hearth_domains, false
-          """
-        }
-      )
-      |> Igniter.compose_task("hearth.install", [])
-      |> assert_unchanged("config/config.exs")
-    end
-
-    test "preserves a populated :hearth_domains list on re-run" do
+    test "leaves an existing :hearth_domains entry alone" do
       test_project(
         files: %{
           "config/config.exs" => """
@@ -72,15 +56,10 @@ defmodule Mix.Tasks.Hearth.InstallTest do
       %{notice: notice_text(igniter)}
     end
 
-    test "explains :hearth_domains and how to populate it", %{notice: notice} do
-      assert notice =~ ":hearth_domains"
-      assert notice =~ "MyApp.Billing.Stripe" || notice =~ "Test.Billing.Stripe"
-    end
-
     test "lists the files that were modified", %{notice: notice} do
       assert notice =~ "Modified:"
       assert notice =~ ".formatter.exs"
-      assert notice =~ "config/config.exs"
+      refute notice =~ "config/config.exs"
     end
 
     test "stamps the Hearth version", %{notice: notice} do
@@ -90,6 +69,10 @@ defmodule Mix.Tasks.Hearth.InstallTest do
     test "points at mix hearth.gen with a spec file", %{notice: notice} do
       assert notice =~ "mix hearth.gen"
       assert notice =~ "OpenAPI"
+    end
+
+    test "does not mention :hearth_domains", %{notice: notice} do
+      refute notice =~ "hearth_domains"
     end
 
     test "does not reference unreleased commands", %{notice: notice} do
@@ -102,10 +85,6 @@ defmodule Mix.Tasks.Hearth.InstallTest do
       project =
         test_project(
           files: %{
-            "config/config.exs" => """
-            import Config
-            config :test, hearth_domains: []
-            """,
             ".formatter.exs" => """
             [
               inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"],
@@ -115,51 +94,10 @@ defmodule Mix.Tasks.Hearth.InstallTest do
           }
         )
 
-      igniter = Igniter.compose_task(project, "hearth.install", [])
-      notice = notice_text(igniter)
+      notice = project |> Igniter.compose_task("hearth.install", []) |> notice_text()
 
       assert notice =~ ~r/Hearth v\S+ already installed/
-      refute notice =~ ":hearth_domains"
       refute notice =~ "Modified"
-    end
-
-    test "emits a short summary when only some files changed on re-run" do
-      project =
-        test_project(
-          files: %{
-            "config/config.exs" => """
-            import Config
-            config :test, hearth_domains: [MyApp.Billing.Stripe]
-            """
-          }
-        )
-
-      igniter = Igniter.compose_task(project, "hearth.install", [])
-      notice = notice_text(igniter)
-
-      assert notice =~ "Modified: .formatter.exs"
-      refute notice =~ ":hearth_domains"
-    end
-
-    test "honors a false opt-out without re-explaining :hearth_domains" do
-      igniter =
-        test_project(
-          files: %{
-            "config/config.exs" => """
-            import Config
-            config :test, :hearth_domains, false
-            """,
-            ".formatter.exs" => """
-            [
-              inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"],
-              import_deps: [:hearth]
-            ]
-            """
-          }
-        )
-        |> Igniter.compose_task("hearth.install", [])
-
-      refute notice_text(igniter) =~ "Add integrations"
     end
   end
 

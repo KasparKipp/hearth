@@ -56,7 +56,7 @@ Then run:
 
 ```bash
 mix deps.get
-mix hearth.install  # formatter import + :hearth_domains config
+mix hearth.install  # formatter import
 ```
 
 ## Usage

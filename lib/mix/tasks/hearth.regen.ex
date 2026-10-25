@@ -39,10 +39,9 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
     namespace — `mix hearth.regen stripe --module MyApp.Payments.Stripe`.
     The module must end in the integration name. It creates the new
     modules (halting if any exist), points `x-hearth.module` at them,
-    and wires the new mock and config like `mix hearth.gen` — swapping
-    the old Layer 2 for the new one in `:hearth_domains`. The old
-    modules and their other config are left untouched: delete them
-    once callers have switched.
+    and wires the new mock and config like `mix hearth.gen`. The old
+    modules and their config are left untouched: delete them once
+    callers have switched.
 
     Add `--remove-old` to remove the old module in the same run: its
     files, every config entry keyed by its modules, its commented
@@ -254,7 +253,7 @@ if Code.ensure_loaded?(Igniter) do
           igniter
           |> render(new, spec_path, spec)
           |> Igniter.create_new_file(spec_path, yaml, on_exists: :overwrite)
-          |> Patches.wire(Map.put(wiring(igniter, new, spec), :replaces, old.layer2))
+          |> Patches.wire(wiring(igniter, new, spec))
           |> retire(old, new, spec_path)
 
         existing ->
