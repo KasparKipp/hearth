@@ -57,8 +57,9 @@ $ mix hearth.regen stripe          # or stripe,send_grid — or --all
 tokens. It takes integration names (the `--integration` value), never modules:
 `gen` records each integration's Layer 1 module, source and base path in
 `.hearth.exs`, and `regen` reads them back. The pruned spec stays plain
-OpenAPI. Running `regen` straight after `gen` is a no-op. To pull in spec
-changes, edit `priv/hearth/stripe.yaml` and re-run `regen`.
+OpenAPI. Running `regen` straight after `gen` is a no-op. The entry's
+`tags:` records the selection: to add or drop operations, or to pull in a
+newer spec, edit `tags:` / `source:` and run `mix hearth.regen stripe --sync`.
 
 Only local spec files generate code today. URL and registry sources are
 recognized and validated; generating from them needs the fetcher (pending).
@@ -393,6 +394,7 @@ lib/
     regen/
       messages.ex              # regen's user-facing text
       move.ex                  # --module / --remove-old (Igniter-guarded)
+      sync.ex                  # --sync: re-prune from source by tags: (Igniter-guarded)
     fs/
       ownership.ex             # hearth:owned / hearth:collaborating
       content.ex               # read through Igniter's Rewrite (Igniter-guarded)
@@ -487,7 +489,11 @@ What exists, condensed. The blow-by-blow is in git history.
   `tags:` (`Hearth.Spec.Selection.describe/2`) lists every tag in the source
   spec in first-seen order as `:all`, `:none` or `include:` / `exclude:`
   operationId lists; untagged operations go under `untagged:` (omitted when
-  there are none). Recorded for drift checks; regen doesn't read it yet.
+  there are none). It is the selection rule (`Selection.rule/1`, `select/2`):
+  `regen --sync` re-prunes the source with it, and plain `regen` halts when
+  the pruned spec disagrees (`Selection.check/2` — an `include:` id missing,
+  a pruned operation it doesn't select, an `:all` tag with nothing pruned; a
+  partial tag rewritten as `:all` isn't visible without the source).
   gen writes the entry (`Hearth.Config.Project.put_integration/3`, created
   from a template when missing); writes are Sourceror keyword edits that keep
   the user's comments and other entries.
@@ -499,7 +505,15 @@ What exists, condensed. The blow-by-blow is in git history.
   `source:` from it (recomputes if absent; halts if a path falls outside the
   recorded base path), and renders the same `Manifest`. Any failure halts the
   whole run. Refreshes code only — never config, `.hearth.exs` or the pruned
-  spec — except under `--module <Layer1>`: exactly one name, module must end
+  spec — except under `--sync` (`Hearth.Regen.Sync`: reads `source:` —
+  local files only — through `Content.read_spec/2`, re-prunes with
+  `tags:`, rewrites the pruned spec and `tags:`, notices `+` / `-`
+  operations; halts without `tags:`/`source:` or on an empty selection;
+  `Sync.extend_external_test/4` offers y/N — `--yes` / test mode accept —
+  to append `Render.Tests.external_tests/2` blocks for added operations the
+  scaffold doesn't already call, via Igniter's `add_code`, and notices tests
+  still calling removed ones)
+  and `--module <Layer1>`: exactly one name, module must end
   in it. It creates the new modules (halts if any exist; the old ones are
   untouched), points the entry's `module:` at them
   (`Hearth.Config.Project.put_module/3`), and wires config via

@@ -290,6 +290,16 @@ defmodule Hearth.Render.Tests do
     """
   end
 
+  @doc """
+  The external-test blocks for `operations` alone — what `regen --sync`
+  appends to an existing scaffold for the operations it added.
+  """
+  @spec external_tests(module(), [Operation.t()]) :: String.t()
+  def external_tests(layer2, operations) do
+    alias_name = layer2 |> Module.split() |> List.last()
+    Enum.map_join(operations, "\n\n", &external_op_test(&1, alias_name))
+  end
+
   defp external_op_test(%Operation{} = op, alias_name) do
     """
     # TODO: replace the placeholder args/opts and assert on your use-case.

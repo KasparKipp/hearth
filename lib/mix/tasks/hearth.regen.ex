@@ -17,6 +17,7 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
 
         mix hearth.regen <integration>[,<integration>...] [--yes]
         mix hearth.regen --all [--yes]
+        mix hearth.regen <integration>[,<integration>...] --sync [--yes]
         mix hearth.regen <integration> --module <Layer1Module> [--remove-old] [--yes]
 
     `<integration>` is the name the integration was generated with
@@ -33,7 +34,24 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
     and `source:` reproduce what `gen` chose. The external test is a user-owned
     scaffold — it is never overwritten.
 
+    The entry's `tags:` decides which operations the pruned spec holds.
+    If they no longer match — you moved an operation between
+    `include:` and `exclude:`, or switched a tag to `:all` / `:none` —
+    regen halts and asks for `--sync`.
+
     If any named integration can't be regenerated, nothing is written.
+
+    ## Re-pruning from the source
+
+    `--sync` re-prunes the pruned spec from the entry's `source:` with
+    its `tags:`, re-records `tags:`, lists the operations added and
+    removed, and regenerates. Use it after editing `tags:`, or after
+    pointing `source:` at a newer version of the spec. `source:` must
+    be a local spec file.
+
+    The external test is yours, so `--sync` doesn't rewrite it. It asks
+    before appending tests for the operations it added (`--yes`
+    accepts), and lists tests that still call an operation it removed.
 
     ## Moving an integration
 
@@ -61,8 +79,8 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
       * `hearth:collaborating` — `regen` prompts before overwriting it.
       * _(no token)_ — the file is overwritten silently. The default.
 
-    To pull in upstream spec changes, edit
-    `priv/hearth/<integration>.yaml` and re-run `mix hearth.regen`.
+    To change which operations are generated, edit the entry's `tags:`
+    in `.hearth.exs` and run `mix hearth.regen <integration> --sync`.
 
     ## Options
 
@@ -70,6 +88,8 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
       * `--module <Layer1Module>` — move one integration into a new
         namespace (see above).
       * `--remove-old` — with `--module`, remove the old module too.
+      * `--sync` — re-prune the pruned spec from `source:` with `tags:`
+        first (see above).
       * `--yes` — non-interactive: accept every `hearth:collaborating`
         prompt.
     """
@@ -91,18 +111,26 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Integration.Manifest
     alias Hearth.Regen.Messages
     alias Hearth.Regen.Move
+    alias Hearth.Regen.Sync
     alias Hearth.Render.ModuleNames
     alias Hearth.Spec.Auth
     alias Hearth.Spec.BasePath
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
+    alias Hearth.Spec.Selection
     alias Hearth.Spec.Servers
 
     @impl Igniter.Mix.Task
     def info(_argv, _composing_task) do
       %Igniter.Mix.Task.Info{
         group: :hearth,
-        schema: [all: :boolean, module: :string, remove_old: :boolean, yes: :boolean],
+        schema: [
+          all: :boolean,
+          module: :string,
+          remove_old: :boolean,
+          sync: :boolean,
+          yes: :boolean
+        ],
         # Optional so a bare `mix hearth.regen` halts with a
         # task-specific message rather than Igniter's generic error.
         positional: [{:integrations, optional: true}],
@@ -198,11 +226,8 @@ if Code.ensure_loaded?(Igniter) do
     defp regen(igniter, {key, entry}, target) do
       spec_path = key |> Atom.to_string() |> Macro.camelize() |> Manifest.pruned_spec_path()
 
-      with {:ok, layer1} <- layer1(entry),
-           true <- Igniter.exists?(igniter, spec_path) or :missing,
-           igniter = Igniter.include_existing_file(igniter, spec_path),
-           {:ok, bytes} <- Content.read(igniter, spec_path),
-           {:ok, spec} <- Loader.decode(bytes, :yaml) do
+      with {:ok, layer1} <- layer1(key, entry),
+           {:ok, igniter, spec, changes} <- pruned_spec(igniter, key, entry, spec_path) do
         names = ModuleNames.from_layer1(layer1)
 
         cond do
@@ -210,7 +235,9 @@ if Code.ensure_loaded?(Igniter) do
             Igniter.add_issue(igniter, Messages.remove_old_needs_module_message())
 
           target in [nil, layer1] ->
-            render(igniter, names, spec_path, spec, entry)
+            igniter
+            |> Sync.extend_external_test(names, spec, changes)
+            |> render(names, spec_path, spec, entry)
 
           true ->
             new = ModuleNames.from_layer1(target)
@@ -222,24 +249,51 @@ if Code.ensure_loaded?(Igniter) do
             })
         end
       else
-        :missing ->
-          Igniter.add_issue(igniter, Messages.missing_spec_message(spec_path))
-
-        {:bad_module, value} ->
-          Igniter.add_issue(igniter, Messages.bad_module_message(key, value))
-
-        {:error, reason} ->
-          Igniter.add_issue(
-            igniter,
-            "hearth.regen: failed to parse #{spec_path}: #{format_reason(reason)}"
-          )
+        {:halt, message} -> Igniter.add_issue(igniter, message)
       end
     end
 
-    defp layer1(entry) do
+    defp layer1(key, entry) do
       case Config.module(entry) do
         {:ok, layer1} -> {:ok, layer1}
-        {:error, value} -> {:bad_module, value}
+        {:error, value} -> {:halt, Messages.bad_module_message(key, value)}
+      end
+    end
+
+    # `--sync` re-prunes the spec from its source (`Hearth.Regen.Sync`).
+    # Otherwise the pruned spec is read as is, and must still hold
+    # exactly what the entry's `tags:` select.
+    defp pruned_spec(igniter, key, entry, spec_path) do
+      if igniter.args.options[:sync] do
+        Sync.run(igniter, key, entry, spec_path)
+      else
+        with true <- Igniter.exists?(igniter, spec_path) or :missing,
+             igniter = Igniter.include_existing_file(igniter, spec_path),
+             {:ok, bytes} <- Content.read(igniter, spec_path),
+             {:ok, spec} <- Loader.decode(bytes, :yaml),
+             :ok <- check_selection(key, entry, spec_path, spec) do
+          {:ok, igniter, spec, nil}
+        else
+          :missing ->
+            {:halt, Messages.missing_spec_message(spec_path)}
+
+          {:halt, message} ->
+            {:halt, message}
+
+          {:error, reason} ->
+            {:halt, "hearth.regen: failed to parse #{spec_path}: #{format_reason(reason)}"}
+        end
+      end
+    end
+
+    defp check_selection(key, entry, spec_path, spec) do
+      with {:ok, rule} <- Selection.rule(entry),
+           [_ | _] = problems <- Selection.check(rule, Operation.extract(spec)) do
+        {:halt, Messages.selection_mismatch_message(key, spec_path, problems)}
+      else
+        :none -> :ok
+        [] -> :ok
+        {:error, detail} -> {:halt, Messages.bad_tags_message(key, detail)}
       end
     end
 

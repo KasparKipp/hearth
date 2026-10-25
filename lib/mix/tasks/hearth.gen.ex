@@ -117,7 +117,6 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Render.ModuleNames
     alias Hearth.Spec.BasePath
     alias Hearth.Spec.Filter
-    alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
     alias Hearth.Spec.Source
 
@@ -304,22 +303,17 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    # Sniff format → existence check → read through Igniter's Rewrite
-    # layer (so test fixtures and real files take the same path) →
-    # decode. Returns `{:ok, igniter, spec}` (the igniter now has the
-    # spec file in its Rewrite) or `{:error, user_message}`. Shared by
-    # the generation flow and `mix hearth.gen <file> --list`.
+    # Reads through Igniter's Rewrite layer (so test fixtures and real
+    # files take the same path). Returns `{:ok, igniter, spec}` (the
+    # igniter now has the spec file in its Rewrite) or
+    # `{:error, user_message}`. Shared by the generation flow and
+    # `mix hearth.gen <file> --list`.
     defp decode_file(igniter, path) do
-      with format when format in [:yaml, :json] <- Loader.sniff(path),
-           true <- Igniter.exists?(igniter, path) or :missing,
-           igniter = Igniter.include_existing_file(igniter, path),
-           {:ok, bytes} <- Content.read(igniter, path),
-           {:ok, spec} <- Loader.decode(bytes, format) do
-        {:ok, igniter, spec}
-      else
-        :unknown -> {:error, Messages.unsupported_format_message(path)}
-        :missing -> {:error, Messages.file_not_found_message(path)}
-        {:error, reason} -> {:error, Messages.decode_failed_message(path, reason)}
+      case Content.read_spec(igniter, path) do
+        {:ok, igniter, spec} -> {:ok, igniter, spec}
+        {:error, :unsupported} -> {:error, Messages.unsupported_format_message(path)}
+        {:error, :missing} -> {:error, Messages.file_not_found_message(path)}
+        {:error, {:decode, reason}} -> {:error, Messages.decode_failed_message(path, reason)}
       end
     end
 

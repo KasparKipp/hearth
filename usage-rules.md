@@ -81,7 +81,23 @@ by its module. With no name and no `--all`, `regen` halts.
 `regen` reads `priv/hearth/<int>.yaml` (the pruned spec — the
 versioned source of truth) and re-renders the three layers plus the
 auth test. If any named integration fails, nothing is written. It does **not** re-run config patches or rewrite the
-pruned spec.
+pruned spec — unless you pass `--sync`.
+
+The `.hearth.exs` entry's `tags:` decides which operations the pruned
+spec holds. To add or drop operations, edit `tags:` and re-prune from
+`source:`:
+
+    mix hearth.regen stripe --sync
+
+`--sync` rewrites the pruned spec and `tags:`, lists the operations it
+added and removed, and regenerates. Plain `regen` halts when `tags:`
+no longer matches the pruned spec, pointing at `--sync`. Don't add or
+remove operations in `priv/hearth/<int>.yaml` by hand: `regen` halts,
+and `--sync` would undo it. `source:` must be a local spec file.
+
+`--sync` never rewrites the external test. It asks before appending
+tests for the operations it added (`--yes` accepts), and names tests
+that still call an operation it removed — delete those yourself.
 
 To move one integration into a new namespace:
 
@@ -100,8 +116,8 @@ files, config entries and `defmock`:
 Files you've claimed (an ownership token, or the external test
 scaffold) are kept and listed. `--remove-old` without `--module` halts.
 
-To pull in upstream spec changes, edit `priv/hearth/<int>.yaml` and
-re-run `regen`.
+To pull in a newer version of the spec, point `source:` at it and run
+`mix hearth.regen <int> --sync`.
 
 ## `.hearth.exs`
 

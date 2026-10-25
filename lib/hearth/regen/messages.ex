@@ -17,8 +17,8 @@ defmodule Hearth.Regen.Messages do
     #{lines}
 
     Files with no ownership token are overwritten; `hearth:owned`
-    files are skipped. Edit the pruned spec and re-run to pull in
-    upstream changes.
+    files are skipped. To change the operations, edit `tags:` in
+    .hearth.exs and re-run with --sync.
     """
   end
 
@@ -221,6 +221,119 @@ defmodule Hearth.Regen.Messages do
     every path shares — and update the `base_url` config to match.
     """
   end
+
+  def selection_mismatch_message(key, spec_path, problems) do
+    lines = Enum.map_join(problems, "\n", &"  * #{&1}")
+
+    """
+    hearth.regen: `tags:` for #{key} in .hearth.exs no longer matches #{spec_path}:
+
+    #{lines}
+
+    `tags:` decides which operations the pruned spec holds. Re-prune
+    it from the source:
+
+      mix hearth.regen #{key} --sync
+    """
+  end
+
+  def bad_tags_message(key, detail) do
+    """
+    hearth.regen: the .hearth.exs entry for #{key} has a malformed selection.
+
+    #{detail}
+    """
+  end
+
+  def sync_needs_tags_message(key) do
+    """
+    hearth.regen: --sync re-prunes #{key} from its source with the
+    entry's `tags:`, but its .hearth.exs entry has none. Add one, e.g.
+
+      #{key}: [module: …, source: …, tags: [Customers: :all]]
+    """
+  end
+
+  def sync_needs_source_message(key) do
+    """
+    hearth.regen: --sync re-prunes #{key} from its source, but its
+    .hearth.exs entry has no `source:`.
+    """
+  end
+
+  def sync_source_message(key, source, :not_local) do
+    """
+    hearth.regen: --sync for #{key} reads local spec files only for
+    now; #{inspect(source)} is a URL or registry source. Download the
+    spec, point `source:` at the file, and re-run.
+    """
+  end
+
+  def sync_source_message(key, source, :missing) do
+    "hearth.regen: --sync for #{key}: source #{inspect(source)} not found. " <>
+      "Point `source:` in .hearth.exs at the spec file."
+  end
+
+  def sync_source_message(key, source, :unsupported) do
+    "hearth.regen: --sync for #{key}: unsupported spec format for #{inspect(source)}. " <>
+      "Supported extensions: .yaml, .yml, .json."
+  end
+
+  def sync_source_message(key, source, {:decode, reason}) do
+    "hearth.regen: --sync for #{key}: failed to parse #{source}.\n\n" <> format_reason(reason)
+  end
+
+  def empty_selection_message(key, source) do
+    """
+    hearth.regen: `tags:` for #{key} in .hearth.exs selects no operations in #{source}.
+    """
+  end
+
+  def synced_notice(key, source, spec_path, added, removed) do
+    changes =
+      case Enum.map(added, &change_line("+", &1)) ++ Enum.map(removed, &change_line("-", &1)) do
+        [] -> "The selected operations are unchanged."
+        lines -> Enum.join(lines, "\n")
+      end
+
+    """
+    Synced #{key}: re-pruned #{spec_path} from #{source} with its `tags:`.
+
+    #{changes}
+    """
+  end
+
+  def external_prompt(location, ids) do
+    "hearth.regen: append external tests for #{Enum.join(ids, ", ")} to #{location}?"
+  end
+
+  def external_appended_notice(location, ids) do
+    """
+    Appended external tests for #{Enum.join(ids, ", ")} to #{location}.
+    Replace their placeholder args with real ones.
+    """
+  end
+
+  def external_declined_notice(location, ids) do
+    """
+    Left #{location} alone. It has no tests yet for #{Enum.join(ids, ", ")}.
+    """
+  end
+
+  def external_stale_notice(location, ids) do
+    """
+    #{location} still calls #{Enum.join(ids, ", ")}, which --sync removed.
+    Delete or rewrite those tests — the functions no longer exist.
+    """
+  end
+
+  defp change_line(sign, operation) do
+    name = operation.operation_id || operation.id
+    "#{sign} #{operation.method} #{operation.path} (#{name})"
+  end
+
+  defp format_reason(%{__exception__: true} = ex), do: Exception.message(ex)
+  defp format_reason(reason), do: inspect(reason)
 
   def missing_spec_message(spec_path) do
     integration = spec_path |> Path.basename(".yaml") |> Macro.camelize()

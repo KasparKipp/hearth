@@ -99,6 +99,16 @@ defmodule Hearth.Config.ProjectTest do
     end
   end
 
+  describe "put_fields/3" do
+    test "sets the given fields, keeping the rest of the entry" do
+      igniter =
+        test_project(files: %{".hearth.exs" => "[integrations: [stripe: #{inspect(@stripe)}]]"})
+        |> Project.put_fields(:stripe, tags: [pets: :all], untagged: :none)
+
+      assert integrations(igniter) == [stripe: @stripe ++ [tags: [pets: :all], untagged: :none]]
+    end
+  end
+
   describe "put_module/3" do
     test "changes only the entry's module" do
       igniter =

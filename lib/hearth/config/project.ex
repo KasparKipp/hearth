@@ -39,8 +39,14 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     @spec put_module(Igniter.t(), atom(), module()) :: Igniter.t()
-    def put_module(igniter, key, module) do
-      put(igniter, [:integrations, key, :module], module)
+    def put_module(igniter, key, module), do: put_fields(igniter, key, module: module)
+
+    # Sets some fields of the integration's entry, leaving the others.
+    @spec put_fields(Igniter.t(), atom(), keyword()) :: Igniter.t()
+    def put_fields(igniter, key, fields) do
+      Enum.reduce(fields, igniter, fn {field, value}, acc ->
+        put(acc, [:integrations, key, field], value)
+      end)
     end
 
     defp put(igniter, keys, value) do

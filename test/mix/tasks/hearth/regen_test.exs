@@ -604,6 +604,224 @@ defmodule Mix.Tasks.Hearth.RegenTest do
     end
   end
 
+  describe "tags: in .hearth.exs" do
+    @list_and_create [include: ["listPets", "createPets"], exclude: ["showPetById"]]
+
+    # gen with `--tag pets:listPets`, applied — the pruned spec holds
+    # only GET /pets.
+    defp gen_list_pets do
+      test_project(files: %{"priv/specs/petstore.yaml" => @petstore_3_0_yaml})
+      |> Igniter.compose_task("hearth.gen", [
+        "priv/specs/petstore.yaml",
+        "--integration",
+        "Petstore",
+        "--tag",
+        "pets:listPets"
+      ])
+      |> apply_igniter!()
+    end
+
+    defp entry(tags, extra \\ []) do
+      [
+        module: Test.Integrations.Petstore,
+        source: "priv/specs/petstore.yaml",
+        base_path: "",
+        tags: tags
+      ] ++ extra
+    end
+
+    defp set_entry(igniter, entry) do
+      igniter
+      |> Igniter.create_new_file(
+        ".hearth.exs",
+        "[integrations: [petstore: #{inspect(entry)}]]",
+        on_exists: :overwrite
+      )
+      |> apply_igniter!()
+    end
+
+    defp pruned_paths(igniter) do
+      igniter
+      |> created_file("priv/hearth/petstore.yaml")
+      |> YamlElixir.read_from_string!()
+      |> Map.fetch!("paths")
+      |> Enum.flat_map(fn {path, ops} -> Enum.map(Map.keys(ops), &"#{&1} #{path}") end)
+      |> Enum.sort()
+    end
+
+    test "regen halts when an excluded operation was moved to include:, pointing at --sync" do
+      igniter = gen_list_pets() |> set_entry(entry(pets: @list_and_create)) |> regen()
+
+      assert has_issue?(igniter, ["createPets", "mix hearth.regen petstore --sync"])
+      assert_unchanged(igniter)
+    end
+
+    test "regen halts when an included operation was moved to exclude:" do
+      tags = [pets: [include: [], exclude: ["listPets", "createPets", "showPetById"]]]
+      igniter = gen_list_pets() |> set_entry(entry(tags)) |> regen()
+
+      assert has_issue?(igniter, ["listPets", "--sync"])
+    end
+
+    test "--sync right after gen is a no-op" do
+      gen_list_pets()
+      |> regen(["petstore", "--sync"])
+      |> assert_unchanged()
+    end
+
+    test "--sync re-prunes from the source with the edited tags and regenerates" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(entry(pets: @list_and_create))
+        |> regen(["petstore", "--sync"])
+
+      assert pruned_paths(igniter) == ["get /pets", "post /pets"]
+
+      assert created_file(igniter, "lib/test/integrations/petstore/petstore_api.ex") =~
+               "def create_pets("
+
+      assert {:ok, [petstore: synced]} =
+               igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
+
+      assert synced[:tags] == [pets: @list_and_create]
+      assert notice_text(igniter) =~ "+ post /pets (createPets)"
+    end
+
+    test "a plain regen after --sync is a no-op" do
+      gen_list_pets()
+      |> set_entry(entry(pets: @list_and_create))
+      |> regen(["petstore", "--sync"])
+      |> apply_igniter!()
+      |> regen()
+      |> assert_unchanged()
+    end
+
+    test "--sync re-records tags: in its canonical form" do
+      igniter = gen_list_pets() |> set_entry(entry(pets: :all)) |> regen(["petstore", "--sync"])
+
+      assert pruned_paths(igniter) == ["get /pets", "get /pets/{petId}", "post /pets"]
+      assert notice_text(igniter) =~ "+ get /pets/{petId} (showPetById)"
+
+      assert {:ok, [petstore: synced]} =
+               igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
+
+      assert synced[:tags] == [pets: :all]
+    end
+
+    test "--sync lists the operations it removed" do
+      tags = [pets: [include: ["showPetById"], exclude: ["listPets", "createPets"]]]
+      igniter = gen_list_pets() |> set_entry(entry(tags)) |> regen(["petstore", "--sync"])
+
+      assert pruned_paths(igniter) == ["get /pets/{petId}"]
+      assert notice_text(igniter) =~ "- get /pets (listPets)"
+    end
+
+    test "--sync halts when the tags select nothing" do
+      tags = [pets: :none]
+      igniter = gen_list_pets() |> set_entry(entry(tags)) |> regen(["petstore", "--sync"])
+
+      assert has_issue?(igniter, ["petstore", "tags:", "selects no operations"])
+    end
+
+    test "--sync halts when the entry records no tags:" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(Keyword.delete(entry(:unused), :tags))
+        |> regen(["petstore", "--sync"])
+
+      assert has_issue?(igniter, ["petstore", "tags:"])
+    end
+
+    test "--sync halts when the source file is gone" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(Keyword.put(entry(pets: :all), :source, "priv/specs/gone.yaml"))
+        |> regen(["petstore", "--sync"])
+
+      assert has_issue?(igniter, ["priv/specs/gone.yaml", "not found"])
+    end
+
+    test "--sync halts on a URL source until the fetcher lands" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(Keyword.put(entry(pets: :all), :source, "https://example.com/spec.yaml"))
+        |> regen(["petstore", "--sync"])
+
+      assert has_issue?(igniter, ["https://example.com/spec.yaml", "local"])
+    end
+
+    test "--sync offers to append external tests for the added operations" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(entry(pets: @list_and_create))
+        |> regen(["petstore", "--sync"])
+
+      external = created_file(igniter, @external)
+      assert external =~ ~s|test "list_pets reaches the live API"|
+      assert external =~ ~s|test "create_pets reaches the live API"|
+      assert external =~ "PetstoreApi.Req.create_pets([])"
+      assert notice_text(igniter) =~ "create_pets"
+      assert notice_text(igniter) =~ @external
+    end
+
+    test "--sync keeps the user's edits to the external test when appending" do
+      igniter = gen_list_pets()
+
+      edited =
+        String.replace(
+          created_file(igniter, @external),
+          "list_pets([])",
+          "list_pets(params: [limit: 1])"
+        )
+
+      external =
+        igniter
+        |> Igniter.create_new_file(@external, edited, on_exists: :overwrite)
+        |> apply_igniter!()
+        |> set_entry(entry(pets: @list_and_create))
+        |> regen(["petstore", "--sync"])
+        |> created_file(@external)
+
+      assert external =~ "list_pets(params: [limit: 1])"
+      assert external =~ ~s|test "create_pets reaches the live API"|
+    end
+
+    test "--sync doesn't append a test the external test already has" do
+      igniter = gen_list_pets()
+
+      with_create =
+        String.replace(
+          created_file(igniter, @external),
+          ~s|  test "list_pets|,
+          ~s|  test "mine" do\n    PetstoreApi.Req.create_pets(json: %{})\n  end\n\n  test "list_pets|
+        )
+
+      external =
+        igniter
+        |> Igniter.create_new_file(@external, with_create, on_exists: :overwrite)
+        |> apply_igniter!()
+        |> set_entry(entry(pets: @list_and_create))
+        |> regen(["petstore", "--sync"])
+        |> created_file(@external)
+
+      refute external =~ ~s|test "create_pets reaches the live API"|
+    end
+
+    test "--sync points at external tests that call a removed operation" do
+      tags = [pets: [include: ["showPetById"], exclude: ["listPets", "createPets"]]]
+      igniter = gen_list_pets() |> set_entry(entry(tags)) |> regen(["petstore", "--sync"])
+
+      assert created_file(igniter, @external) =~ "list_pets"
+      assert notice_text(igniter) =~ "still calls list_pets"
+    end
+
+    test "a malformed tags: halts regen" do
+      igniter = gen_list_pets() |> set_entry(entry(pets: :some)) |> regen()
+
+      assert has_issue?(igniter, ["petstore", "tags:"])
+    end
+  end
+
   describe "ownership tokens" do
     test "a hearth:owned file is skipped, keeping its hand-edits" do
       igniter =
