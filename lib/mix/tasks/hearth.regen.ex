@@ -57,6 +57,7 @@ if Code.ensure_loaded?(Igniter) do
 
     alias Hearth.Fs.Content
     alias Hearth.Fs.Ownership
+    alias Hearth.Integration.Manifest
     alias Hearth.Render.ModuleNames
     alias Hearth.Spec.Auth
     alias Hearth.Spec.BasePath
@@ -89,7 +90,7 @@ if Code.ensure_loaded?(Igniter) do
     defp regen(igniter, arg) do
       layer1 = Module.concat(String.split(arg, "."))
       names = ModuleNames.from_layer1(layer1)
-      spec_path = pruned_spec_path(names.integration)
+      spec_path = Manifest.pruned_spec_path(names.integration)
 
       with true <- Igniter.exists?(igniter, spec_path) or :missing,
            igniter = Igniter.include_existing_file(igniter, spec_path),
@@ -134,34 +135,18 @@ if Code.ensure_loaded?(Igniter) do
       # The three layers and the auth test are `:tracked` —
       # ownership-token-aware. The external test is a `:scaffold` —
       # a user-owned file `regen` creates once and never overwrites.
-      sources = [
-        {names.layer1,
-         Hearth.Render.Layer1.render(names.layer1, otp_app, servers.default, prefix, auth),
-         :source_folder, :tracked},
-        {names.layer2,
-         Hearth.Render.Layer2.render(names.layer2, selected,
-           metadata: metadata(spec_path, spec),
-           otp_app: otp_app
-         ), :source_folder, :tracked},
-        {names.layer3,
-         Hearth.Render.Layer3.render(names.layer3, names.layer2, names.layer1, selected),
-         :source_folder, :tracked},
-        {names.layer1_test,
-         Hearth.Render.Tests.layer1(names.layer1_test, names.layer1, otp_app, auth), :test,
-         :tracked},
-        {names.external_test,
-         Hearth.Render.Tests.external(
-           names.external_test,
-           names.layer2,
-           names.layer1,
-           otp_app,
-           auth,
-           selected
-         ), :test, :scaffold}
-      ]
+      files =
+        Manifest.files(names,
+          otp_app: otp_app,
+          auth: auth,
+          servers: servers,
+          prefix: prefix,
+          operations: selected,
+          metadata: metadata(spec_path, spec)
+        )
 
       {igniter, results} =
-        Enum.reduce(sources, {igniter, []}, fn entry, {acc, results} ->
+        Enum.reduce(files, {igniter, []}, fn entry, {acc, results} ->
           {acc, result} = regen_file(acc, entry)
           {acc, [result | results]}
         end)
@@ -169,7 +154,7 @@ if Code.ensure_loaded?(Igniter) do
       Igniter.add_notice(igniter, regen_notice(names, spec_path, Enum.reverse(results)))
     end
 
-    defp regen_file(igniter, {module, content, kind, :scaffold}) do
+    defp regen_file(igniter, %{module: module, content: content, kind: kind, policy: :scaffold}) do
       location = Igniter.Project.Module.proper_location(igniter, module, kind)
 
       if Igniter.exists?(igniter, location) do
@@ -179,7 +164,7 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp regen_file(igniter, {module, content, kind, :tracked}) do
+    defp regen_file(igniter, %{module: module, content: content, kind: kind, policy: :tracked}) do
       location = Igniter.Project.Module.proper_location(igniter, module, kind)
 
       if Igniter.exists?(igniter, location) do
@@ -230,17 +215,7 @@ if Code.ensure_loaded?(Igniter) do
     # Layer 2 moduledoc matches what gen wrote; the pruned spec path is
     # the fallback.
     defp metadata(spec_path, spec) do
-      %{
-        source: Meta.source(spec) || spec_path,
-        title: get_in(spec, ["info", "title"]),
-        version: get_in(spec, ["info", "version"]),
-        openapi: spec["openapi"],
-        description: get_in(spec, ["info", "description"])
-      }
-    end
-
-    defp pruned_spec_path(integration) do
-      "priv/hearth/#{Macro.underscore(integration)}.yaml"
+      Manifest.metadata(Meta.source(spec) || spec_path, spec)
     end
 
     defp regen_notice(names, spec_path, results) do

@@ -111,6 +111,10 @@ if Code.ensure_loaded?(Igniter) do
     use Igniter.Mix.Task
 
     alias Hearth.Fs.Content
+    alias Hearth.Gen.Messages
+    alias Hearth.Gen.Patches
+    alias Hearth.Integration.Manifest
+    alias Hearth.Render.ModuleNames
     alias Hearth.Spec.BasePath
     alias Hearth.Spec.Filter
     alias Hearth.Spec.Loader
@@ -152,7 +156,7 @@ if Code.ensure_loaded?(Igniter) do
           handle_list(igniter)
 
         is_nil(igniter.args.positional[:source]) ->
-          Igniter.add_issue(igniter, missing_source_message())
+          Igniter.add_issue(igniter, Messages.missing_source_message())
 
         true ->
           case ensure_installed(igniter) do
@@ -177,7 +181,7 @@ if Code.ensure_loaded?(Igniter) do
 
       case igniter.args.positional[:source] do
         nil ->
-          Mix.shell().info(format_shortcuts())
+          Mix.shell().info(Messages.format_shortcuts())
           igniter
 
         source ->
@@ -190,10 +194,10 @@ if Code.ensure_loaded?(Igniter) do
 
       case Hearth.Registry.versions(base) do
         nil ->
-          Igniter.add_issue(igniter, registry_unknown_name_message(base))
+          Igniter.add_issue(igniter, Messages.registry_unknown_name_message(base))
 
         versions ->
-          Mix.shell().info(format_versions(base, versions))
+          Mix.shell().info(Messages.format_versions(base, versions))
           igniter
       end
     end
@@ -204,7 +208,7 @@ if Code.ensure_loaded?(Igniter) do
           operations = Operation.extract(spec)
 
           Mix.shell().info(
-            tag_discovery(operations,
+            Messages.tag_discovery(operations,
               source: path,
               integration: igniter.args.options[:integration],
               limit: nil
@@ -228,49 +232,6 @@ if Code.ensure_loaded?(Igniter) do
       )
     end
 
-    defp format_shortcuts do
-      shortcuts = Enum.map_join(Hearth.Registry.list(), "\n", &"  * #{&1}")
-
-      """
-      Hearth shortcuts:
-
-      #{shortcuts}
-
-      Pass a shortcut to mix hearth.gen, e.g. `mix hearth.gen stripe`.
-      Run `mix hearth.gen <name> --list` to see versions for a shortcut.
-      """
-    end
-
-    defp format_versions(name, versions) do
-      list = Enum.map_join(versions, "\n", &"  * #{&1}")
-
-      """
-      #{name} versions:
-
-      #{list}
-
-      Pin with `name@version`, e.g. `mix hearth.gen #{name}@#{List.last(versions)}`.
-      Bare `mix hearth.gen #{name}` resolves to @latest.
-      """
-    end
-
-    defp missing_source_message do
-      """
-      hearth.gen: pass a source to generate from.
-
-        mix hearth.gen <source>           # see source modes below
-        mix hearth.gen --list             # show registered shortcuts
-        mix hearth.gen <name> --list      # show versions for a shortcut
-
-      Source modes:
-        * file:     priv/specs/<api>.yaml
-        * URL:      https://example.com/openapi.json
-        * registry: stripe   (run with --list for the full set)
-
-      Run `mix help hearth.gen` for full options.
-      """
-    end
-
     # Speculatively compose `hearth.install` to find out what (if anything)
     # it would change. Three outcomes:
     #
@@ -292,7 +253,7 @@ if Code.ensure_loaded?(Igniter) do
         igniter.args.options[:yes] || igniter.assigns[:test_mode?] ->
           {:ok, composed}
 
-        Mix.shell().yes?(install_prompt()) ->
+        Mix.shell().yes?(Messages.install_prompt()) ->
           {:ok, composed}
 
         true ->
@@ -306,19 +267,12 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp install_prompt do
-      """
-      hearth.gen needs `mix hearth.install` to set up your project's
-      formatter import and :hearth_domains config. Run install now?
-      """
-    end
-
     defp dispatch_source(igniter) do
       source = igniter.args.positional[:source]
 
       case Source.resolve(source) do
         {:url, url} ->
-          Igniter.add_notice(igniter, url_notice(url))
+          Igniter.add_notice(igniter, Messages.url_notice(url))
 
         {:file, path} ->
           handle_file_source(igniter, path)
@@ -326,33 +280,21 @@ if Code.ensure_loaded?(Igniter) do
         {:registry, name} ->
           case Hearth.Registry.lookup(name) do
             {:ok, entry} ->
-              Igniter.add_notice(igniter, registry_hit_notice(entry))
+              Igniter.add_notice(igniter, Messages.registry_hit_notice(entry))
 
             {:error, {:unknown_name, _}} ->
-              Igniter.add_issue(igniter, registry_unknown_name_message(name))
+              Igniter.add_issue(igniter, Messages.registry_unknown_name_message(name))
 
             {:error, {:unknown_version, base, version, available}} ->
               Igniter.add_issue(
                 igniter,
-                registry_unknown_version_message(base, version, available)
+                Messages.registry_unknown_version_message(base, version, available)
               )
           end
 
         {:error, reason} ->
           Igniter.add_issue(igniter, "hearth.gen: #{reason}")
       end
-    end
-
-    defp url_notice(url) do
-      """
-      Source recognized: URL.
-
-          #{url}
-
-      Next pipeline stage: HTTP fetch (Req-based, with on-disk cache under
-      `priv/hearth/cache/<sha256>/`). Not yet wired — when ready, this
-      command will fetch and cache the spec before decoding it.
-      """
     end
 
     defp handle_file_source(igniter, path) do
@@ -375,9 +317,9 @@ if Code.ensure_loaded?(Igniter) do
            {:ok, spec} <- Loader.decode(bytes, format) do
         {:ok, igniter, spec}
       else
-        :unknown -> {:error, unsupported_format_message(path)}
-        :missing -> {:error, file_not_found_message(path)}
-        {:error, reason} -> {:error, decode_failed_message(path, reason)}
+        :unknown -> {:error, Messages.unsupported_format_message(path)}
+        :missing -> {:error, Messages.file_not_found_message(path)}
+        {:error, reason} -> {:error, Messages.decode_failed_message(path, reason)}
       end
     end
 
@@ -423,12 +365,12 @@ if Code.ensure_loaded?(Igniter) do
     defp fetch_integration(igniter, path) do
       case igniter.args.options[:integration] do
         nil ->
-          {:error, missing_integration_message(path)}
+          {:error, Messages.missing_integration_message(path)}
 
         name ->
           if valid_segment?(name),
             do: {:ok, name},
-            else: {:error, bad_segment("--integration", name)}
+            else: {:error, Messages.bad_segment("--integration", name)}
       end
     end
 
@@ -438,7 +380,9 @@ if Code.ensure_loaded?(Igniter) do
           :ok
 
         domain ->
-          if valid_segment?(domain), do: :ok, else: {:error, bad_segment("--domain", domain)}
+          if valid_segment?(domain),
+            do: :ok,
+            else: {:error, Messages.bad_segment("--domain", domain)}
       end
     end
 
@@ -452,55 +396,42 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     defp write_layers(igniter, path, spec, operations, selected, integration) do
-      names = module_names(igniter, integration)
-      layer1 = Hearth.Render.ModuleNames.layer1(names)
+      names =
+        igniter
+        |> module_names(integration)
+        |> ModuleNames.layer1()
+        |> ModuleNames.from_layer1()
 
       # `hearth.gen` only ever creates. *Every* generated artifact is
       # checked — a partial deletion (e.g. only Layer 1 removed) must
       # still halt, never silently clobber the surviving files.
       case existing_artifacts(igniter, names) do
         [] ->
-          render_layers(igniter, path, spec, operations, selected, names, layer1)
+          render_layers(igniter, path, spec, operations, selected, names)
 
         existing ->
-          Igniter.add_issue(igniter, integration_exists_message(layer1, existing))
+          Igniter.add_issue(igniter, Messages.integration_exists_message(names.layer1, existing))
       end
     end
 
     # The paths of every file `gen` would create for this integration
     # that already exist on disk.
     defp existing_artifacts(igniter, names) do
-      igniter
-      |> artifact_locations(names)
-      |> Enum.filter(&Igniter.exists?(igniter, &1))
-    end
-
-    defp artifact_locations(igniter, names) do
-      modules = [
-        {Hearth.Render.ModuleNames.layer1(names), :source_folder},
-        {Hearth.Render.ModuleNames.layer2(names), :source_folder},
-        {Hearth.Render.ModuleNames.layer3(names), :source_folder},
-        {Hearth.Render.ModuleNames.layer1_test(names), :test},
-        {Hearth.Render.ModuleNames.external_test(names), :test}
-      ]
-
       module_paths =
-        Enum.map(modules, fn {module, kind} ->
+        Enum.map(Manifest.modules(names), fn {module, kind} ->
           Igniter.Project.Module.proper_location(igniter, module, kind)
         end)
 
-      module_paths ++ [pruned_spec_path(names[:integration])]
+      Enum.filter(
+        module_paths ++ [Manifest.pruned_spec_path(names.integration)],
+        &Igniter.exists?(igniter, &1)
+      )
     end
 
-    defp render_layers(igniter, path, spec, operations, selected, names, layer1) do
-      layer2 = Hearth.Render.ModuleNames.layer2(names)
-      layer3 = Hearth.Render.ModuleNames.layer3(names)
-      layer1_test = Hearth.Render.ModuleNames.layer1_test(names)
-      external_test = Hearth.Render.ModuleNames.external_test(names)
-      mock = Hearth.Render.ModuleNames.mock(names)
-
+    defp render_layers(igniter, path, spec, operations, selected, names) do
       otp_app = Igniter.Project.Application.app_name(igniter)
       auth = Hearth.Spec.Auth.strategy(spec)
+      servers = Hearth.Spec.Servers.resolve(spec)
 
       # A leading path prefix shared by every operation (e.g. `/v3`) is
       # stripped from the operation paths and folded into Layer 1's base
@@ -518,312 +449,54 @@ if Code.ensure_loaded?(Igniter) do
         |> Hearth.Spec.Prune.to_yaml()
 
       selected = BasePath.strip(selected, prefix)
+      pruned_spec_path = Manifest.pruned_spec_path(names.integration)
 
-      servers = Hearth.Spec.Servers.resolve(spec)
-
-      # Each entry carries a location kind (`:source_folder` → `lib/`,
-      # `:test` → `test/`, routed by the `Test` suffix via
-      # `Igniter.Project.Module.proper_location/3`) and an `on_exists`
-      # policy. Layer 1/2/3 and the auth test are Hearth-owned —
-      # `:overwrite` regenerates them. The external test is a user-owned
-      # scaffold — `:skip` never touches it after first generation.
-      sources = [
-        {layer1, Hearth.Render.Layer1.render(layer1, otp_app, servers.default, prefix, auth),
-         "raw Req client", :source_folder, :overwrite},
-        {layer2,
-         Hearth.Render.Layer2.render(layer2, selected,
-           metadata: spec_metadata(path, spec),
-           otp_app: otp_app
-         ), "behaviour, #{length(selected)} #{pluralize("callback", length(selected))}",
-         :source_folder, :overwrite},
-        {layer3, Hearth.Render.Layer3.render(layer3, layer2, layer1, selected),
-         "Req implementation, #{length(selected)} #{pluralize("function", length(selected))}",
-         :source_folder, :overwrite},
-        {layer1_test, Hearth.Render.Tests.layer1(layer1_test, layer1, otp_app, auth),
-         "Layer 1 auth test", :test, :overwrite},
-        {external_test,
-         Hearth.Render.Tests.external(external_test, layer2, layer1, otp_app, auth, selected),
-         "external integration test", :test, :skip}
-      ]
-
-      written =
-        Enum.map(sources, fn {module, source, label, kind, on_exists} ->
-          location = Igniter.Project.Module.proper_location(igniter, module, kind)
-          {module, location, source, label, on_exists}
+      files =
+        names
+        |> Manifest.files(
+          otp_app: otp_app,
+          auth: auth,
+          servers: servers,
+          prefix: prefix,
+          operations: selected,
+          metadata: Manifest.metadata(path, spec)
+        )
+        |> Enum.map(fn file ->
+          location = Igniter.Project.Module.proper_location(igniter, file.module, file.kind)
+          Map.put(file, :location, location)
         end)
 
       igniter
-      # The generated code needs `req` at runtime and `mox` (test only)
-      # for the generated mock. Both ride into Hearth only transitively
-      # via the optional, dev-time `igniter` dep, so the consuming app
-      # needs them as direct deps of its own. Added here rather than in
-      # `hearth.install` because it is the *generated code* that needs
-      # them. `on_exists: :skip` leaves a consumer's existing dep
-      # untouched — no prompt, no overwrite.
-      #
-      # `plug` (for the generated Layer 1 test) is deliberately NOT
-      # added: `req` already declares it as an optional all-environment
-      # dependency, so a consumer dep scoped `only: :test` would diverge
-      # and break the build. The test self-guards on
-      # `Code.ensure_loaded?(Plug.Conn)` instead. `mox` has no such
-      # parent declaration, so `only: :test` is safe for it.
-      |> Igniter.Project.Deps.add_dep({:req, "~> 0.5"}, on_exists: :skip)
-      |> Igniter.Project.Deps.add_dep({:mox, "~> 1.0", only: [:test]}, on_exists: :skip)
-      |> write_files(written)
-      |> write_pruned_spec(names[:integration], pruned_spec_yaml)
-      |> wire_mock(mock, layer2)
-      |> patch_test_helper()
-      |> patch_credential_config(otp_app, layer1, names[:integration], auth)
-      |> patch_impl_config(otp_app, layer2, mock)
-      |> patch_base_url_config(otp_app, layer1, servers, prefix)
-      |> patch_hearth_domains(otp_app, layer2)
-      |> patch_base_url_alternates(otp_app, layer1, servers, prefix)
-      |> warn_servers(otp_app, layer1, servers)
+      |> Patches.add_deps()
+      |> write_files(files)
+      # Re-derived each run — `on_exists: :overwrite`.
+      |> Igniter.create_new_file(pruned_spec_path, pruned_spec_yaml, on_exists: :overwrite)
+      |> Patches.wire(%{
+        otp_app: otp_app,
+        names: names,
+        auth: auth,
+        servers: servers,
+        prefix: prefix
+      })
       |> Igniter.add_notice(
-        generated_notice(
+        Messages.generated_notice(
           path,
           spec,
           operations,
           selected,
-          Enum.map(written, fn {module, location, _source, label, _on_exists} ->
-            {module, location, label}
-          end),
-          wired_files(auth) ++ ["#{pruned_spec_path(names[:integration])} (pruned spec)"]
+          Enum.map(files, &{&1.module, &1.location, &1.label}),
+          Patches.wired_files(auth) ++ ["#{pruned_spec_path} (pruned spec)"]
         )
       )
-      |> fetch_deps_if_changed()
+      |> Patches.fetch_deps_if_changed()
     end
 
-    # The integration's versioned source: the input spec pruned to just
-    # the selected operations (and the components they reference),
-    # YAML-encoded. Re-derived each run — `on_exists: :overwrite`.
-    defp write_pruned_spec(igniter, integration, yaml) do
-      Igniter.create_new_file(igniter, pruned_spec_path(integration), yaml, on_exists: :overwrite)
-    end
-
-    defp pruned_spec_path(integration) do
-      "priv/hearth/#{Macro.underscore(integration)}.yaml"
-    end
-
-    # `config/test.exs` overrides Layer 1's base URL with a non-prod
-    # server, so the external test points there (not at production).
-    # The shared path prefix is folded in, matching Layer 1's @base_url.
-    # 0 servers → a placeholder; `warn_servers/3` flags it.
-    defp patch_base_url_config(igniter, otp_app, layer1, servers, prefix) do
-      url = with_prefix(servers.test || "https://api.example.com", prefix)
-
-      Igniter.Project.Config.configure(
-        igniter,
-        "test.exs",
-        otp_app,
-        [layer1, :base_url],
-        {:code, Sourceror.parse_string!(inspect(url))},
-        updater: &{:ok, &1}
-      )
-    end
-
-    # Extra server URLs the spec offered are surfaced as commented-out
-    # config overrides: prod-candidates in `config/config.exs`, non-prod
-    # in `config/test.exs`. Appended idempotently (per-integration marker).
-    defp patch_base_url_alternates(igniter, otp_app, layer1, servers, prefix) do
-      igniter
-      |> append_alternates("config.exs", otp_app, layer1, servers.default_alternates, prefix)
-      |> append_alternates("test.exs", otp_app, layer1, servers.test_alternates, prefix)
-    end
-
-    defp append_alternates(igniter, _file, _otp_app, _layer1, [], _prefix), do: igniter
-
-    defp append_alternates(igniter, file, otp_app, layer1, urls, prefix) do
-      marker = "# Hearth: alternate base URLs for #{inspect(layer1)}"
-
-      lines =
-        Enum.map_join(urls, "\n", fn url ->
-          "# config #{inspect(otp_app)}, #{inspect(layer1)}, " <>
-            "base_url: #{inspect(with_prefix(url, prefix))}"
-        end)
-
-      block = marker <> " — uncomment one to switch.\n" <> lines <> "\n"
-
-      Igniter.create_or_update_file(igniter, "config/#{file}", block, fn source ->
-        content = Rewrite.Source.get(source, :content)
-
-        if String.contains?(content, marker) do
-          source
-        else
-          Rewrite.Source.update(source, :content, content <> "\n" <> block)
-        end
-      end)
-    end
-
-    # When the spec declared no `servers`, the base URL is a placeholder
-    # — warn the user where to set the real one.
-    defp warn_servers(igniter, otp_app, layer1, %{warn?: true}) do
-      Igniter.add_warning(igniter, """
-      The spec declared no `servers` — Layer 1's base URL is a placeholder.
-      Set the real one:
-
-          config #{inspect(otp_app)}, #{inspect(layer1)}, base_url: "https://api.example.com"
-      """)
-    end
-
-    defp warn_servers(igniter, _otp_app, _layer1, %{fallback_default?: true}) do
-      Igniter.add_notice(
-        igniter,
-        "Every spec server looked non-production; used the first as the default base URL."
-      )
-    end
-
-    defp warn_servers(igniter, _otp_app, _layer1, _servers), do: igniter
-
-    defp with_prefix(url, ""), do: url
-    defp with_prefix(url, prefix), do: String.trim_trailing(url, "/") <> prefix
-
-    # When `mix hearth.gen` added `req`/`mox` to the consumer's
-    # `mix.exs`, queue `mix deps.get` so its `mix.lock` is set up — the
-    # generated code is otherwise uncompilable until the user fetches.
-    # Skipped when `mix.exs` was untouched (the deps already present).
-    defp fetch_deps_if_changed(igniter) do
-      if Igniter.has_changes?(igniter, ["mix.exs"]) do
-        Igniter.add_task(igniter, "deps.get")
-      else
-        igniter
-      end
-    end
-
-    # `:external`-tagged tests hit the real network — make them opt-in
-    # by excluding the `:external` tag in `test/test_helper.exs`. The
-    # `exclude: [:external]` substring is its own idempotency marker.
-    defp patch_test_helper(igniter) do
-      Igniter.create_or_update_file(
-        igniter,
-        "test/test_helper.exs",
-        "ExUnit.start()\nExUnit.configure(exclude: [:external])\n",
-        fn source ->
-          content = Rewrite.Source.get(source, :content)
-
-          if String.contains?(content, "exclude: [:external]") do
-            source
-          else
-            Rewrite.Source.update(
-              source,
-              :content,
-              content <> "\nExUnit.configure(exclude: [:external])\n"
-            )
-          end
-        end
-      )
-    end
-
-    # Creates `test/support/mocks.ex` if absent, else appends one more
-    # guarded `Mox.defmock` line — idempotent: the mock module name is a
-    # unique marker, so a re-run for the same integration is a no-op.
-    defp wire_mock(igniter, mock, layer2) do
-      Igniter.create_or_update_file(
-        igniter,
-        "test/support/mocks.ex",
-        Hearth.Render.Mocks.render(mock, layer2),
-        fn source ->
-          content = Rewrite.Source.get(source, :content)
-
-          if String.contains?(content, inspect(mock)) do
-            source
-          else
-            appended =
-              (content <> "\n" <> Hearth.Render.Mocks.defmock_line(mock, layer2) <> "\n")
-              |> Code.format_string!()
-              |> IO.iodata_to_binary()
-              |> Kernel.<>("\n")
-
-            Rewrite.Source.update(source, :content, appended)
-          end
-        end
-      )
-    end
-
-    # The credential lives in `config/runtime.exs`, keyed by the Layer 1
-    # module (where `credential/1` reads it): prod raises if the env var
-    # is unset, dev falls back to a placeholder. Skipped when the spec
-    # declares no usable auth scheme.
-    defp patch_credential_config(igniter, _otp_app, _layer1, _integration, :none), do: igniter
-
-    defp patch_credential_config(igniter, _otp_app, _layer1, _integration, {:unsupported, _}),
-      do: igniter
-
-    defp patch_credential_config(igniter, otp_app, layer1, integration, _auth) do
-      env_var = String.upcase(Macro.underscore(integration)) <> "_API_KEY"
-
-      prod =
-        Sourceror.parse_string!(
-          ~s/System.get_env("#{env_var}") || raise("missing #{env_var} environment variable")/
-        )
-
-      dev = Sourceror.parse_string!(~s/System.get_env("#{env_var}") || "DEV_NO_#{env_var}"/)
-
-      igniter
-      |> Igniter.Project.Config.configure_runtime_env(
-        :prod,
-        otp_app,
-        [layer1, :api_key],
-        {:code, prod},
-        updater: &{:ok, &1}
-      )
-      |> Igniter.Project.Config.configure_runtime_env(
-        :dev,
-        otp_app,
-        [layer1, :api_key],
-        {:code, dev},
-        updater: &{:ok, &1}
-      )
-    end
-
-    # `config/test.exs` points the Layer 2 dispatcher at the Mox mock;
-    # prod/dev fall back to Layer 3 with no config. `updater` keeps an
-    # existing value on re-run.
-    defp patch_impl_config(igniter, otp_app, layer2, mock) do
-      Igniter.Project.Config.configure(
-        igniter,
-        "test.exs",
-        otp_app,
-        [layer2, :impl],
-        {:code, Sourceror.parse_string!(inspect(mock))},
-        updater: &{:ok, &1}
-      )
-    end
-
-    # Appends the Layer 2 module to `:hearth_domains`. `append_new_to_list`
-    # is idempotent, and returns `:error` (→ no-op) when the value is not
-    # a list — so an explicit `false` opt-out is left untouched.
-    defp patch_hearth_domains(igniter, otp_app, layer2) do
-      Igniter.Project.Config.configure(
-        igniter,
-        "config.exs",
-        otp_app,
-        [:hearth_domains],
-        {:code, Sourceror.parse_string!("[#{inspect(layer2)}]")},
-        updater: fn zipper ->
-          Igniter.Code.List.append_new_to_list(zipper, Sourceror.parse_string!(inspect(layer2)))
-        end
-      )
-    end
-
-    defp wired_files(auth) do
-      base = [
-        "test/support/mocks.ex",
-        "test/test_helper.exs (:external exclude)",
-        "config/config.exs (:hearth_domains)",
-        "config/test.exs (impl, base_url)"
-      ]
-
-      case auth do
-        :none -> base
-        {:unsupported, _} -> base
-        _ -> base ++ ["config/runtime.exs (credential)"]
-      end
-    end
-
-    defp write_files(igniter, written) do
-      Enum.reduce(written, igniter, fn {_module, location, source, _label, on_exists}, acc ->
-        Igniter.create_new_file(acc, location, source, on_exists: on_exists)
+    # Tracked files are Hearth-owned (`:overwrite`); the scaffold — the
+    # external test — is user-owned and never touched once it exists.
+    defp write_files(igniter, files) do
+      Enum.reduce(files, igniter, fn file, acc ->
+        on_exists = if file.policy == :scaffold, do: :skip, else: :overwrite
+        Igniter.create_new_file(acc, file.location, file.content, on_exists: on_exists)
       end)
     end
 
@@ -859,7 +532,7 @@ if Code.ensure_loaded?(Igniter) do
         {:ok, operations}
       else
         {:halt,
-         tag_discovery(operations,
+         Messages.tag_discovery(operations,
            source: igniter.args.positional[:source],
            integration: igniter.args.options[:integration],
            limit: limit
@@ -882,250 +555,6 @@ if Code.ensure_loaded?(Igniter) do
            "hearth.gen: no operations matched the --tag filter. " <>
              "Run `mix hearth.gen #{source} --list` to see this spec's tags."}
       end
-    end
-
-    # Metadata threaded into the Layer 2 moduledoc footer: the source
-    # the spec came from, plus its `info` fields.
-    defp spec_metadata(source, spec) do
-      %{
-        source: source,
-        title: get_in(spec, ["info", "title"]),
-        version: get_in(spec, ["info", "version"]),
-        openapi: spec["openapi"],
-        description: get_in(spec, ["info", "description"])
-      }
-    end
-
-    defp summarize(spec) when is_map(spec) do
-      %{
-        title: get_in(spec, ["info", "title"]) || "<untitled>",
-        info_version: get_in(spec, ["info", "version"]) || "<unversioned>",
-        openapi: Map.get(spec, "openapi", "<unknown>"),
-        paths: paths_count(spec)
-      }
-    end
-
-    defp summarize(_), do: %{title: "<not a map>", info_version: "?", openapi: "?", paths: 0}
-
-    defp paths_count(spec) do
-      case Map.get(spec, "paths") do
-        paths when is_map(paths) -> map_size(paths)
-        _ -> 0
-      end
-    end
-
-    defp generated_notice(path, spec, operations, selected, layers, wired) do
-      summary = summarize(spec)
-      tag_count = selected |> Enum.flat_map(& &1.tags) |> Enum.uniq() |> length()
-
-      file_lines =
-        Enum.map_join(layers, "\n", fn {module, location, label} ->
-          "* generating #{location}\n      #{inspect(module)} — #{label}"
-        end)
-
-      wired_lines = Enum.map_join(wired, "\n", &"* wiring #{&1}")
-
-      """
-      Spec loaded from #{path}.
-
-          #{summary.title} (info.version #{summary.info_version}, OpenAPI #{summary.openapi})
-
-      Selected #{length(selected)} of #{length(operations)} operations \
-      across #{tag_count} #{pluralize("tag", tag_count)}.
-
-      #{file_lines}
-
-      #{wired_lines}
-
-      Business logic calls the behaviour directly — `<Integration>Api.<operation>(...)`.
-      Tests stub it with the generated Mox mock. Set the credential in config.
-      """
-    end
-
-    defp integration_exists_message(layer1, existing) do
-      files = Enum.map_join(existing, "\n", &"  * #{&1}")
-
-      """
-      hearth.gen: #{inspect(layer1)} already exists.
-
-      These generated files are present:
-
-      #{files}
-
-      `mix hearth.gen` only creates new integrations — it will not
-      overwrite. Use `mix hearth.regen #{inspect(layer1)}` to
-      regenerate from the pruned spec, or delete all of the files
-      above to start over.
-      """
-    end
-
-    defp bad_segment(flag, value) do
-      """
-      hearth.gen: #{flag} #{inspect(value)} is not a valid module name.
-
-      It must be a single Elixir alias segment — a letter followed by
-      letters or digits, with no spaces or dots (e.g. `Stripe`,
-      `SendGrid`). snake_case is accepted too (`send_grid` → `SendGrid`).
-      """
-    end
-
-    defp missing_integration_message(path) do
-      """
-      hearth.gen: --integration is required for a file source.
-
-        mix hearth.gen #{path} --integration <Name>
-
-      <Name> becomes the integration's module name — `--integration Stripe`
-      generates the behaviour at App.Integrations.Stripe.StripeApi.
-      """
-    end
-
-    # Builds the tag-discovery text: a header, the per-tag operationId
-    # listing, and a fully-expanded subset command — every tag with
-    # every one of its operationIds spelled out, one `--tag` per line.
-    # The user copies it and deletes whole lines or individual
-    # operationIds; nothing has to be looked up, no intent is assumed.
-    #
-    # Shared by the `--n-operations` gate (pass `:limit`) and
-    # `mix hearth.gen <file> --list` (pass `limit: nil`).
-    defp tag_discovery(operations, opts) do
-      source = opts[:source]
-      integration = opts[:integration] || "<Name>"
-      index = Operation.tag_index(operations)
-      total = length(operations)
-      tag_count = index |> Map.keys() |> Enum.count(&is_binary/1)
-
-      """
-      #{discovery_header(total, tag_count, opts[:limit])}
-
-      Tags in this spec — pass a subset with one or more --tag flags:
-
-      #{format_tag_listing(index)}
-
-      Generate a subset — copy this and delete the --tag lines or the
-      operationIds you don't want:
-
-      #{subset_command(source, integration, index)}
-
-      Or generate everything:
-        mix hearth.gen #{source} --integration #{integration} --n-operations #{total}
-      """
-    end
-
-    defp discovery_header(total, tag_count, nil) do
-      "This spec has #{total} operations across #{tag_count} #{pluralize("tag", tag_count)}."
-    end
-
-    defp discovery_header(total, _tag_count, limit) do
-      "This spec has #{total} operations, above the --n-operations limit (#{limit})."
-    end
-
-    defp format_tag_listing(index) do
-      index
-      |> Enum.sort_by(&tag_sort_key/1)
-      |> Enum.map_join("\n", &tag_listing_line/1)
-    end
-
-    defp subset_command(source, integration, index) do
-      tag_lines =
-        index
-        |> Enum.filter(fn {tag, _ops} -> is_binary(tag) end)
-        |> Enum.sort_by(fn {tag, _ops} -> tag end)
-        |> Enum.map(fn {tag, ops} ->
-          ids = Enum.map_join(ops, ",", & &1.id)
-          ~s(    --tag "#{tag}:#{ids}")
-        end)
-
-      ["  mix hearth.gen #{source} --integration #{integration}" | tag_lines]
-      |> Enum.join(" \\\n")
-    end
-
-    defp tag_sort_key({:untagged, _ops}), do: {1, ""}
-    defp tag_sort_key({tag, _ops}), do: {0, tag}
-
-    defp tag_listing_line({tag, ops}) do
-      ids = Enum.map_join(ops, ", ", &":#{&1.id}")
-      "  #{tag_label(tag)}: [#{ids}]"
-    end
-
-    defp tag_label(:untagged), do: ":untagged"
-    defp tag_label(tag) when is_binary(tag), do: inspect(tag)
-
-    defp pluralize(word, 1), do: word
-    defp pluralize(word, _count), do: word <> "s"
-
-    defp file_not_found_message(path) do
-      "hearth.gen: file not found at #{inspect(path)}. " <>
-        "Check the path is correct and relative to the project root."
-    end
-
-    defp unsupported_format_message(path) do
-      "hearth.gen: unsupported spec format for #{inspect(path)}. " <>
-        "Supported extensions: .yaml, .yml, .json."
-    end
-
-    defp decode_failed_message(path, reason) do
-      "hearth.gen: failed to parse spec at #{path}.\n\n" <> format_reason(reason)
-    end
-
-    defp format_reason(%{__exception__: true} = ex), do: Exception.message(ex)
-    defp format_reason(reason), do: inspect(reason)
-
-    defp registry_hit_notice(entry) do
-      %{
-        name: name,
-        version: version,
-        resolved_version: resolved,
-        url: url,
-        integration: integration
-      } = entry
-
-      header =
-        if version == resolved do
-          "Source recognized: registry shorthand `#{name}@#{version}`."
-        else
-          "Source recognized: registry shorthand `#{name}@#{version}` " <>
-            "(alias for `#{name}@#{resolved}`)."
-        end
-
-      """
-      #{header}
-
-      Resolved to:
-          #{url}
-
-      Default integration name: #{integration} (override with --integration).
-
-      Next pipeline stage: HTTP fetch (Req-based, with on-disk cache under
-      `priv/hearth/cache/<sha256>/`). Not yet wired — when ready, this
-      command will fetch and cache the spec before decoding it.
-      """
-    end
-
-    defp registry_unknown_name_message(name) do
-      available = Enum.map_join(Hearth.Registry.list(), "\n", &"  * #{&1}")
-
-      """
-      hearth.gen: no registry entry for `#{name}`.
-
-      Currently available shortcuts:
-      #{available}
-
-      Pin a version with `name@version` (e.g. `stripe@latest`). If you
-      have an OpenAPI spec elsewhere, pass it as a file path or URL
-      instead.
-      """
-    end
-
-    defp registry_unknown_version_message(name, version, available) do
-      versions_block = Enum.map_join(available, "\n", &"  * #{name}@#{&1}")
-
-      """
-      hearth.gen: registry shortcut `#{name}` has no version `#{version}`.
-
-      Available versions:
-      #{versions_block}
-      """
     end
   end
 else
