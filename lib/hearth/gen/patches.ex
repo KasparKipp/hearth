@@ -42,6 +42,7 @@ if Code.ensure_loaded?(Igniter) do
 
       igniter
       |> wire_mock(names.mock, names.layer2)
+      |> compile_test_support()
       |> patch_test_helper()
       |> patch_credential_config(otp_app, names.layer1, names.integration, auth)
       |> patch_impl_config(otp_app, names.layer2, names.mock)
@@ -128,6 +129,8 @@ if Code.ensure_loaded?(Igniter) do
     # `mix.exs`, queue `mix deps.get` so its `mix.lock` is set up — the
     # generated code is otherwise uncompilable until the user fetches.
     # Skipped when `mix.exs` was untouched (the deps already present).
+    # Call it right after `add_deps/1`, before `wire/2` — `wire/2` can
+    # touch `mix.exs` too (`elixirc_paths`), which needs no fetch.
     def fetch_deps_if_changed(igniter) do
       if Igniter.has_changes?(igniter, ["mix.exs"]) do
         Igniter.add_task(igniter, "deps.get")
@@ -135,6 +138,11 @@ if Code.ensure_loaded?(Igniter) do
         igniter
       end
     end
+
+    # The mock lives in `test/support`, which a `mix new` project doesn't
+    # compile — add it to `elixirc_paths(:test)`. Igniter leaves a project
+    # that already sets `elixirc_paths` (e.g. Phoenix) untouched.
+    defp compile_test_support(igniter), do: Igniter.Project.Test.ensure_test_support(igniter)
 
     # `:external`-tagged tests hit the real network — make them opt-in
     # by excluding the `:external` tag in `test/test_helper.exs`. The
@@ -367,6 +375,7 @@ if Code.ensure_loaded?(Igniter) do
     def wired_files(auth) do
       base = [
         "test/support/mocks.ex",
+        "mix.exs (test/support in elixirc_paths)",
         "test/test_helper.exs (:external exclude)",
         "config/config.exs (:hearth_domains)",
         "config/test.exs (impl, base_url)"

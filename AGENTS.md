@@ -220,7 +220,9 @@ all live there and rarely round-trip back into the spec.
 - [x] **Verbose module style**, `--domain <Name>` / `--no-domain`.
 - [x] **Ownership tokens** honoured by `regen`.
 - [x] **Idempotent config patches** to `config/config.exs`, `config/test.exs`,
-      `config/runtime.exs`, `test/support/mocks.ex`, `test/test_helper.exs`.
+      `config/runtime.exs`, `test/support/mocks.ex`, `test/test_helper.exs`,
+      and `mix.exs` (`test/support` in `elixirc_paths(:test)`, so the mock
+      compiles in a plain `mix new` project).
 - [x] **Generated tests**: a `Req.Test` auth test and an `:external`-tagged
       live-API scaffold.
 - [x] **Generic response typing.** `{:ok, Req.Response.t()} | {:error, Exception.t()}`
@@ -228,8 +230,6 @@ all live there and rarely round-trip back into the spec.
 - [ ] **URL and registry sources** — needs the fetcher + cache (steps 4d–4f).
 - [ ] **`--style {verbose|tight|split}`** — designed, not wired:
       `tight` → `…Stripe.Api` / `.Api.Req`; `split` → `…Stripe.Client` / `.Api`.
-- [ ] **`test/support` compiled in plain projects** — `gen` doesn't add it to
-      `elixirc_paths(:test)` (fine in Phoenix apps).
 
 ---
 
@@ -465,8 +465,10 @@ What exists, condensed. The blow-by-blow is in git history.
   test per operation calling Layer 3 directly; `test_helper.exs` excludes
   `:external`.
 - **Wiring (`Patches`)** — adds `{:req, "~> 0.5"}` and
-  `{:mox, "~> 1.0", only: [:test]}`, queues `deps.get` when `mix.exs` changed;
-  `defmock` appended idempotently; `config/runtime.exs` credential (prod
+  `{:mox, "~> 1.0", only: [:test]}`, queues `deps.get` when that changed
+  `mix.exs`; `defmock` appended idempotently; `test/support` added to
+  `elixirc_paths(:test)` via `Igniter.Project.Test.ensure_test_support/1`
+  (a project that already sets `elixirc_paths` is left alone); `config/runtime.exs` credential (prod
   raises, dev falls back to `"DEV_NO_<INT>_API_KEY"`); `config/test.exs`
   `impl:` mock and a non-prod `base_url:`; extra servers as commented
   alternates; `:hearth_domains` appended.
@@ -548,7 +550,6 @@ Learned the hard way; every change must keep them:
   - auth corner cases — does a query API key survive a caller's `params:`
     (`Req.merge`)? A per-call `api_key:` through Layer 2/3 reaches
     `Req.request/2` as an unknown option;
-  - `gen` doesn't add `test/support` to the consumer's `elixirc_paths(:test)`;
   - `Ownership.classify/1` scans the whole file, not just the `@moduledoc`;
   - `gen_test.exs` (~1500 lines) wants splitting by concern.
 
