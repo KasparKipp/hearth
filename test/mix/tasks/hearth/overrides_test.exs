@@ -88,9 +88,9 @@ defmodule Mix.Tasks.Hearth.OverridesTest do
     end
 
     test "halts on an override kind that doesn't exist yet" do
-      igniter = gen(operation_ids: %{"GetCustomers" => "ListCustomers"})
+      igniter = gen(patches: [])
 
-      assert issue_text(igniter) =~ "unknown override `operation_ids:`"
+      assert issue_text(igniter) =~ "unknown override `patches:`"
     end
   end
 
@@ -140,6 +140,85 @@ defmodule Mix.Tasks.Hearth.OverridesTest do
 
       assert igniter |> Igniter.compose_task("hearth.regen", ["shop", "--sync"]) |> notice_text() =~
                ~s|tags Customers: "NoSuchOp"|
+    end
+  end
+
+  describe "operation_ids" do
+    @api "lib/test/integrations/shop/shop_api.ex"
+
+    test "gen generates the new name, and records it in tags:" do
+      igniter =
+        gen(
+          tags: [Customers: ["/v1/customers*"]],
+          operation_ids: %{"GetCustomersSearch" => "SearchCustomers"}
+        )
+
+      api = created_file(igniter, @api)
+      assert api =~ "def search_customers("
+      refute api =~ "def get_customers_search("
+      assert entry(igniter)[:tags] == [Customers: :all]
+
+      assert pruned(igniter)["paths"]["/v1/customers/search"]["get"]["operationId"] ==
+               "SearchCustomers"
+    end
+
+    test "a partly selected tag lists the new id" do
+      igniter =
+        gen(
+          [
+            tags: [Customers: ["/v1/customers*"]],
+            operation_ids: %{"PostCustomers" => "CreateCustomer"}
+          ],
+          ["--tag", "Customers:CreateCustomer"]
+        )
+
+      assert entry(igniter)[:tags] == [
+               Customers: [
+                 include: ["CreateCustomer"],
+                 exclude: ["GetCustomers", "GetCustomersSearch"]
+               ]
+             ]
+    end
+
+    test "halts on a rename that collides" do
+      igniter =
+        gen(
+          tags: [Customers: ["/v1/customers*"]],
+          operation_ids: %{"GetCustomersSearch" => "GetCustomers"}
+        )
+
+      assert issue_text(igniter) =~ "clashes with get /v1/customers (GetCustomers)"
+    end
+
+    test "added later: diff shows a rename, --sync renames the function and keeps it selected" do
+      igniter =
+        gen([tags: [Customers: ["/v1/customers*"]]], ["--tag", "Customers:GetCustomersSearch"])
+        |> apply_igniter!()
+        |> Igniter.include_existing_file(".hearth.exs")
+
+      exs =
+        igniter
+        |> created_file(".hearth.exs")
+        |> String.replace(
+          ~s|tags: [Customers: ["/v1/customers*"]]]|,
+          ~s|tags: [Customers: ["/v1/customers*"]], operation_ids: %{"GetCustomersSearch" => "SearchCustomers"}]|
+        )
+
+      igniter =
+        igniter
+        |> Igniter.create_new_file(".hearth.exs", exs, on_exists: :overwrite)
+        |> apply_igniter!()
+
+      diff = Igniter.compose_task(igniter, "hearth.diff", ["shop"])
+
+      assert issue_text(diff) =~
+               "renamed to SearchCustomers — call sites: get_customers_search → search_customers"
+
+      refute issue_text(diff) =~ "[breaking]"
+
+      synced = Igniter.compose_task(igniter, "hearth.regen", ["shop", "--sync"])
+      assert created_file(synced, @api) =~ "def search_customers("
+      assert entry(synced)[:tags][:Customers][:include] == ["SearchCustomers"]
     end
   end
 end

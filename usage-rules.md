@@ -200,10 +200,8 @@ To use another, change `scheme:` and run `mix hearth.regen <int> --sync`.
 
 ## Overrides
 
-An entry's `overrides:` corrects the source spec as published. Hearth
-applies it to the source before selecting, pruning or comparing, so
-the pruned spec, `tags:` and `diff` all see the corrected spec. Write
-it against the source's own paths and operationIds.
+`overrides:` corrects the source spec. Write it against the source's
+own paths and operationIds:
 
     stripe: [
       source: "stripe@2026-04-22.dahlia",
@@ -211,23 +209,21 @@ it against the source's own paths and operationIds.
         tags: [
           Customers: ["get /v1/customers", "post /v1/customers", "GetCustomersCustomer"],
           Subscriptions: ["/v1/subscriptions*"]
-        ]
+        ],
+        operation_ids: %{"GetCustomersCustomer" => "GetCustomer"}
       ],
       ...
     ]
 
-* `tags` — adds a tag to every operation an entry matches: a path glob
-  (`/v1/subscriptions*` — `*` matches anything, `/` included), a method
-  and a glob (`get /v1/customers`), or an operationId. Upstream tags
-  stay. Use it when a spec has no tags (Stripe's has none), or tags
-  that don't fit how you want to select.
+* `tags` — tag the operations an entry matches: a path glob (`*`
+  matches anything, `/` included), a method and a glob, or an
+  operationId.
+* `operation_ids` — rename an operation, found by its operationId or by
+  `"method /path"`. The function follows: `GetCustomer` → `get_customer`.
 
-For a first `gen`, write the entry with just `overrides:` (and
-`source:` if you like) before running it — `gen` applies the
-overrides, keeps them, and fills in the rest. Later, edit them and run
-`mix hearth.regen <int> --sync`; `diff` shows the effect first. An
-override that matches nothing is reported, so a typo or an upstream
-rename doesn't go unnoticed. More override kinds will follow.
+Before the first `gen`, write the entry with just `overrides:`. Later,
+edit them and run `mix hearth.regen <int> --sync`. An override that
+matches nothing is reported.
 
 ## Check for drift with `diff`
 

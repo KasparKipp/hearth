@@ -56,7 +56,7 @@ if Code.ensure_loaded?(Igniter) do
            {:ok, source} <- present(source),
            {:ok, overrides} <- overrides(entry),
            {:ok, igniter, loaded} <- Load.load(igniter, source, opts[:registry] || %{}),
-           {spec, stale} = Overrides.apply(loaded.spec, overrides),
+           {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
            {:ok, spec, auth} <- Auth.choose(spec, entry),
            operations = Operation.extract(spec),
            rule = carry_renames(rule, opts[:current], operations),
@@ -89,6 +89,13 @@ if Code.ensure_loaded?(Igniter) do
 
     defp carry_renames(rule, current, operations),
       do: Selection.carry_renames(rule, Operation.extract(current), operations)
+
+    defp apply_overrides(spec, overrides) do
+      case Overrides.apply(spec, overrides) do
+        {:ok, spec, stale} -> {:ok, spec, stale}
+        {:error, detail} -> {:error, {:bad_overrides, detail}}
+      end
+    end
 
     defp overrides(entry) do
       case Overrides.parse(entry) do

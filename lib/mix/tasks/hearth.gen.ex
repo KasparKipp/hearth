@@ -304,31 +304,44 @@ if Code.ensure_loaded?(Igniter) do
       with {:ok, source} <- normalize_source(igniter.args.positional[:source]),
            {:ok, igniter, config} <- Project.load(igniter),
            {:ok, igniter, loaded} <- load(igniter, source, config.registry),
-           {:ok, overrides} <- overrides(igniter, loaded, config.integrations) do
-        {spec, stale} = Overrides.apply(loaded.spec, overrides.parsed)
+           {:ok, overrides} <- overrides(igniter, loaded, config.integrations),
+           {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
+           {:ok, spec, auth} <- choose_auth(spec, overrides) do
+        input = %{
+          source: source,
+          spec: spec,
+          sha256: Reprune.sha256(loaded.bytes),
+          entry: loaded.entry,
+          overrides: overrides.raw,
+          auth: auth
+        }
 
-        case Hearth.Spec.Auth.choose(spec, overrides.entry) do
-          {:ok, spec, auth} ->
-            input = %{
-              source: source,
-              spec: spec,
-              sha256: Reprune.sha256(loaded.bytes),
-              entry: loaded.entry,
-              overrides: overrides.raw,
-              auth: auth
-            }
-
-            igniter
-            |> resolved_notice(input)
-            |> stale_notice(overrides.key, source, stale)
-            |> select_and_report(input)
-
-          {:error, {:bad_auth, name, available}} ->
-            message = IntegrationMessages.bad_auth_message(:gen, overrides.key, name, available)
-            Igniter.add_issue(igniter, message)
-        end
+        igniter
+        |> resolved_notice(input)
+        |> stale_notice(overrides.key, source, stale)
+        |> select_and_report(input)
       else
         {:error, message} -> Igniter.add_issue(igniter, message)
+      end
+    end
+
+    defp apply_overrides(spec, overrides) do
+      case Overrides.apply(spec, overrides.parsed) do
+        {:ok, spec, stale} ->
+          {:ok, spec, stale}
+
+        {:error, detail} ->
+          {:error, IntegrationMessages.bad_overrides_message(:gen, overrides.key, detail)}
+      end
+    end
+
+    defp choose_auth(spec, overrides) do
+      case Hearth.Spec.Auth.choose(spec, overrides.entry) do
+        {:ok, spec, auth} ->
+          {:ok, spec, auth}
+
+        {:error, {:bad_auth, name, available}} ->
+          {:error, IntegrationMessages.bad_auth_message(:gen, overrides.key, name, available)}
       end
     end
 
