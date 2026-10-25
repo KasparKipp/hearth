@@ -387,6 +387,7 @@ lib/
       patches.ex               # deps, mock, test_helper, config (Igniter-guarded)
     regen/
       messages.ex              # regen's user-facing text
+      move.ex                  # --module / --remove-old (Igniter-guarded)
     fs/
       ownership.ex             # hearth:owned / hearth:collaborating
       content.ex               # read through Igniter's Rewrite (Igniter-guarded)
@@ -489,6 +490,8 @@ What exists, condensed. The blow-by-blow is in git history.
   exist; the old ones are untouched), rewrites only the `module:` value in the
   pruned spec (`Meta.replace_module/3`, re-encodes as a fallback), and wires
   config via `Patches.wire/2`.
+  Lives in `Hearth.Regen.Move`; the task passes it a `render` callback and
+  the wiring context.
   `--remove-old` (requires a `--module` that differs from the current one)
   also `Igniter.rm`s the old untokened tracked files — scaffold, owned,
   collaborating and unreadable files are kept and listed — and
