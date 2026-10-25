@@ -10,9 +10,12 @@ defmodule Hearth.Spec.Operation do
   # the operation list are resolved with numeric suffixes
   # (`create_user`, `create_user_2`).
   #
-  # `$ref` resolution is out of scope here — parameters that are bare
-  # `$ref` maps (no `"in"` key) are simply not classified as path or
-  # query params. That lands with schema resolution in a later step.
+  # Parameters: local `#/components/parameters/*` refs are resolved; an
+  # operation-level param overrides a path-item-level one with the same
+  # `name` + `in` (per the OAS spec); and every `{x}` in the path
+  # template becomes a path param even when undeclared, so the
+  # generated URL can always interpolate it. Other refs (external,
+  # missing) stay unresolved and unclassified.
 
   @methods %{
     "get" => :get,
@@ -55,9 +58,11 @@ defmodule Hearth.Spec.Operation do
 
   @spec extract(map()) :: [t()]
   def extract(spec) when is_map(spec) do
+    component_params = component_params(spec)
+
     spec
     |> Map.get("paths", %{})
-    |> Enum.flat_map(&extract_path/1)
+    |> Enum.flat_map(&extract_path(&1, component_params))
     |> assign_ids()
   end
 
@@ -85,27 +90,34 @@ defmodule Hearth.Spec.Operation do
     |> String.trim("_")
   end
 
-  defp extract_path({path, path_item}) when is_binary(path) and is_map(path_item) do
-    shared_params = Map.get(path_item, "parameters", [])
+  defp component_params(spec) do
+    case spec["components"] do
+      %{"parameters" => %{} = params} -> params
+      _ -> %{}
+    end
+  end
+
+  defp extract_path({path, path_item}, component_params)
+       when is_binary(path) and is_map(path_item) do
+    shared_params = resolve_all(Map.get(path_item, "parameters", []), component_params)
 
     path_item
     |> Map.take(@http_methods)
     |> Enum.map(fn {method, operation} ->
-      build_operation(path, method, operation, shared_params)
+      own_params = resolve_all(Map.get(operation, "parameters", []), component_params)
+      build_operation(path, method, operation, merge_params(shared_params, own_params))
     end)
   end
 
-  defp extract_path(_), do: []
+  defp extract_path(_, _component_params), do: []
 
-  defp build_operation(path, method, operation, shared_params) do
-    params = shared_params ++ Map.get(operation, "parameters", [])
-
+  defp build_operation(path, method, operation, params) do
     %__MODULE__{
       id: nil,
       operation_id: Map.get(operation, "operationId"),
       method: Map.fetch!(@methods, method),
       path: path,
-      path_params: params_in(params, "path"),
+      path_params: params |> params_in("path") |> with_template_params(path),
       query_params: params_in(params, "query"),
       request_body: Map.get(operation, "requestBody"),
       tags: Map.get(operation, "tags", []),
@@ -119,6 +131,51 @@ defmodule Hearth.Spec.Operation do
   end
 
   defp params_in(_params, _location), do: []
+
+  defp resolve_all(params, component_params) when is_list(params) do
+    Enum.map(params, &resolve(&1, component_params))
+  end
+
+  defp resolve_all(_params, _component_params), do: []
+
+  defp resolve(%{"$ref" => "#/components/parameters/" <> name} = param, component_params) do
+    case Map.get(component_params, name) do
+      %{} = resolved -> resolved
+      _ -> param
+    end
+  end
+
+  defp resolve(param, _component_params), do: param
+
+  # Operation-level params replace path-item-level ones with the same
+  # `name` + `in` in place (keeping declaration order); the rest of the
+  # operation's params follow.
+  defp merge_params(shared, own) do
+    overrides = Map.new(own, &{param_key(&1), &1})
+    shared_keys = MapSet.new(shared, &param_key/1)
+
+    Enum.map(shared, &Map.get(overrides, param_key(&1), &1)) ++
+      Enum.reject(own, &MapSet.member?(shared_keys, param_key(&1)))
+  end
+
+  defp param_key(%{"name" => name, "in" => location}), do: {name, location}
+  defp param_key(param), do: param
+
+  # Appends a synthesized path param for every `{name}` in the template
+  # that no declared param covers, in template order.
+  defp with_template_params(declared, path) do
+    declared_names = MapSet.new(declared, & &1["name"])
+
+    undeclared =
+      ~r/\{([^}]+)\}/
+      |> Regex.scan(path, capture: :all_but_first)
+      |> List.flatten()
+      |> Enum.uniq()
+      |> Enum.reject(&MapSet.member?(declared_names, &1))
+      |> Enum.map(&%{"name" => &1, "in" => "path"})
+
+    declared ++ undeclared
+  end
 
   # Assigns the final `:id` to each operation in spec order, suffixing
   # later duplicates of a base name with `_2`, `_3`, …

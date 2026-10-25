@@ -71,7 +71,68 @@ defmodule Hearth.Spec.OperationTest do
     test "hyphenated operationId is preserved verbatim in :operation_id", %{ops: ops} do
       assert by_id(ops, "get_board").operation_id == "get-board"
     end
+
+    test "resolves path-item-level $ref path params", %{ops: ops} do
+      assert param_names(by_id(ops, "get_square").path_params) == ["row", "column"]
+      assert param_names(by_id(ops, "put_square").path_params) == ["row", "column"]
+    end
   end
+
+  describe "extract/1 — parameters" do
+    defp spec_with(path, path_item, component_params \\ %{}) do
+      %{
+        "paths" => %{path => path_item},
+        "components" => %{"parameters" => component_params}
+      }
+    end
+
+    test "resolves a $ref to components.parameters" do
+      spec =
+        spec_with(
+          "/items",
+          %{"get" => %{"parameters" => [%{"$ref" => "#/components/parameters/limit"}]}},
+          %{"limit" => %{"name" => "limit", "in" => "query"}}
+        )
+
+      assert [%Operation{query_params: [%{"name" => "limit", "in" => "query"}]}] =
+               Operation.extract(spec)
+    end
+
+    test "an operation-level param overrides a path-level one with the same name and location" do
+      spec =
+        spec_with("/items/{id}", %{
+          "parameters" => [%{"name" => "id", "in" => "path", "description" => "shared"}],
+          "get" => %{
+            "parameters" => [%{"name" => "id", "in" => "path", "description" => "override"}]
+          }
+        })
+
+      assert [%Operation{path_params: [%{"description" => "override"}]}] =
+               Operation.extract(spec)
+    end
+
+    test "a template segment with no declared param still becomes a path param" do
+      spec =
+        spec_with("/orgs/{org}/repos/{repo}", %{
+          "get" => %{"parameters" => [%{"name" => "org", "in" => "path"}]}
+        })
+
+      [op] = Operation.extract(spec)
+      assert param_names(op.path_params) == ["org", "repo"]
+    end
+
+    test "an unresolvable $ref falls back to the path template" do
+      spec =
+        spec_with("/users/{user_id}", %{
+          "get" => %{"parameters" => [%{"$ref" => "#/components/parameters/missing"}]}
+        })
+
+      [op] = Operation.extract(spec)
+      assert param_names(op.path_params) == ["user_id"]
+    end
+  end
+
+  defp param_names(params), do: Enum.map(params, & &1["name"])
 
   describe "extract/1 — id derivation" do
     test "falls back to <verb>_<path-slug> when operationId is absent" do

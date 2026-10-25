@@ -575,8 +575,11 @@ These were learned the hard way and must hold for future steps:
   `<verb>_<path-slug>` when `operationId` is absent. Collisions get
   numeric suffixes (`get_user`, `get_user_2`) — an explicit test pins
   this so a future override mechanism has a fixed point. Path-item-level
-  `parameters` merge into each operation. `$ref` parameters are left
-  unclassified (no `"in"` key) — resolution is step 6+.
+  `parameters` merge into each operation, an operation-level param
+  overriding a path-level one with the same `name` + `in`. Local
+  `#/components/parameters/*` refs are resolved; every `{x}` in the path
+  template becomes a path param even when undeclared. Other refs
+  (external, missing) stay unclassified.
 
   `Hearth.Spec.Filter` parses the repeatable `--tag` flag — `parse/1`
   takes the list of `--tag` values; within a value the first `:`

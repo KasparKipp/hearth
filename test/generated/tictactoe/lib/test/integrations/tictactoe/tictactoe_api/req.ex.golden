@@ -16,12 +16,12 @@ defmodule Test.Integrations.Tictactoe.TictactoeApi.Req do
   end
 
   @impl true
-  def get_square(opts \\ []) do
-    Tictactoe.request("/board/{row}/{column}", opts)
+  def get_square(row, column, opts \\ []) do
+    Tictactoe.request("/board/#{row}/#{column}", opts)
   end
 
   @impl true
-  def put_square(opts \\ []) do
-    Tictactoe.request("/board/{row}/{column}", [method: :put] ++ opts)
+  def put_square(row, column, opts \\ []) do
+    Tictactoe.request("/board/#{row}/#{column}", [method: :put] ++ opts)
   end
 end

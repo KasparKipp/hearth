@@ -19,11 +19,11 @@ defmodule Test.Integrations.TictactoeExternalTest do
 
   # TODO: replace the placeholder args/opts and assert on your use-case.
   test "get_square reaches the live API" do
-    assert {:ok, %Req.Response{}} = TictactoeApi.Req.get_square([])
+    assert {:ok, %Req.Response{}} = TictactoeApi.Req.get_square("TODO", "TODO", [])
   end
 
   # TODO: replace the placeholder args/opts and assert on your use-case.
   test "put_square reaches the live API" do
-    assert {:ok, %Req.Response{}} = TictactoeApi.Req.put_square([])
+    assert {:ok, %Req.Response{}} = TictactoeApi.Req.put_square("TODO", "TODO", [])
   end
 end

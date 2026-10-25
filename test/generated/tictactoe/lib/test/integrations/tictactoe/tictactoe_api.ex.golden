@@ -28,23 +28,25 @@ defmodule Test.Integrations.Tictactoe.TictactoeApi do
   """
   def get_board(opts \\ []), do: impl().get_board(opts)
 
-  @callback get_square(opts :: keyword()) :: {:ok, Req.Response.t()} | {:error, Exception.t()}
+  @callback get_square(row :: String.t(), column :: String.t(), opts :: keyword()) ::
+              {:ok, Req.Response.t()} | {:error, Exception.t()}
 
   @doc """
   Get a single board square
 
   Retrieves the requested square.
   """
-  def get_square(opts \\ []), do: impl().get_square(opts)
+  def get_square(row, column, opts \\ []), do: impl().get_square(row, column, opts)
 
-  @callback put_square(opts :: keyword()) :: {:ok, Req.Response.t()} | {:error, Exception.t()}
+  @callback put_square(row :: String.t(), column :: String.t(), opts :: keyword()) ::
+              {:ok, Req.Response.t()} | {:error, Exception.t()}
 
   @doc """
   Set a single board square
 
   Places a mark on the board and retrieves the whole board and the winner (if any).
   """
-  def put_square(opts \\ []), do: impl().put_square(opts)
+  def put_square(row, column, opts \\ []), do: impl().put_square(row, column, opts)
 
   defp impl, do: Application.get_env(@otp_app, __MODULE__, [])[:impl] || __MODULE__.Req
 end
