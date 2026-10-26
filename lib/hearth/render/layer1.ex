@@ -41,9 +41,9 @@ defmodule Hearth.Render.Layer1 do
 
   alias Hearth.Spec.Auth
 
-  @spec render(module(), atom(), String.t() | nil, String.t(), Auth.strategy()) ::
+  @spec render(module(), atom(), String.t() | nil, String.t(), Auth.strategy(), map() | nil) ::
           String.t()
-  def render(module, otp_app, base_url, path_prefix, auth) do
+  def render(module, otp_app, base_url, path_prefix, auth, prefixed \\ nil) do
     """
     defmodule #{inspect(module)} do
       @moduledoc \"\"\"
@@ -58,7 +58,7 @@ defmodule Hearth.Render.Layer1 do
       #{base_url_attr(base_url, path_prefix)}
 
       #{new_fun(auth)}
-      #{request_funs()}#{base_url_helper()}#{auth_step(auth)}
+      #{Hearth.Render.PrefixedIds.request_funs(prefixed) || request_funs()}#{base_url_helper()}#{auth_step(auth)}#{Hearth.Render.PrefixedIds.layer1(prefixed)}
     end
     """
     |> Code.format_string!()

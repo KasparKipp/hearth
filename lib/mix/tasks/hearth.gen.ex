@@ -306,14 +306,17 @@ if Code.ensure_loaded?(Igniter) do
            {:ok, igniter, loaded} <- load(igniter, source, config.registry),
            {:ok, overrides} <- overrides(igniter, loaded, config.integrations),
            {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
-           {:ok, spec, auth} <- choose_auth(spec, overrides) do
+           {:ok, spec, auth} <- choose_auth(spec, overrides),
+           {:ok, prefixed} <- prefixed_ids(spec, overrides) do
         input = %{
           source: source,
           spec: spec,
           sha256: Reprune.sha256(loaded.bytes),
           entry: loaded.entry,
           overrides: overrides.raw,
-          auth: auth
+          auth: auth,
+          prefixed: prefixed,
+          prefixed_raw: overrides.entry[:prefixed_ids]
         }
 
         igniter
@@ -332,6 +335,18 @@ if Code.ensure_loaded?(Igniter) do
 
         {:error, detail} ->
           {:error, IntegrationMessages.bad_overrides_message(:gen, overrides.key, detail)}
+      end
+    end
+
+    # An entry written before gen may carry `prefixed_ids:` — kept, and
+    # resolved against the source here.
+    defp prefixed_ids(spec, overrides) do
+      case Hearth.Spec.PrefixedIds.prepare(spec, overrides.entry) do
+        {:ok, prefixed} ->
+          {:ok, prefixed}
+
+        {:error, detail} ->
+          {:error, IntegrationMessages.bad_prefixed_ids_message(:gen, overrides.key, detail)}
       end
     end
 
@@ -424,10 +439,22 @@ if Code.ensure_loaded?(Igniter) do
     # implementation) to disk.
     defp generate(igniter, input, operations, selected) do
       with {:ok, integration} <- fetch_integration(igniter, input),
-           :ok <- validate_domain(igniter) do
+           :ok <- validate_domain(igniter),
+           :ok <- check_prefixed_clash(input, selected, integration) do
         write_layers(igniter, input, operations, selected, integration)
       else
         {:error, message} -> Igniter.add_issue(igniter, message)
+      end
+    end
+
+    defp check_prefixed_clash(input, selected, integration) do
+      case Hearth.Spec.PrefixedIds.clashes(input.prefixed, generated(selected, input.prefixed)) do
+        [] ->
+          :ok
+
+        names ->
+          {:error,
+           IntegrationMessages.prefixed_clash_message(:gen, Config.key(integration), names)}
       end
     end
 
@@ -507,17 +534,19 @@ if Code.ensure_loaded?(Igniter) do
       # which tags and operations were selected and which left out.
       pruned_spec_yaml =
         spec
-        |> Hearth.Spec.Prune.prune(selected)
+        |> Hearth.Spec.Prune.prune(selected ++ prefixed_targets(operations, input.prefixed))
         |> Hearth.Spec.Prune.to_yaml()
 
       entry =
         [module: names.layer1, source: path, source_sha256: input.sha256] ++
           if(input.overrides, do: [overrides: input.overrides], else: []) ++
+          if(input.prefixed_raw, do: [prefixed_ids: input.prefixed_raw], else: []) ++
           [base_path: prefix] ++
           Hearth.Spec.Selection.describe(operations, selected) ++
           if(input.auth == [], do: [], else: [auth: input.auth])
 
-      selected = BasePath.strip(selected, prefix)
+      covered = Hearth.Spec.PrefixedIds.covered(selected, input.prefixed)
+      selected = selected |> generated(input.prefixed) |> BasePath.strip(prefix)
       pruned_spec_path = Manifest.pruned_spec_path(names.integration)
 
       files =
@@ -528,7 +557,8 @@ if Code.ensure_loaded?(Igniter) do
           servers: servers,
           prefix: prefix,
           operations: selected,
-          metadata: Manifest.metadata(path, spec)
+          metadata: Manifest.metadata(path, spec),
+          prefixed: input.prefixed
         )
         |> Enum.map(fn file ->
           location = Igniter.Project.Module.proper_location(igniter, file.module, file.kind)
@@ -561,7 +591,29 @@ if Code.ensure_loaded?(Igniter) do
           Messages.credential_hint(auth, names)
         )
       )
+      |> prefixed_notice(names, input.prefixed, covered)
     end
+
+    defp prefixed_notice(igniter, _names, nil, _covered), do: igniter
+
+    defp prefixed_notice(igniter, names, prefixed, covered) do
+      pairs = Hearth.Spec.PrefixedIds.pairs(prefixed.resources, prefixed.functions)
+      Igniter.add_notice(igniter, Messages.prefixed_notice(names.layer2, pairs, covered))
+    end
+
+    # The selected operations that get functions of their own: not the
+    # ones a prefixed-id function already reaches.
+    defp generated(selected, prefixed) do
+      covered = Hearth.Spec.PrefixedIds.covered(selected, prefixed)
+      selected -- Enum.map(covered, &elem(&1, 0))
+    end
+
+    # The operations `prefixed_ids:` functions call: kept in the pruned
+    # spec beside the selected ones, without generating functions.
+    defp prefixed_targets(_operations, nil), do: []
+
+    defp prefixed_targets(operations, prefixed),
+      do: Hearth.Spec.PrefixedIds.targets(operations, prefixed.resources, prefixed.functions)
 
     # Tracked files are Hearth-owned (`:overwrite`); the scaffold — the
     # external test — is user-owned and never touched once it exists.

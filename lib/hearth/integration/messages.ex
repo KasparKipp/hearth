@@ -78,6 +78,22 @@ defmodule Hearth.Integration.Messages do
     """
   end
 
+  def bad_prefixed_ids_message(task, key, detail) do
+    """
+    hearth.#{task}: the .hearth.exs entry for #{key} has a problem in `prefixed_ids:`.
+
+    #{detail}
+    """
+  end
+
+  def prefixed_clash_message(task, key, names) do
+    """
+    hearth.#{task}: `prefixed_ids:` for #{key} defines #{Enum.map_join(names, ", ", &"`#{&1}`")}, \
+    which a generated operation function already uses. Rename the function in
+    `functions:`, or the operation with `overrides: [operation_ids: …]`.
+    """
+  end
+
   def bad_overrides_message(task, key, detail) do
     """
     hearth.#{task}: the .hearth.exs entry for #{key} has malformed `overrides:`.
@@ -121,6 +137,9 @@ defmodule Hearth.Integration.Messages do
 
   def reprune_message(task, key, _source, {:bad_auth, name, available}, _registry),
     do: bad_auth_message(task, key, name, available)
+
+  def reprune_message(task, key, _source, {:bad_prefixed_ids, detail}, _registry),
+    do: bad_prefixed_ids_message(task, key, detail)
 
   def reprune_message(task, key, _source, :no_source, _registry) do
     """

@@ -56,6 +56,11 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ ~s|scheme: "bearerAuth"|
   end
 
+  test "documents prefixed ids" do
+    assert @content =~ "## Prefixed ids"
+    assert @content =~ ~s|StripeApi.retrieve("cus_123")|
+  end
+
   test "documents hearth.diff for CI" do
     assert @content =~ "mix hearth.diff stripe"
     assert @content =~ "--fail-on breaking"

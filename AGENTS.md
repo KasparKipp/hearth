@@ -383,12 +383,14 @@ lib/
       prune.ex                 # spec → pruned spec + YAML encoding
       selection.ex             # the tags / operations gen selected, for .hearth.exs
       overrides.ex             # an entry's overrides: applied to the source spec
+      prefixed_ids.ex          # prefixed_ids: functions, resolved resources
       drift.ex                 # pruned spec vs re-pruned source → changes
       drift/schema.ex          # JSON schema shape changes (additive / breaking)
     render/                    # pure: data → source strings
       module_names.ex          # every layer's module from Layer 1
       layer1.ex  layer2.ex  layer3.ex
       tests.ex                 # Req.Test auth test + :external scaffold
+      prefixed_ids.ex          # resource_path/2 + the prefixed-id functions
       mocks.ex                 # test/support/mocks.ex
     integration/
       manifest.ex              # the files an integration consists of (gen + regen)
@@ -567,6 +569,20 @@ What exists, condensed. The blow-by-blow is in git history.
   an entry written before gen, which gen keeps), and by `Integration.Reprune`
   for `--sync` and diff, so the pruned spec carries the result and plain regen
   needs nothing. Stale entries become a notice in gen, `--sync` and diff.
+- **Prefixed ids** — the entry's `prefixed_ids: [functions:, prefixes:]`
+  (`Spec.PrefixedIds`): functions named by the user, each mapped to an HTTP
+  method (default `[retrieve: :get]`); a prefix names its resource by an
+  operationId or a path with exactly one path parameter (`resolve/2`). Layer 1
+  gets `parse_url/1` (`Render.PrefixedIds`) — `"cus_123…"` → its resource's
+  path, anything else unchanged — and `request/2` / `request!/2` call
+  `new(url: parse_url(url))`; Layer 2 gets a callback and dispatcher per
+  function, and Layer 3 implements each as `request(id, method: …)`. An
+  unknown prefix goes through as a plain path; the API answers it. The
+  operations the functions call (`targets/3`) are kept in the pruned spec
+  without becoming functions — gen and `Reprune` prune selected ∪ targets;
+  regen renders all pruned operations minus unselected targets, and its
+  selection check exempts them. A function name an operation already uses
+  halts gen (`clashes/2`); gen keeps `prefixed_ids:` and notices the pairs.
 - **`hearth.diff`** — same names / `--all` as regen (`Integration.Names`).
   Per integration: reads the pruned spec, re-prunes `source:` (or
   `--source`, one integration only) with `tags:` via
