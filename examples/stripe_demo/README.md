@@ -194,6 +194,46 @@ mix hearth.diff stripe        # in sync again
 listing what it applied. To pick up more operations, add patterns to the
 overrides, or tags to `tags:`, and `--sync` again.
 
+## 6. Cover subscriptions with a prefix
+
+Subscriptions still have their own `get_subscription/2`, and
+`StripeDemo.Billing` calls it. Add `sub:` to the prefixes in `.hearth.exs`:
+
+```elixir
+prefixes: [cus: "GetCustomer", sub: "GetSubscription"]
+```
+
+```bash
+mix hearth.diff stripe          # subscription POST and DELETE join the pruned spec
+mix hearth.regen stripe --sync
+```
+
+`retrieve/2` now covers `GetSubscription`, so `get_subscription/2` goes
+away. `--sync` asks to rename its calls, and moves them across lib and
+test, Mox expectations included:
+
+```
+Renamed calls to StripeDemo.Integrations.Stripe.StripeApi and its Req implementation, and
+the matching Mox expectations, across lib and test:
+
+  * get_subscription → retrieve
+```
+
+```diff
+-    case StripeApi.get_subscription(subscription_id) do
++    case StripeApi.retrieve(subscription_id) do
+
+-    expect(StripeApi.Mock, :get_subscription, fn "sub_123", [] ->
++    expect(StripeApi.Mock, :retrieve, fn "sub_123", [] ->
+```
+
+The external test's call moves too. Give its placeholder a prefix
+(`"sub_TODO"`): `retrieve` finds the path from the id's prefix.
+
+`retrieve/2` takes any prefixed id, so `subscription_status("cus_123")`
+would now fetch a customer. Match `"sub_" <> _` in
+`subscription_status/1` to keep it to subscriptions.
+
 ## Auth
 
 Stripe's spec offers HTTP basic auth first (the secret key as the
