@@ -133,9 +133,9 @@ is the full guide — and what a coding agent working in your project should rea
 
 Early (`0.1.x`). Generation works from OpenAPI 3.0 / 3.1 and Swagger 2.0
 specs — local files (YAML or JSON), URLs, and registry shortcuts, Hearth's
-(`mix hearth.gen stripe@latest`) or your own in `.hearth.exs`. Bearer and
-API-key auth are wired automatically; OAuth2, OpenID Connect and HTTP basic
-leave a TODO in the raw client.
+(`mix hearth.gen stripe@latest`) or your own in `.hearth.exs`. Bearer,
+API-key and HTTP basic auth are wired automatically; OAuth2 and OpenID
+Connect leave a TODO in the raw client.
 
 ## License
 

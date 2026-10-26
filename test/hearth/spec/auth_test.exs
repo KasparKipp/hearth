@@ -40,9 +40,14 @@ defmodule Hearth.Spec.AuthTest do
                Auth.strategy(spec(%{"OAuth" => %{"type" => "oauth2", "flows" => %{}}}))
     end
 
-    test "http basic → {:unsupported, _}" do
-      assert {:unsupported, "http/basic"} =
-               Auth.strategy(spec(%{"Basic" => %{"type" => "http", "scheme" => "basic"}}))
+    test "http basic → :basic, whatever the case" do
+      assert Auth.strategy(spec(%{"Basic" => %{"type" => "http", "scheme" => "basic"}})) == :basic
+      assert Auth.strategy(spec(%{"Basic" => %{"type" => "http", "scheme" => "Basic"}})) == :basic
+    end
+
+    test "basic takes a credential; its label is basic" do
+      assert Auth.keyed?(:basic)
+      assert Auth.label(:basic) == "basic"
     end
 
     test "the top-level `security` requirement picks the primary scheme" do
@@ -80,7 +85,7 @@ defmodule Hearth.Spec.AuthTest do
 
     test "schemes/1 lists them in the spec's security order, then the rest by name" do
       assert Auth.schemes(@stripe_like) == [
-               {"basicAuth", {:unsupported, "http/basic"}},
+               {"basicAuth", :basic},
                {"bearerAuth", :bearer},
                {"apiKey", {:api_key, :header, "X-Key"}}
              ]
@@ -88,9 +93,21 @@ defmodule Hearth.Spec.AuthTest do
       assert Auth.schemes(%{}) == []
     end
 
-    test "default/1 is the first scheme Hearth can wire" do
+    test "default/1 is the first scheme Hearth can wire, basic only as a last resort" do
       assert Auth.default(@stripe_like) == "bearerAuth"
       assert Auth.default(%{}) == nil
+
+      basic_then_key = %{
+        "security" => [%{"b" => []}, %{"k" => []}],
+        "components" => %{
+          "securitySchemes" => %{
+            "b" => %{"type" => "http", "scheme" => "basic"},
+            "k" => %{"type" => "apiKey", "in" => "header", "name" => "X-Key"}
+          }
+        }
+      }
+
+      assert Auth.default(basic_then_key) == "k"
 
       only_basic = %{
         "components" => %{"securitySchemes" => %{"b" => %{"type" => "http", "scheme" => "basic"}}}
@@ -112,7 +129,7 @@ defmodule Hearth.Spec.AuthTest do
       assert Auth.describe(@stripe_like, "bearerAuth") == [
                scheme: "bearerAuth",
                available: [
-                 basicAuth: "http/basic (not supported)",
+                 basicAuth: "basic",
                  bearerAuth: "bearer",
                  apiKey: "API key in header X-Key"
                ]

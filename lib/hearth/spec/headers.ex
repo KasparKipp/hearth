@@ -33,6 +33,7 @@ defmodule Hearth.Spec.Headers do
   defp intersection(next, acc), do: Enum.filter(acc, &(&1 in next))
 
   defp auth_headers(:bearer), do: ["authorization"]
+  defp auth_headers(:basic), do: ["authorization"]
   defp auth_headers({:api_key, :header, name}), do: [String.downcase(name)]
   defp auth_headers(_auth), do: []
 

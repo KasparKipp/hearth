@@ -45,6 +45,23 @@ defmodule Hearth.Render.Layer1RuntimeTest do
 
   defp header(conn, name), do: Plug.Conn.get_req_header(conn, name)
 
+  describe "basic" do
+    test "sends the configured user:password, base64-encoded" do
+      conn = :basic |> client("id:secret") |> call()
+      assert header(conn, "authorization") == ["Basic " <> Base.encode64("id:secret")]
+    end
+
+    test "a per-call api_key: overrides config" do
+      conn = :basic |> client("id:secret") |> call(api_key: "other:pw")
+      assert header(conn, "authorization") == ["Basic " <> Base.encode64("other:pw")]
+    end
+
+    test "the caller's explicit auth: wins" do
+      conn = :basic |> client("id:secret") |> call(auth: {:basic, "mine:pw"})
+      assert header(conn, "authorization") == ["Basic " <> Base.encode64("mine:pw")]
+    end
+  end
+
   describe "bearer" do
     test "sends the configured credential" do
       conn = :bearer |> client("cfg") |> call()

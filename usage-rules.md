@@ -201,11 +201,11 @@ OpenAPI.
 ## Auth
 
 `gen` records the spec's security schemes and wires the first one
-Hearth supports:
+Hearth supports, HTTP basic only when nothing else is:
 
     auth: [
       scheme: "bearerAuth",
-      available: [basicAuth: "http/basic (not supported)", bearerAuth: "bearer"]
+      available: [basicAuth: "basic", bearerAuth: "bearer"]
     ]
 
 To use another, change `scheme:` and run `mix hearth.regen <int> --sync`.
@@ -354,8 +354,8 @@ it.
 
 ## Credentials
 
-For a bearer or API-key spec, the credential comes from the
-`:api_key` option, or else from config:
+For a bearer, API-key or HTTP basic spec, the credential comes from the
+`:api_key` option, or else from config (for basic, `user:password`):
 
     config :my_app, MyApp.Integrations.Stripe, api_key: "sk_…"
     StripeApi.list_customers(api_key: tenant.stripe_key)

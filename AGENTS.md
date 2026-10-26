@@ -209,8 +209,8 @@ all live there and rarely round-trip back into the spec.
 - [x] **Path params** become positional function args (local `$ref`s
       resolved, undeclared template segments covered). **Query / body
       params** go through a final `opts` keyword (`params:`, `json:`, `form:`).
-- [x] **Bearer and API-key auth** auto-wired from `securitySchemes`. OAuth2,
-      OpenID Connect and HTTP basic leave a TODO in Layer 1.
+- [x] **Bearer, API-key and HTTP basic auth** auto-wired from
+      `securitySchemes`. OAuth2 and OpenID Connect leave a TODO in Layer 1.
 - [x] **Verbose module style**, `--domain <Name>` / `--no-domain`.
 - [x] **Ownership tokens** honoured by `regen`.
 - [x] **Idempotent config patches** to `config/config.exs`, `config/test.exs`,
@@ -481,8 +481,8 @@ What exists, condensed. The blow-by-blow is in git history.
 - **Layer 1** — `@base_url` from the default server plus the folded base path
   (a placeholder + TODO when the spec has no servers), overridable via
   `config … base_url:` (`Render.BaseUrl`); `new/1` (mirrors `Req.new/1`,
-  ends with `Req.merge(opts)`), `request/2`, `request!/2`. Bearer / API-key
-  (header or query) register an `:api_key` option and attach the credential
+  ends with `Req.merge(opts)`), `request/2`, `request!/2`. Bearer / basic /
+  API-key (header or query) register an `:api_key` option and attach the credential
   in an appended request step (`put_api_key/1`, `Render.Credential`):
   resolved per request from the option (per call, through every layer) or
   else `config … api_key:`; a string, 0-arity fun or `{m, f, a}`; a caller's
@@ -606,7 +606,8 @@ What exists, condensed. The blow-by-blow is in git history.
 - **Auth choice** — the entry's `auth: [scheme:, available:]`
   (`Spec.Auth.describe/2`) records the spec's schemes and the wired one.
   `Auth.choose/2` applies `scheme:` — or `Auth.default/1`, the first scheme
-  Hearth can wire in the spec's `security` order — by making it the only
+  Hearth can wire in the spec's `security` order, basic only when nothing
+  else is (basic sends `user:password` base64-encoded) — by making it the only
   top-level `security` requirement (`Auth.select/2`), so the pruned spec
   carries it. gen and `Reprune` choose (an unknown name halts); plain regen
   halts when `scheme:` isn't `Auth.primary/1` of the pruned spec; `--sync` wires

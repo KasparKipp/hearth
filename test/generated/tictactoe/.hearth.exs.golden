@@ -12,7 +12,7 @@
         scheme: "bearerHttpAuthentication",
         available: [
           app2AppOauth: "oauth2 (not supported)",
-          basicHttpAuthentication: "http/Basic (not supported)",
+          basicHttpAuthentication: "basic",
           bearerHttpAuthentication: "bearer",
           defaultApiKey: "API key in header api-key",
           user2AppOauth: "oauth2 (not supported)"

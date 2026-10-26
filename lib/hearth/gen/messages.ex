@@ -123,20 +123,25 @@ defmodule Hearth.Gen.Messages do
       when auth == :none or elem(auth, 0) == :unsupported,
       do: credential_hint(auth, names)
 
-  def credential_hint(_auth, names, {:config, key}) do
+  def credential_hint(auth, names, {:config, key}) do
     env_var = env_var(names, key)
 
-    "\n\nSet the credential: the #{env_var} environment variable (read in\n" <>
+    "\n\nSet the credential#{user_password(auth)}: the #{env_var} environment variable (read in\n" <>
       "config/runtime.exs), or `#{key}:` in #{inspect(names.layer1)}'s config."
   end
 
-  def credential_hint(_auth, _names, {:option, key}),
-    do: "\n\nPass the credential on every call as `#{key}:`; it is never read from config."
+  def credential_hint(auth, _names, {:option, key}),
+    do:
+      "\n\nPass the credential#{user_password(auth)} on every call as `#{key}:`; " <>
+        "it is never read from config."
 
-  def credential_hint(_auth, _names, {:resolve, {module, function}, _keys}) do
-    "\n\nThe credential comes from #{inspect(module)}.#{function}/1 (or `api_key:` per call);\n" <>
+  def credential_hint(auth, _names, {:resolve, {module, function}, _keys}) do
+    "\n\nThe credential#{user_password(auth)} comes from #{inspect(module)}.#{function}/1 (or `api_key:` per call);\n" <>
       "it is never read from config."
   end
+
+  defp user_password(:basic), do: " (`user:password`)"
+  defp user_password(_auth), do: ""
 
   def headers_hint([], _names), do: ""
 

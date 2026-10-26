@@ -6,17 +6,20 @@ defmodule Hearth.Spec.Auth do
   #
   #   * `:none`                    — no security schemes defined
   #   * `:bearer`                  — HTTP bearer token
+  #   * `:basic`                   — HTTP basic; the credential is
+  #                                  `user:password`
   #   * `{:api_key, :header, name}` — API key sent in a request header
   #   * `{:api_key, :query, name}`  — API key sent as a query parameter
-  #   * `{:unsupported, type}`     — oauth2 / openIdConnect / http-basic /
-  #                                  anything else; the renderer leaves a
-  #                                  TODO comment instead of guessing
+  #   * `{:unsupported, type}`     — oauth2 / openIdConnect / anything
+  #                                  else; the renderer leaves a TODO
+  #                                  comment instead of guessing
   #
   # One strategy per integration. The primary scheme is the first one the
   # top-level `security` requirement names, else the first by name.
   #
   # Choosing among several schemes: `schemes/1` lists them, `default/1`
-  # is the first one Hearth can wire, and `select/2` makes one the
+  # is the first one Hearth can wire — basic only when nothing else can
+  # be (Stripe lists its secret key as basic auth before bearer), and `select/2` makes one the
   # spec's only `security` requirement — so `strategy/1` picks it, here
   # and from the pruned spec. The integration's `.hearth.exs` `auth:`
   # (`describe/2`) records the choice and the alternatives.
@@ -28,6 +31,7 @@ defmodule Hearth.Spec.Auth do
   @type strategy ::
           :none
           | :bearer
+          | :basic
           | {:api_key, :header | :query, String.t()}
           | {:unsupported, String.t()}
 
@@ -61,12 +65,16 @@ defmodule Hearth.Spec.Auth do
     Enum.map(named ++ rest, &{&1, classify(schemes[&1])})
   end
 
-  # The first scheme Hearth can wire, else the first there is.
+  # The first scheme Hearth can wire, basic last; else the first there is.
   @spec default(map()) :: String.t() | nil
   def default(spec) do
     schemes = schemes(spec)
 
-    case Enum.find(schemes, &supported?(elem(&1, 1))) || List.first(schemes) do
+    preferred =
+      Enum.find(schemes, &(supported?(elem(&1, 1)) and elem(&1, 1) != :basic)) ||
+        Enum.find(schemes, &(elem(&1, 1) == :basic))
+
+    case preferred || List.first(schemes) do
       {name, _strategy} -> name
       nil -> nil
     end
@@ -168,12 +176,14 @@ defmodule Hearth.Spec.Auth do
   # `credential:`).
   @spec keyed?(strategy()) :: boolean()
   def keyed?(:bearer), do: true
+  def keyed?(:basic), do: true
   def keyed?({:api_key, _location, _name}), do: true
   def keyed?(_strategy), do: false
 
   @spec label(strategy()) :: String.t()
   def label(:none), do: "none"
   def label(:bearer), do: "bearer"
+  def label(:basic), do: "basic"
   def label({:api_key, location, name}), do: "API key in #{location} #{name}"
   def label({:unsupported, type}), do: "#{type} (not supported)"
 
@@ -187,10 +197,10 @@ defmodule Hearth.Spec.Auth do
   defp first_named_scheme(_security), do: nil
 
   defp classify(%{"type" => "http", "scheme" => scheme}) when is_binary(scheme) do
-    if String.downcase(scheme) == "bearer" do
-      :bearer
-    else
-      {:unsupported, "http/#{scheme}"}
+    case String.downcase(scheme) do
+      "bearer" -> :bearer
+      "basic" -> :basic
+      _ -> {:unsupported, "http/#{scheme}"}
     end
   end
 
