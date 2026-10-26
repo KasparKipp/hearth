@@ -29,15 +29,21 @@ defmodule Hearth.Render.Tests do
 
   alias Hearth.Spec.Auth
   alias Hearth.Spec.Operation
+  alias Hearth.Spec.Values
 
   @api_key "hearth-test-credential"
   @explicit "explicit-credential"
 
-  # `opts`: `:headers` — the `[{header, config_key}]` pairs Layer 1
-  # sets (`Hearth.Spec.Headers.parse/1`); each gets its own tests.
+  # `opts`: `:values` — `Hearth.Spec.Values.parse/1`'s credential,
+  # headers and base URL. Config values are seeded into app env, as
+  # always; option-only and resolved ones go on every request through
+  # `@opts`, so the user's resolvers are never called.
   @spec layer1(module(), module(), atom(), Auth.strategy(), keyword()) :: String.t()
   def layer1(test_module, client_module, otp_app, auth, opts \\ []) do
-    headers = opts[:headers] || []
+    values = opts[:values] || Values.default()
+    %{credential: credential, headers: headers} = values
+    per_call = per_call(auth, values)
+    base = if per_call == [], do: "", else: "@opts ++ "
 
     """
     # This test drives `Req.Test` through Plug; it is active only when
@@ -57,11 +63,12 @@ defmodule Hearth.Render.Tests do
 
         @client #{inspect(client_module)}
         @api_key #{inspect(@api_key)}
+        #{opts_attr(per_call)}
 
-        #{setup_block(auth, otp_app)}
+        #{setup_block(auth, otp_app, credential)}
         #{header_setup(headers, otp_app)}
-        #{auth_test(auth, client_module)}
-        #{header_tests(headers)}
+        #{auth_test(auth, client_module, credential, base)}
+        #{header_tests(headers, base)}
       end
     end
     """
@@ -75,37 +82,87 @@ defmodule Hearth.Render.Tests do
   # bare list — `put_env` replaces the whole keyword, which would wipe
   # a `:base_url` set by `config/test.exs`. `on_exit` restores the
   # previous value exactly (no `delete_env`, which has the same wipe).
-  defp setup_block(:bearer, otp_app), do: credential_setup(otp_app)
-  defp setup_block({:api_key, _location, _name}, otp_app), do: credential_setup(otp_app)
-  defp setup_block(_auth, _otp_app), do: ""
+  # Only a credential read from config is seeded.
+  defp setup_block(auth, otp_app, {:config, key}) do
+    if Auth.keyed?(auth), do: credential_setup(otp_app, key), else: ""
+  end
 
-  defp credential_setup(otp_app) do
+  defp setup_block(_auth, _otp_app, _credential), do: ""
+
+  defp credential_setup(otp_app, key) do
     """
     setup do
       previous = Application.get_env(#{inspect(otp_app)}, @client, [])
-      configure_api_key(@api_key)
+      configure_#{key}(@api_key)
       on_exit(fn -> Application.put_env(#{inspect(otp_app)}, @client, previous) end)
       :ok
     end
 
-    # Sets `config #{inspect(otp_app)}, @client, api_key: value` for this test.
-    defp configure_api_key(value) do
+    # Sets `config #{inspect(otp_app)}, @client, #{key}: value` for this test.
+    defp configure_#{key}(value) do
       config = Application.get_env(#{inspect(otp_app)}, @client, [])
-      Application.put_env(#{inspect(otp_app)}, @client, Keyword.put(config, :api_key, value))
+      Application.put_env(#{inspect(otp_app)}, @client, Keyword.put(config, #{inspect(key)}, value))
     end
 
     # Any `{module, function, args}` works as a credential — e.g. a vault
     # lookup. Called when each request runs.
-    def fetch_api_key, do: "from-mfa"
+    def fetch_#{key}, do: "from-mfa"
+    """
+  end
+
+  # The per-call options every request carries: values that aren't read
+  # from config. A resolved header goes on the request itself.
+  defp per_call(auth, values) do
+    credential =
+      case {Auth.keyed?(auth), values.credential} do
+        {true, {:option, key}} -> ["#{key}: @api_key"]
+        {true, {:resolve, _mf, _keys}} -> ["api_key: @api_key"]
+        _ -> []
+      end
+
+    headers =
+      Enum.flat_map(values.headers, fn
+        {_name, {:option, key}} -> ["#{key}: #{inspect(header_value(key))}"]
+        _ -> []
+      end)
+
+    resolved =
+      for {name, {:resolve, _mf, _keys}} <- values.headers,
+          do: "{#{inspect(name)}, #{inspect(header_value(name))}}"
+
+    base_url =
+      case values.base_url do
+        {form, _key} when form == :option -> [~s|base_url: "http://hearth.test"|]
+        {:resolve, _mf, _keys} -> [~s|base_url: "http://hearth.test"|]
+        _ -> []
+      end
+
+    credential ++
+      headers ++
+      if(resolved == [], do: [], else: ["headers: [#{Enum.join(resolved, ", ")}]"]) ++ base_url
+  end
+
+  defp opts_attr([]), do: ""
+
+  defp opts_attr(per_call) do
+    """
+
+    # Values Layer 1 takes per call, never from config.
+    @opts [#{Enum.join(per_call, ", ")}]\
     """
   end
 
   # Seeds each header's config key with a placeholder. Runs after the
   # credential setup, so `previous` includes the seeded credential and
   # the two `on_exit`s unwind in order.
-  defp header_setup([], _otp_app), do: ""
-
   defp header_setup(headers, otp_app) do
+    case for({name, {:config, key}} <- headers, do: {name, key}) do
+      [] -> ""
+      config -> config_header_setup(config, otp_app)
+    end
+  end
+
+  defp config_header_setup(headers, otp_app) do
     values =
       Enum.map_join(headers, ", ", fn {_name, key} -> "#{key}: #{inspect(header_value(key))}" end)
 
@@ -121,23 +178,65 @@ defmodule Hearth.Render.Tests do
 
   defp header_value(key), do: "hearth-test-#{key}"
 
-  # Per header: the value from config, a per-call override, and a header
-  # the caller sets winning.
-  defp header_tests(headers) do
-    Enum.map_join(headers, "\n", fn {name, key} ->
+  # Per header, by where its value comes from: config (seeded), a
+  # per-call override, the option alone (`@opts`, raising without it),
+  # a resolver (bypassed: the header goes on the request). A header the
+  # caller sets always wins.
+  defp header_tests(headers, base) do
+    Enum.map_join(headers, "\n", fn {name, value} ->
       assertion = &~s|assert Plug.Conn.get_req_header(conn, #{inspect(name)}) == [#{inspect(&1)}]|
 
-      [
-        test_block("request! sets the #{name} header from config", assertion.(header_value(key))),
-        test_block("a per-call #{key}: overrides config", assertion.("per-call"),
-          opts: ~s|#{key}: "per-call"|
-        ),
+      explicit =
         test_block("an explicit #{name} header wins", assertion.(@explicit),
-          opts: ~s|headers: [{#{inspect(name)}, #{inspect(@explicit)}}]|
+          opts: ~s|headers: [{#{inspect(name)}, #{inspect(@explicit)}}]|,
+          base: base
         )
-      ]
-      |> Enum.join("\n")
+
+      (header_value_tests(name, value, assertion, base) ++ [explicit]) |> Enum.join("\n")
     end)
+  end
+
+  defp header_value_tests(name, {:config, key}, assertion, base) do
+    [
+      test_block("request! sets the #{name} header from config", assertion.(header_value(key)),
+        base: base
+      ),
+      test_block("a per-call #{key}: overrides config", assertion.("per-call"),
+        opts: ~s|#{key}: "per-call"|,
+        base: base
+      )
+    ]
+  end
+
+  defp header_value_tests(name, {:option, key}, assertion, base) do
+    [
+      test_block(
+        "request! sets the #{name} header from the #{key}: option",
+        assertion.(header_value(key)),
+        base: base
+      ),
+      raise_test("without #{key}:, request! raises", key)
+    ]
+  end
+
+  defp header_value_tests(name, {:resolve, {module, function}, _keys}, _assertion, _base) do
+    [
+      "# Without the header on the request, #{inspect(module)}.#{function}/1 resolves\n" <>
+        "# #{name} — it's yours to test."
+    ]
+  end
+
+  # A value given per call only: leaving it out raises.
+  defp raise_test(name, key) do
+    """
+    test #{inspect(name)} do
+      plug = fn conn -> Plug.Conn.send_resp(conn, 200, JSON.encode!(%{})) end
+
+      assert_raise RuntimeError, ~r/missing #{inspect(key)}/, fn ->
+        @client.request!("/ping", Keyword.delete(@opts, #{inspect(key)}) ++ [plug: plug])
+      end
+    end
+    """
   end
 
   defp examples_note(:bearer), do: examples_note({:api_key, nil, nil})
@@ -147,8 +246,22 @@ defmodule Hearth.Render.Tests do
 
   defp examples_note(_auth), do: ""
 
-  defp auth_test(:bearer, _client) do
-    keyed_tests(
+  defp auth_test(auth, client, _credential, base)
+       when auth == :none or elem(auth, 0) == :unsupported,
+       do: auth_test(auth, client, base)
+
+  defp auth_test(auth, _client, credential, base) do
+    {what, assertion, explicit} = keyed(auth)
+    tests = keyed_tests(what, assertion, explicit, credential, base)
+
+    case auth do
+      {:api_key, :query, name} -> tests <> "\n" <> alongside_params(name, base)
+      _ -> tests
+    end
+  end
+
+  defp keyed(:bearer) do
+    {
       "attaches a bearer token",
       fn
         :config ->
@@ -158,54 +271,58 @@ defmodule Hearth.Render.Tests do
           ~s|assert Plug.Conn.get_req_header(conn, "authorization") == [#{inspect("Bearer " <> key)}]|
       end,
       ~s|auth: {:bearer, #{inspect(@explicit)}}|
-    )
+    }
   end
 
-  defp auth_test({:api_key, :header, name}, _client) do
+  defp keyed({:api_key, :header, name}) do
     header = inspect(String.downcase(name))
 
-    keyed_tests(
+    {
       "sets the #{name} header",
       &~s|assert Plug.Conn.get_req_header(conn, #{header}) == [#{expected(&1)}]|,
       ~s|headers: [{#{header}, #{inspect(@explicit)}}]|
-    )
+    }
   end
 
-  defp auth_test({:api_key, :query, name}, _client) do
-    keyed_tests(
+  defp keyed({:api_key, :query, name}) do
+    {
       "sets the #{name} query param",
       &"""
       conn = Plug.Conn.fetch_query_params(conn)
       assert conn.query_params[#{inspect(name)}] == #{expected(&1)}
       """,
       ~s|params: %{#{inspect(name)} => #{inspect(@explicit)}}|
-    ) <>
-      "\n" <>
-      test_block(
-        "the key travels alongside the caller's params:",
-        """
-        conn = Plug.Conn.fetch_query_params(conn)
-        assert conn.query_params == %{#{inspect(name)} => @api_key, "limit" => "5"}
-        """,
-        opts: "params: [limit: 5]"
-      )
+    }
   end
 
-  defp auth_test(:none, _client) do
+  defp alongside_params(name, base) do
     test_block(
-      "request! sends no authorization header",
-      ~s|assert Plug.Conn.get_req_header(conn, "authorization") == []|
+      "the key travels alongside the caller's params:",
+      """
+      conn = Plug.Conn.fetch_query_params(conn)
+      assert conn.query_params == %{#{inspect(name)} => @api_key, "limit" => "5"}
+      """,
+      opts: "params: [limit: 5]",
+      base: base
     )
   end
 
-  defp auth_test({:unsupported, type}, client) do
+  defp auth_test(:none, _client, base) do
+    test_block(
+      "request! sends no authorization header",
+      ~s|assert Plug.Conn.get_req_header(conn, "authorization") == []|,
+      base: base
+    )
+  end
+
+  defp auth_test({:unsupported, type}, client, base) do
     """
     # TODO: #{type} auth is not auto-wired — see the TODO in
     # #{inspect(client)}. Add auth assertions here once it is wired.
     test "request! reaches the API (auth not wired)" do
       plug = fn conn -> Plug.Conn.send_resp(conn, 200, JSON.encode!(%{})) end
 
-      assert %Req.Response{status: 200} = @client.request!("/ping", plug: plug)
+      assert %Req.Response{status: 200} = @client.request!("/ping", #{call_opts(base, "")})
     end
     """
   end
@@ -214,32 +331,80 @@ defmodule Hearth.Render.Tests do
   # `:config` (the `@api_key` seeded in setup) or the expected
   # credential string; `explicit_opts` sets a credential on the request
   # the scheme's own way.
-  defp keyed_tests(what, assertion, explicit_opts) do
+  defp keyed_tests(what, assertion, explicit_opts, {:config, key}, base) do
     [
-      test_block("request! #{what} from config", assertion.(:config)),
+      test_block("request! #{what} from config", assertion.(:config), base: base),
       test_block(
-        "config api_key: may be a 0-arity function, resolved per request",
+        "config #{key}: may be a 0-arity function, resolved per request",
         assertion.("from-function"),
-        setup: ~s|configure_api_key(fn -> "from-function" end)|
+        setup: ~s|configure_#{key}(fn -> "from-function" end)|,
+        base: base
       ),
-      test_block("config api_key: may be an {m, f, a} tuple", assertion.("from-mfa"),
-        setup: "configure_api_key({__MODULE__, :fetch_api_key, []})"
+      test_block("config #{key}: may be an {m, f, a} tuple", assertion.("from-mfa"),
+        setup: "configure_#{key}({__MODULE__, :fetch_#{key}, []})",
+        base: base
       ),
-      test_block("a per-call api_key: overrides config", assertion.("per-call"),
-        opts: ~s|api_key: "per-call"|
+      test_block("a per-call #{key}: overrides config", assertion.("per-call"),
+        opts: ~s|#{key}: "per-call"|,
+        base: base
       ),
-      test_block("a per-call api_key: may be a function", assertion.("per-call-function"),
-        opts: ~s|api_key: fn -> "per-call-function" end|
+      test_block("a per-call #{key}: may be a function", assertion.("per-call-function"),
+        opts: ~s|#{key}: fn -> "per-call-function" end|,
+        base: base
       ),
-      test_block("new/1 accepts api_key: too", assertion.("from-new"),
-        call: ~s|Req.request!(@client.new(url: "/ping", api_key: "from-new", plug: plug))|
-      ),
+      test_block("new/1 accepts #{key}: too", assertion.("from-new"), call: new_call(key, base)),
       test_block("a credential set explicitly on the request wins", assertion.(@explicit),
-        opts: explicit_opts
+        opts: explicit_opts,
+        base: base
       )
     ]
     |> Enum.join("\n")
   end
+
+  defp keyed_tests(what, assertion, explicit_opts, {:option, key}, base) do
+    [
+      test_block("request! #{what} from the #{key}: option", assertion.(:config), base: base),
+      test_block("a per-call #{key}: may be a function", assertion.("per-call-function"),
+        opts: ~s|#{key}: fn -> "per-call-function" end|,
+        base: base
+      ),
+      test_block("new/1 accepts #{key}: too", assertion.("from-new"), call: new_call(key, base)),
+      raise_test("without #{key}:, request! raises", key),
+      test_block("a credential set explicitly on the request wins", assertion.(@explicit),
+        opts: explicit_opts,
+        base: base
+      )
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp keyed_tests(what, assertion, explicit_opts, {:resolve, {module, function}, _keys}, base) do
+    [
+      "# Without `api_key:`, #{inspect(module)}.#{function}/1 resolves the credential —\n" <>
+        "# it's yours to test.",
+      test_block("request! #{what} from the api_key: option", assertion.(:config), base: base),
+      test_block("a per-call api_key: may be a function", assertion.("per-call-function"),
+        opts: ~s|api_key: fn -> "per-call-function" end|,
+        base: base
+      ),
+      test_block("a credential set explicitly on the request wins", assertion.(@explicit),
+        opts: explicit_opts,
+        base: base
+      )
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp new_call(key, ""),
+    do: ~s|Req.request!(@client.new(url: "/ping", #{key}: "from-new", plug: plug))|
+
+  defp new_call(key, base),
+    do: ~s|Req.request!(@client.new(#{base}[url: "/ping", #{key}: "from-new", plug: plug]))|
+
+  # `request!/2`'s options: `plug:` plus `extra`, after `@opts` when the
+  # module has per-call values (a later key wins in `Req.merge/2`).
+  defp call_opts("", extra), do: "plug: plug#{extra}"
+  defp call_opts(base, extra), do: "#{base}[plug: plug#{extra}]"
 
   defp expected(:config), do: "@api_key"
   defp expected(key), do: inspect(key)
@@ -247,10 +412,11 @@ defmodule Hearth.Render.Tests do
   # An ExUnit test that asserts on the request inside a `Req.Test` plug.
   # `plug_body` is one or more lines operating on `conn`. Options:
   # `:setup` — a line run first; `:opts` — extra `request!/2` options;
-  # `:call` — replaces the `request!/2` call (it must use `plug`).
-  defp test_block(name, plug_body, opts \\ []) do
+  # `:call` — replaces the `request!/2` call (it must use `plug`);
+  # `:base` — `"@opts ++ "` when the module has per-call values.
+  defp test_block(name, plug_body, opts) do
     extra = if opts[:opts], do: ", " <> opts[:opts], else: ""
-    call = opts[:call] || ~s|@client.request!("/ping", plug: plug#{extra})|
+    call = opts[:call] || ~s|@client.request!("/ping", #{call_opts(opts[:base] || "", extra)})|
     setup = if opts[:setup], do: opts[:setup] <> "\n\n", else: ""
 
     """
@@ -284,8 +450,9 @@ defmodule Hearth.Render.Tests do
           keyword()
         ) :: String.t()
   def external(test_module, layer2, layer1, otp_app, auth, operations, opts \\ []) do
-    headers = opts[:headers] || []
-    alias_name = layer2 |> Module.split() |> List.last()
+    values = opts[:values] || Values.default()
+    seeded = Values.config_keys(values, Auth.keyed?(auth)) -- [:base_url]
+    per_call = external_per_call(layer1, auth, values)
 
     """
     defmodule #{inspect(test_module)} do
@@ -296,13 +463,13 @@ defmodule Hearth.Render.Tests do
       # it freely. Tagged `:external` and skipped by `mix test` — run
       # it with `mix test --include external`.
 
-      use ExUnit.Case, async: #{external_async(auth, headers)}
+      use ExUnit.Case, async: #{seeded == []}
 
       @moduletag :external
 
       alias #{inspect(layer2)}
-      #{external_setup(auth, otp_app, layer1, headers)}
-      #{Enum.map_join(operations, "\n\n", &external_op_test(&1, alias_name))}
+      #{external_setup(seeded, otp_app, layer1)}#{external_opts(per_call)}
+      #{external_tests(layer2, operations, per_call != [])}
     end
     """
     |> Code.format_string!()
@@ -310,25 +477,14 @@ defmodule Hearth.Render.Tests do
     |> Kernel.<>("\n")
   end
 
-  # Config seeded into application env is process-global.
-  defp external_async(auth, headers), do: to_string(not keyed?(auth) and headers == [])
+  # Config values need seeding into app config: `:test` env has none
+  # (`config/runtime.exs` only sets them for prod/dev), each from its
+  # own `<INT>_<KEY>` env var. Seeding is process-global, hence
+  # `async: false`.
+  defp external_setup([], _otp_app, _layer1), do: ""
+  defp external_setup([:api_key], otp_app, layer1), do: external_credential_setup(otp_app, layer1)
 
-  # Credentialed auth needs the key seeded into app config: `:test` env
-  # has none (`config/runtime.exs` only sets it for prod/dev).
-  # Headers read their values the same way, each from its own
-  # `<INT>_<KEY>` env var.
-  defp external_setup(:bearer, otp_app, layer1, []),
-    do: external_credential_setup(otp_app, layer1)
-
-  defp external_setup({:api_key, _location, _name}, otp_app, layer1, []),
-    do: external_credential_setup(otp_app, layer1)
-
-  defp external_setup(_auth, _otp_app, _layer1, []), do: ""
-
-  defp external_setup(auth, otp_app, layer1, headers) do
-    keys = if keyed?(auth), do: [:api_key], else: []
-    keys = keys ++ Enum.map(headers, &elem(&1, 1))
-
+  defp external_setup(keys, otp_app, layer1) do
     values =
       Enum.map_join(keys, ",\n", fn key ->
         env_var = env_var(layer1, key)
@@ -356,9 +512,37 @@ defmodule Hearth.Render.Tests do
     """
   end
 
-  defp keyed?(:bearer), do: true
-  defp keyed?({:api_key, _location, _name}), do: true
-  defp keyed?(_auth), do: false
+  # Option-only values go on every call, read from the same env vars.
+  # Resolved ones are left to their resolvers: this is the live API.
+  defp external_per_call(layer1, auth, values) do
+    credential = if Auth.keyed?(auth), do: [values.credential], else: []
+
+    (credential ++ Enum.map(values.headers, &elem(&1, 1)) ++ [values.base_url])
+    |> Enum.flat_map(fn
+      {:option, :base_url} ->
+        [~s|base_url: System.fetch_env!(#{inspect(env_var(layer1, :base_url))})|]
+
+      {:option, key} ->
+        env_var = env_var(layer1, key)
+        [~s|#{key}: System.get_env(#{inspect(env_var)}) \|\| #{inspect("DEV_NO_" <> env_var)}|]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp external_opts([]), do: ""
+
+  defp external_opts(per_call) do
+    """
+
+
+    # Values Layer 1 takes per call, never from config.
+    defp opts do
+      [#{Enum.join(per_call, ",\n")}]
+    end\
+    """
+  end
 
   # `<INT>_<KEY>` — the env var `config/runtime.exs` reads a config key
   # from (`Hearth.Gen.Patches`).
@@ -390,24 +574,37 @@ defmodule Hearth.Render.Tests do
   The external-test blocks for `operations` alone — what `regen --sync`
   appends to an existing scaffold for the operations it added.
   """
-  @spec external_tests(module(), [Operation.t()]) :: String.t()
-  def external_tests(layer2, operations) do
+  # `opts?` — the scaffold has an `opts/0` of per-call values
+  # (`per_call?/2`); each call passes it.
+  @spec external_tests(module(), [Operation.t()], boolean()) :: String.t()
+  def external_tests(layer2, operations, opts? \\ false) do
     alias_name = layer2 |> Module.split() |> List.last()
-    Enum.map_join(operations, "\n\n", &external_op_test(&1, alias_name))
+    Enum.map_join(operations, "\n\n", &external_op_test(&1, alias_name, opts?))
   end
 
-  defp external_op_test(%Operation{} = op, alias_name) do
+  @doc "Whether the external scaffold passes per-call values (`opts/0`)."
+  @spec per_call?(Auth.strategy(), Values.values()) :: boolean()
+  def per_call?(auth, values) do
+    credential = if Auth.keyed?(auth), do: [values.credential], else: []
+
+    Enum.any?(
+      credential ++ Enum.map(values.headers, &elem(&1, 1)) ++ [values.base_url],
+      &match?({:option, _key}, &1)
+    )
+  end
+
+  defp external_op_test(%Operation{} = op, alias_name, opts?) do
     """
     # TODO: replace the placeholder args/opts and assert on your use-case.
     test "#{op.id} reaches the live API" do
-      assert {:ok, %Req.Response{}} = #{alias_name}.Req.#{op.id}(#{external_call_args(op)})
+      assert {:ok, %Req.Response{}} = #{alias_name}.Req.#{op.id}(#{external_call_args(op, opts?)})
     end
     """
     |> String.trim_trailing()
   end
 
-  defp external_call_args(%Operation{path_params: params}) do
+  defp external_call_args(%Operation{path_params: params}, opts?) do
     path_args = params |> List.wrap() |> Enum.map(fn _ -> ~s("TODO") end)
-    Enum.join(path_args ++ ["[]"], ", ")
+    Enum.join(path_args ++ [if(opts?, do: "opts()", else: "[]")], ", ")
   end
 end

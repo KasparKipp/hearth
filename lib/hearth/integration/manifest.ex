@@ -49,7 +49,7 @@ defmodule Hearth.Integration.Manifest do
   # `Hearth.Spec.Servers.resolve/1` result), `:prefix` (the base path),
   # `:operations` (already prefix-stripped), `:metadata` (for the
   # Layer 2 moduledoc — see `metadata/2`), and optionally `:prefixed`
-  # and `:headers`.
+  # and `:values`.
   @spec files(map(), keyword()) :: [entry()]
   def files(names, opts) do
     otp_app = Keyword.fetch!(opts, :otp_app)
@@ -70,7 +70,7 @@ defmodule Hearth.Integration.Manifest do
           servers.path <> prefix,
           auth,
           prefixed: prefixed(opts),
-          headers: headers(opts)
+          values: values(opts)
         ),
         "raw Req client"
       ),
@@ -96,9 +96,7 @@ defmodule Hearth.Integration.Manifest do
       ),
       entry(
         names.layer1_test,
-        Render.Tests.layer1(names.layer1_test, names.layer1, otp_app, auth,
-          headers: headers(opts)
-        ),
+        Render.Tests.layer1(names.layer1_test, names.layer1, otp_app, auth, values: values(opts)),
         "Layer 1 auth test"
       ),
       entry(
@@ -110,7 +108,7 @@ defmodule Hearth.Integration.Manifest do
           otp_app,
           auth,
           operations,
-          headers: headers(opts)
+          values: values(opts)
         ),
         "external integration test"
       )
@@ -121,8 +119,9 @@ defmodule Hearth.Integration.Manifest do
     end)
   end
 
-  # `:headers` — `Hearth.Spec.Headers.parse/1`'s pairs.
-  defp headers(opts), do: opts[:headers] || []
+  # `:values` — `Hearth.Spec.Values.parse/1`'s result: the credential,
+  # the headers and the base URL.
+  defp values(opts), do: opts[:values] || Hearth.Spec.Values.default()
 
   # `:prefixed` — `Hearth.Spec.PrefixedIds.prepare/2`'s result, or nil;
   # the renderers also need the base path.

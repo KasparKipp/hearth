@@ -42,7 +42,8 @@ never fetches.
 
 A Swagger 2.0 source is converted to OpenAPI 3.0 first. The pruned spec
 is OpenAPI 3, and `overrides:` address that form. A spec without a host
-gets a placeholder base URL: set `base_url:` in config.
+gets a placeholder base URL: set `base_url:` in config, or say where it
+comes from with the entry's `base_url:` (see "Where values come from").
 
 Declare your own shortcuts in `.hearth.exs` — same shape as Hearth's
 built-in registry. A version points at a URL or a file;
@@ -189,6 +190,8 @@ keyed by its snake_case name:
   (`scheme:`); see below.
 * `overrides` — your corrections to the source spec; see below.
 * `headers` — headers the client sends on every call; see below.
+* `base_url` — where the base URL comes from, when not from the spec;
+  see "Where values come from".
 * `sources` — several specs merged into one integration, in place of
   `source`; see below.
 
@@ -278,15 +281,15 @@ which source to pin with `overrides: [shared: %{"schemas/address" =>
 
 ## Headers
 
-To send a header on every call, map it to the config key its value
-comes from, then run `mix hearth.regen <int>`:
+To send a header on every call, map it to where its value comes from
+(see "Where values come from"), then run `mix hearth.regen <int>`:
 
     stripe: [
       headers: ["stripe-account": :account],
       ...
     ]
 
-The value resolves like the credential: a per-call `account:`, else
+A bare key resolves like the credential: a per-call `account:`, else
 config, as a string, a 0-arity function or an `{m, f, a}` tuple.
 `config/runtime.exs` reads `<INTEGRATION>_<KEY>` (`STRIPE_ACCOUNT`). A
 header set on the request wins; a missing value raises. `gen` points
@@ -369,6 +372,30 @@ A per-call `api_key:` overrides config. A credential set explicitly
 on the request (`auth:`, the header, or the query param) is left
 alone. The generated auth test (`<Int>Test`) has a working example of
 each of these.
+
+## Where values come from
+
+The credential (`auth: [credential: …]`), each `headers:` value and the
+base URL (`base_url:`) take one of three forms. A per-call option always
+comes first:
+
+    acme: [
+      auth: [scheme: "bearerAuth", credential: [resolve: {MyApp.Tenancy, :token}, options: [:tenant]]],
+      headers: ["x-app-key": :app_key, "x-tenant-id": [option: :tenant_id]],
+      base_url: :base_url
+    ]
+
+* `key` — the `key` option, else config; `config/runtime.exs` reads
+  `<INTEGRATION>_<KEY>`. The default credential is `:api_key`.
+* `[option: key]` — per call only: never read from config, nothing in
+  `config/runtime.exs`. A call without it raises.
+* `[resolve: {M, :f}, options: [...]]` — `M.f/1` when each request
+  runs, given those options; it must return a string. The credential
+  still takes a per-call `api_key:` first, the base URL a `base_url:`.
+
+Then run `mix hearth.regen <int>`. A value that moves off config leaves
+its `config/runtime.exs` line behind; `regen` names it for you to
+delete.
 
 ## Testing
 

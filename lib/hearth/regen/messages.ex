@@ -22,6 +22,14 @@ defmodule Hearth.Regen.Messages do
     """
   end
 
+  def stale_config_notice(names, env_vars) do
+    """
+    config/runtime.exs still reads #{Enum.join(env_vars, ", ")} for #{inspect(names.layer1)},
+    but its .hearth.exs entry no longer takes #{if length(env_vars) == 1, do: "that value", else: "those values"} from config.
+    Delete those lines; regen doesn't remove config.
+    """
+  end
+
   defp result_line(:regenerated, location), do: "* regenerating #{location}"
   defp result_line(:created, location), do: "* creating #{location}"
   defp result_line(:owned, location), do: "* skipping #{location} (hearth:owned)"

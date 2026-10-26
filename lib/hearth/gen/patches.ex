@@ -2,6 +2,9 @@ if Code.ensure_loaded?(Igniter) do
   defmodule Hearth.Gen.Patches do
     @moduledoc false
 
+    alias Hearth.Spec.Auth
+    alias Hearth.Spec.Values
+
     # The host-project wiring `mix hearth.gen` applies around the
     # generated files: consumer deps, the Mox mock, `test_helper.exs`,
     # and the config patches (credential, impl, base URL, alternates).
@@ -33,21 +36,22 @@ if Code.ensure_loaded?(Igniter) do
     # Applies every host-project patch, in a fixed order (the order
     # determines the layout of the patched config files). `ctx` carries
     # `:otp_app`, `:names` (a `ModuleNames.from_layer1/1` map), `:auth`,
-    # `:servers`, and `:prefix`.
+    # `:servers`, `:prefix`, and optionally `:values`
+    # (`Hearth.Spec.Values.parse/1`).
     @spec wire(Igniter.t(), map()) :: Igniter.t()
     def wire(igniter, ctx) do
       %{otp_app: otp_app, names: names, auth: auth, servers: servers, prefix: prefix} = ctx
+      values = ctx[:values] || Values.default()
 
       igniter
       |> wire_mock(names.mock, names.layer2)
       |> compile_test_support()
       |> patch_test_helper()
-      |> patch_credential_config(otp_app, names.layer1, names.integration, auth)
-      |> wire_headers(otp_app, names, ctx[:headers] || [])
+      |> wire_values(otp_app, names, Values.config_keys(values, Auth.keyed?(auth)))
       |> patch_impl_config(otp_app, names.layer2, names.mock)
       |> patch_base_url_config(otp_app, names.layer1, servers, prefix)
       |> patch_base_url_alternates(otp_app, names.layer1, servers, prefix)
-      |> warn_servers(otp_app, names.layer1, servers, prefix)
+      |> warn_servers(otp_app, names, servers, prefix, values.base_url)
     end
 
     # `config/test.exs` overrides Layer 1's base URL with a non-prod
@@ -101,26 +105,33 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     # When the spec declared no `servers`, the base URL is a placeholder
-    # — warn the user where to set the real one.
-    defp warn_servers(igniter, otp_app, layer1, %{warn?: true} = servers, prefix) do
+    # — warn the user where to set the real one, unless the entry's
+    # `base_url:` already says where it comes from.
+    defp warn_servers(igniter, otp_app, names, %{warn?: true} = servers, prefix, nil) do
       url = with_prefix(Hearth.Spec.Servers.placeholder(servers), prefix)
 
       Igniter.add_warning(igniter, """
       The spec declared no `servers` — Layer 1's base URL is a placeholder.
       Set the real one:
 
-          config #{inspect(otp_app)}, #{inspect(layer1)}, base_url: #{inspect(url)}
+          config #{inspect(otp_app)}, #{inspect(names.layer1)}, base_url: #{inspect(url)}
+
+      or say where it comes from with `base_url:` in its .hearth.exs entry:
+      `:base_url` reads #{env_var(names.integration, :base_url)}, `[resolve: {MyApp.Module, :function}]`
+      asks a module of yours.
       """)
     end
 
-    defp warn_servers(igniter, _otp_app, _layer1, %{fallback_default?: true}, _prefix) do
+    defp warn_servers(igniter, _otp_app, _names, %{warn?: true}, _prefix, _from), do: igniter
+
+    defp warn_servers(igniter, _otp_app, _names, %{fallback_default?: true}, _prefix, _from) do
       Igniter.add_notice(
         igniter,
         "Every spec server looked non-production; used the first as the default base URL."
       )
     end
 
-    defp warn_servers(igniter, _otp_app, _layer1, _servers, _prefix), do: igniter
+    defp warn_servers(igniter, _otp_app, _names, _servers, _prefix, _from), do: igniter
 
     defp with_prefix(url, ""), do: url
     defp with_prefix(url, prefix), do: String.trim_trailing(url, "/") <> prefix
@@ -195,42 +206,45 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     # Wires the credential alone — for `regen --sync` when the source's
-    # auth scheme changed. Keeps any value already configured.
-    @spec wire_credential(Igniter.t(), atom(), map(), term()) :: Igniter.t()
-    def wire_credential(igniter, otp_app, names, auth),
-      do: patch_credential_config(igniter, otp_app, names.layer1, names.integration, auth)
+    # auth scheme changed. Keeps any value already configured; nothing
+    # when the credential isn't read from config.
+    @spec wire_credential(Igniter.t(), atom(), map(), term(), Values.t()) :: Igniter.t()
+    def wire_credential(igniter, otp_app, names, auth, credential \\ {:config, :api_key}) do
+      case {Auth.keyed?(auth), credential} do
+        {true, {:config, key}} -> wire_values(igniter, otp_app, names, [key])
+        _ -> igniter
+      end
+    end
 
-    # The credential lives in `config/runtime.exs`, keyed by the Layer 1
-    # module (where `credential/1` reads it): prod raises if the env var
-    # is unset, dev falls back to a placeholder. Skipped when the spec
-    # declares no usable auth scheme.
-    defp patch_credential_config(igniter, _otp_app, _layer1, _integration, :none), do: igniter
-
-    defp patch_credential_config(igniter, _otp_app, _layer1, _integration, {:unsupported, _}),
-      do: igniter
-
-    defp patch_credential_config(igniter, otp_app, layer1, integration, _auth),
-      do: configure_from_env(igniter, otp_app, layer1, integration, :api_key)
-
-    # Each `headers:` config key, wired like the credential from its own
-    # `<INT>_<KEY>` env var. Keeps any value already configured — also
-    # what `regen --sync` uses when headers join an entry.
-    @spec wire_headers(Igniter.t(), atom(), map(), [{String.t(), atom()}]) :: Igniter.t()
-    def wire_headers(igniter, otp_app, names, headers) do
-      Enum.reduce(headers, igniter, fn {_name, key}, igniter ->
+    # Each config key — a bare credential, header or base URL value —
+    # lives in `config/runtime.exs`, keyed by the Layer 1 module (where
+    # it's read), from its own `<INT>_<KEY>` env var: prod raises if
+    # it's unset, dev falls back to a placeholder (the base URL to the
+    # spec's). Keeps any value already configured — also what regen uses
+    # when values join an entry.
+    @spec wire_values(Igniter.t(), atom(), map(), [atom()]) :: Igniter.t()
+    def wire_values(igniter, otp_app, names, keys) do
+      Enum.reduce(keys, igniter, fn key, igniter ->
         configure_from_env(igniter, otp_app, names.layer1, names.integration, key)
       end)
     end
 
+    @spec env_var(String.t(), atom()) :: String.t()
+    def env_var(integration, key),
+      do: String.upcase(Macro.underscore(integration) <> "_" <> Atom.to_string(key))
+
     defp configure_from_env(igniter, otp_app, layer1, integration, key) do
-      env_var = String.upcase(Macro.underscore(integration) <> "_" <> Atom.to_string(key))
+      env_var = env_var(integration, key)
 
       prod =
         Sourceror.parse_string!(
           ~s/System.get_env("#{env_var}") || raise("missing #{env_var} environment variable")/
         )
 
-      dev = Sourceror.parse_string!(~s/System.get_env("#{env_var}") || "DEV_NO_#{env_var}"/)
+      dev =
+        if key == :base_url,
+          do: Sourceror.parse_string!(~s/System.get_env("#{env_var}")/),
+          else: Sourceror.parse_string!(~s/System.get_env("#{env_var}") || "DEV_NO_#{env_var}"/)
 
       igniter
       |> Igniter.Project.Config.configure_runtime_env(
@@ -356,7 +370,7 @@ if Code.ensure_loaded?(Igniter) do
       |> Kernel.<>("\n")
     end
 
-    def wired_files(auth, headers \\ []) do
+    def wired_files(auth, values \\ Values.default()) do
       base = [
         "test/support/mocks.ex",
         "mix.exs (test/support in elixirc_paths)",
@@ -364,12 +378,12 @@ if Code.ensure_loaded?(Igniter) do
         "config/test.exs (impl, base_url)"
       ]
 
+      config? = &match?({:config, _key}, &1)
+
       runtime =
-        case auth do
-          :none -> []
-          {:unsupported, _} -> []
-          _ -> ["credential"]
-        end ++ if(headers == [], do: [], else: ["headers"])
+        if(Auth.keyed?(auth) and config?.(values.credential), do: ["credential"], else: []) ++
+          if(Enum.any?(values.headers, &config?.(elem(&1, 1))), do: ["headers"], else: []) ++
+          if(config?.(values.base_url), do: ["base URL"], else: [])
 
       if runtime == [],
         do: base,

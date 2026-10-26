@@ -6,17 +6,20 @@ defmodule Hearth.Render.HeadersRuntimeTest do
 
   alias Hearth.Render.Layer1
 
-  @headers [{"x-app-key", :app_key}, {"x-tenant-id", :tenant_id}]
+  @headers [{"x-app-key", {:config, :app_key}}, {"x-tenant-id", {:config, :tenant_id}}]
 
   def token, do: "from-mfa"
 
-  defp client(auth, config) do
+  def tenant(opts), do: "resolved-" <> (opts[:tenant] || "none")
+
+  defp client(auth, config, headers \\ @headers) do
     n = System.unique_integer([:positive])
     module = Module.concat([__MODULE__, "Client#{n}"])
     otp_app = :"hearth_headers_runtime_#{n}"
+    values = %{Hearth.Spec.Values.default() | headers: headers}
 
     module
-    |> Layer1.render(otp_app, "https://api.example.com", "", auth, headers: @headers)
+    |> Layer1.render(otp_app, "https://api.example.com", "", auth, values: values)
     |> Code.compile_string()
 
     Application.put_env(otp_app, module, config)
@@ -75,6 +78,28 @@ defmodule Hearth.Render.HeadersRuntimeTest do
     assert_raise RuntimeError, ~r/missing :tenant_id .* x-tenant-id header/, fn ->
       call(client)
     end
+  end
+
+  test "an option-only header never reads config, and raises without the option" do
+    client = client(:none, [tenant_id: "from-config"], [{"x-tenant-id", {:option, :tenant_id}}])
+
+    assert client |> call(tenant_id: "per-call") |> header("x-tenant-id") == ["per-call"]
+
+    assert_raise RuntimeError, ~r/missing :tenant_id .* x-tenant-id header/, fn ->
+      call(client)
+    end
+  end
+
+  test "a resolved header calls the resolver with the listed options only" do
+    headers = [{"x-tenant-id", {:resolve, {__MODULE__, :tenant}, [:tenant]}}]
+    client = client(:none, [], headers)
+
+    assert client |> call(tenant: "acme") |> header("x-tenant-id") == ["resolved-acme"]
+    assert client |> call() |> header("x-tenant-id") == ["resolved-none"]
+
+    assert client |> call(headers: [{"x-tenant-id", "MINE"}]) |> header("x-tenant-id") == [
+             "MINE"
+           ]
   end
 
   test "works alongside a wired credential" do

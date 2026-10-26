@@ -122,12 +122,12 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Render.ModuleNames
     alias Hearth.Spec.Auth
     alias Hearth.Spec.BasePath
-    alias Hearth.Spec.Headers
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
     alias Hearth.Spec.PrefixedIds
     alias Hearth.Spec.Selection
     alias Hearth.Spec.Servers
+    alias Hearth.Spec.Values
 
     @impl Igniter.Mix.Task
     def info(_argv, _composing_task) do
@@ -225,7 +225,7 @@ if Code.ensure_loaded?(Igniter) do
             igniter
             |> Sync.extend_external_test(names, spec, changes)
             |> render(names, spec_path, spec, entry)
-            |> wire_new_auth(names, changes)
+            |> wire_new_auth(names, changes, entry)
             |> CallSites.rewrite(names, replacements, rewrite?)
 
           true ->
@@ -244,12 +244,16 @@ if Code.ensure_loaded?(Igniter) do
 
     # `--sync` changed the auth scheme: wire its credential config the
     # way `gen` would (existing values are kept).
-    defp wire_new_auth(igniter, names, %{auth: auth}) when not is_nil(auth) do
+    defp wire_new_auth(igniter, names, %{auth: auth}, entry) when not is_nil(auth) do
       otp_app = Igniter.Project.Application.app_name(igniter)
-      Patches.wire_credential(igniter, otp_app, names, auth)
+
+      case Values.parse(entry) do
+        {:ok, values} -> Patches.wire_credential(igniter, otp_app, names, auth, values.credential)
+        {:error, _} -> igniter
+      end
     end
 
-    defp wire_new_auth(igniter, _names, _changes), do: igniter
+    defp wire_new_auth(igniter, _names, _changes, _entry), do: igniter
 
     # `--sync` only: which removed functions to replace at their call
     # sites (`Hearth.Regen.CallSites`), whether the user agreed, and the
@@ -358,7 +362,12 @@ if Code.ensure_loaded?(Igniter) do
         names: names,
         auth: Auth.strategy(spec),
         servers: Servers.resolve(spec),
-        prefix: prefix(entry, Operation.extract(spec))
+        prefix: prefix(entry, Operation.extract(spec)),
+        values:
+          case Values.parse(entry) do
+            {:ok, values} -> values
+            {:error, _} -> Values.default()
+          end
       }
     end
 
@@ -386,12 +395,14 @@ if Code.ensure_loaded?(Igniter) do
       key = Config.key(names.integration)
 
       with {:prefixed, {:ok, prefixed}} <- {:prefixed, PrefixedIds.prepare(spec, entry)},
-           {:headers, {:ok, headers}} <- {:headers, Headers.parse(entry)} do
+           {:values, {:ok, values}} <- {:values, Values.parse(entry)} do
         functions = functions(operations, prefixed)
+        auth = Auth.strategy(spec)
 
         igniter
-        |> render_layers(names, {spec_path, spec, entry, prefixed, headers}, functions, prefix)
-        |> wire_headers(names, headers)
+        |> render_layers(names, {spec_path, spec, entry, prefixed, values}, functions, prefix)
+        |> wire_values(names, entry, values, auth)
+        |> stale_config_notice(names, values, auth)
       else
         {:prefixed, {:error, detail}} ->
           Igniter.add_issue(
@@ -399,18 +410,64 @@ if Code.ensure_loaded?(Igniter) do
             IntegrationMessages.bad_prefixed_ids_message(:regen, key, detail)
           )
 
-        {:headers, {:error, detail}} ->
-          Igniter.add_issue(igniter, IntegrationMessages.bad_headers_message(:regen, key, detail))
+        {:values, {:error, detail}} ->
+          Igniter.add_issue(igniter, IntegrationMessages.bad_values_message(:regen, key, detail))
       end
     end
 
-    # Headers come from the entry, not the spec: their config is wired
-    # whenever they're rendered (existing values are kept).
-    defp wire_headers(igniter, _names, []), do: igniter
+    # Values come from the entry, not the spec: the config keys of its
+    # headers and base URL — and of a `credential:` it names — are wired
+    # whenever they're rendered (existing values are kept). The default
+    # credential stays gen's and `--sync`'s to wire.
+    defp wire_values(igniter, names, entry, values, auth) do
+      credential? =
+        Auth.keyed?(auth) and is_list(entry[:auth]) and
+          Keyword.has_key?(entry[:auth], :credential)
 
-    defp wire_headers(igniter, names, headers) do
-      otp_app = Igniter.Project.Application.app_name(igniter)
-      Patches.wire_headers(igniter, otp_app, names, headers)
+      case Values.config_keys(values, credential?) do
+        [] ->
+          igniter
+
+        keys ->
+          otp_app = Igniter.Project.Application.app_name(igniter)
+          Patches.wire_values(igniter, otp_app, names, keys)
+      end
+    end
+
+    # A value that moved off config leaves its runtime.exs line behind;
+    # regen doesn't remove config, so it names the lines to delete.
+    defp stale_config_notice(igniter, names, values, auth) do
+      igniter = Igniter.include_existing_file(igniter, "config/runtime.exs", required?: false)
+
+      with {:ok, content} <- Content.read(igniter, "config/runtime.exs"),
+           [_ | _] = vars <- stale_env_vars(content, names, values, auth) do
+        Igniter.add_notice(igniter, Messages.stale_config_notice(names, vars))
+      else
+        _ -> igniter
+      end
+    end
+
+    defp stale_env_vars(content, names, values, auth) do
+      credential =
+        case {Auth.keyed?(auth), values.credential} do
+          {true, {:option, key}} -> [:api_key, key]
+          {true, {:resolve, _mf, _keys}} -> [:api_key]
+          _ -> []
+        end
+
+      headers = for {_name, {:option, key}} <- values.headers, do: key
+
+      base_url =
+        case values.base_url do
+          {:config, :base_url} -> []
+          nil -> []
+          _ -> [:base_url]
+        end
+
+      (credential ++ headers ++ base_url)
+      |> Enum.uniq()
+      |> Enum.map(&Patches.env_var(names.integration, &1))
+      |> Enum.filter(&String.contains?(content, ~s|System.get_env("#{&1}")|))
     end
 
     # The operations that become functions: all of the pruned spec's,
@@ -436,7 +493,7 @@ if Code.ensure_loaded?(Igniter) do
     defp render_layers(
            igniter,
            names,
-           {spec_path, spec, entry, prefixed, headers},
+           {spec_path, spec, entry, prefixed, values},
            operations,
            prefix
          ) do
@@ -459,7 +516,7 @@ if Code.ensure_loaded?(Igniter) do
           operations: selected,
           metadata: Manifest.metadata(source_label(entry, spec_path), spec),
           prefixed: prefixed,
-          headers: headers
+          values: values
         )
 
       {igniter, results} =

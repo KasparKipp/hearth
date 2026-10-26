@@ -152,6 +152,13 @@ defmodule Hearth.Spec.Auth do
   defp scheme_value(scheme) when is_binary(scheme) or is_nil(scheme), do: {:ok, scheme}
   defp scheme_value(scheme), do: {:error, scheme}
 
+  # Whether the strategy takes a credential (`api_key`, or the entry's
+  # `credential:`).
+  @spec keyed?(strategy()) :: boolean()
+  def keyed?(:bearer), do: true
+  def keyed?({:api_key, _location, _name}), do: true
+  def keyed?(_strategy), do: false
+
   @spec label(strategy()) :: String.t()
   def label(:none), do: "none"
   def label(:bearer), do: "bearer"

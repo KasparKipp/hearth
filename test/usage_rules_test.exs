@@ -81,6 +81,13 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ ~s|headers: ["stripe-account": :account]|
   end
 
+  test "documents where values come from" do
+    assert @content =~ "## Where values come from"
+    assert @content =~ "credential: [resolve: {MyApp.Tenancy, :token}, options: [:tenant]]"
+    assert @content =~ ~s|"x-tenant-id": [option: :tenant_id]|
+    assert @content =~ "base_url: :base_url"
+  end
+
   test "documents hearth.diff for CI" do
     assert @content =~ "mix hearth.diff stripe"
     assert @content =~ "--fail-on breaking"

@@ -117,21 +117,63 @@ defmodule Hearth.Gen.Messages do
       ".hearth.exs lists the spec's schemes."
   end
 
-  def credential_hint(_auth, names) do
-    env_var = env_var(names, :api_key)
+  def credential_hint(auth, names), do: credential_hint(auth, names, {:config, :api_key})
+
+  def credential_hint(auth, names, _credential)
+      when auth == :none or elem(auth, 0) == :unsupported,
+      do: credential_hint(auth, names)
+
+  def credential_hint(_auth, names, {:config, key}) do
+    env_var = env_var(names, key)
 
     "\n\nSet the credential: the #{env_var} environment variable (read in\n" <>
-      "config/runtime.exs), or `api_key:` in #{inspect(names.layer1)}'s config."
+      "config/runtime.exs), or `#{key}:` in #{inspect(names.layer1)}'s config."
+  end
+
+  def credential_hint(_auth, _names, {:option, key}),
+    do: "\n\nPass the credential on every call as `#{key}:`; it is never read from config."
+
+  def credential_hint(_auth, _names, {:resolve, {module, function}, _keys}) do
+    "\n\nThe credential comes from #{inspect(module)}.#{function}/1 (or `api_key:` per call);\n" <>
+      "it is never read from config."
   end
 
   def headers_hint([], _names), do: ""
 
   def headers_hint(headers, names) do
-    vars = Enum.map_join(headers, ", ", fn {_name, key} -> env_var(names, key) end)
+    config = for {_name, {:config, key}} <- headers, do: env_var(names, key)
+    options = for {name, {:option, key}} <- headers, do: "`#{key}:` (#{name})"
 
-    "\n\nSet the headers: #{vars} (read in config/runtime.exs), or the\n" <>
-      "matching keys in #{inspect(names.layer1)}'s config."
+    resolved =
+      for {name, {:resolve, {module, function}, _keys}} <- headers,
+          do: "#{name} comes from #{inspect(module)}.#{function}/1."
+
+    Enum.join(
+      if(config == [],
+        do: [],
+        else: [
+          "Set the headers: #{Enum.join(config, ", ")} (read in config/runtime.exs), or the\n" <>
+            "matching keys in #{inspect(names.layer1)}'s config."
+        ]
+      ) ++
+        if(options == [], do: [], else: ["Pass #{Enum.join(options, ", ")} on every call."]) ++
+        resolved,
+      "\n"
+    )
+    |> then(&("\n\n" <> &1))
   end
+
+  def base_url_hint(nil, _names), do: ""
+
+  def base_url_hint({:config, :base_url}, names) do
+    "\n\nSet the base URL: the #{env_var(names, :base_url)} environment variable (read in\n" <>
+      "config/runtime.exs)."
+  end
+
+  def base_url_hint({:option, :base_url}, _names), do: "\n\nPass `base_url:` on every call."
+
+  def base_url_hint({:resolve, {module, function}, _keys}, _names),
+    do: "\n\nThe base URL comes from #{inspect(module)}.#{function}/1 (or `base_url:` per call)."
 
   # Required header params every selected operation takes that nothing
   # sends yet.
