@@ -213,7 +213,11 @@ own paths and operationIds:
           Customers: ["get /v1/customers", "post /v1/customers", "GetCustomersCustomer"],
           Subscriptions: ["/v1/subscriptions*"]
         ],
-        operation_ids: %{"GetCustomersCustomer" => "GetCustomer"}
+        operation_ids: %{"GetCustomersCustomer" => "GetCustomer"},
+        patches: %{
+          "/components/securitySchemes/bearerAuth" => %{"type" => "http", "scheme" => "bearer"},
+          "/security" => [%{"bearerAuth" => []}]
+        }
       ],
       ...
     ]
@@ -223,6 +227,8 @@ own paths and operationIds:
   operationId.
 * `operation_ids` — rename an operation, found by its operationId or by
   `"method /path"`. The function follows: `GetCustomer` → `get_customer`.
+* `patches` — set a JSON pointer to a value; `nil` removes it, `-`
+  appends to a list. Applied first, to the OpenAPI 3 form.
 
 Before the first `gen`, write the entry with just `overrides:`. Later,
 edit them and run `mix hearth.regen <int> --sync`. An override that

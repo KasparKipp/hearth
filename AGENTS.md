@@ -383,6 +383,7 @@ lib/
       prune.ex                 # spec → pruned spec + YAML encoding
       selection.ex             # the tags / operations gen selected, for .hearth.exs
       overrides.ex             # an entry's overrides: applied to the source spec
+      patches.ex               # overrides: [patches:] — JSON pointer → value edits
       prefixed_ids.ex          # prefixed_ids: functions, resolved resources
       headers.ex               # headers: pairs + required-header suggestions
       drift.ex                 # pruned spec vs re-pruned source → changes
@@ -552,7 +553,11 @@ What exists, condensed. The blow-by-blow is in git history.
 - **Overrides** — an entry's `overrides:` (`Spec.Overrides`) corrects the
   source spec before selection: `parse/1` validates it (unknown kinds are an
   error naming the supported ones), `apply/2` rewrites the decoded source and
-  returns stale entries. `tags:` — path globs (`*` crosses `/`),
+  returns stale entries. `patches:` (`Spec.Patches`) — JSON pointer → value,
+  `nil` removes, `-` appends, maps created on the way; applied first, in
+  pointer order, to the OpenAPI 3 form (after Swagger 2 conversion, once
+  that exists); a value already there or a missing key to remove is stale,
+  an unfollowable pointer an error. `tags:` — path globs (`*` crosses `/`),
   `method /glob`, or operationIds; adds to upstream tags. `operation_ids:` —
   upstream operationId (or `"method /path"`) → new operationId, applied after
   tags so both refer to the source as published; a new id or derived function

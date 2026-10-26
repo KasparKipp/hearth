@@ -137,7 +137,9 @@ defmodule Hearth.Gen.Messages do
   # sends yet.
   def headers_notice(names, suggestions) do
     pairs =
-      Enum.map_join(suggestions, ", ", fn {name, key} -> "#{inspect(name)}: #{inspect(key)}" end)
+      Enum.map_join(suggestions, ", ", fn {name, key} ->
+        "#{Macro.inspect_atom(:key, String.to_atom(name))} #{inspect(key)}"
+      end)
 
     """
     Every operation requires #{Enum.map_join(suggestions, ", ", &elem(&1, 0))}, which nothing sends yet.

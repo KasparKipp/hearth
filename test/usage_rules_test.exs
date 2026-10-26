@@ -52,6 +52,7 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ ~s|Subscriptions: ["/v1/subscriptions*"]|
     assert @content =~ "matches nothing"
     assert @content =~ ~s|operation_ids: %{"GetCustomersCustomer" => "GetCustomer"}|
+    assert @content =~ ~s|"/security" => [%{"bearerAuth" => []}]|
     assert @content =~ "## Auth"
     assert @content =~ ~s|scheme: "bearerAuth"|
   end

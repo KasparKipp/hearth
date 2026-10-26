@@ -12,9 +12,13 @@ defmodule Hearth.Spec.Overrides do
   #         Customers: ["/v1/customers*", "PostCustomerSearch"],
   #         Billing: ["get /v1/invoices*"]
   #       ],
-  #       operation_ids: %{"GetCustomersCustomer" => "GetCustomer"}
+  #       operation_ids: %{"GetCustomersCustomer" => "GetCustomer"},
+  #       patches: %{"/security" => [%{"bearerAuth" => []}]}
   #     ]
   #
+  #   * `patches` — JSON pointer → value edits to the document
+  #     (`Hearth.Spec.Patches`), applied first: tags and renames see
+  #     the patched spec.
   #   * `tags` — adds a tag to the operations an entry matches: a path
   #     glob (`/…`, `*` matches anything, `/` included), a method plus a
   #     glob (`get /…`), or an operationId. Upstream tags stay.
@@ -29,13 +33,18 @@ defmodule Hearth.Spec.Overrides do
   # them. Everything downstream sees the result. An entry that matches
   # nothing is returned as stale, for the tasks to report.
 
-  @kinds [:tags, :operation_ids]
+  @kinds [:patches, :tags, :operation_ids]
   @methods ~w(get put post delete options head patch trace)
 
   alias Hearth.Spec.Operation
+  alias Hearth.Spec.Patches
 
-  @type t :: %{tags: [{String.t(), [String.t()]}], operation_ids: %{String.t() => String.t()}}
-  @type stale :: {:tags | :operation_ids, String.t()}
+  @type t :: %{
+          patches: [Patches.patch()],
+          tags: [{String.t(), [String.t()]}],
+          operation_ids: %{String.t() => String.t()}
+        }
+  @type stale :: {:patches | :tags | :operation_ids, String.t()}
 
   @spec parse(keyword()) :: {:ok, t()} | {:error, String.t()}
   def parse(entry) do
@@ -43,9 +52,10 @@ defmodule Hearth.Spec.Overrides do
 
     with true <- Keyword.keyword?(overrides) || {:error, shape_message()},
          :ok <- known_kinds(overrides),
+         {:ok, patches} <- Patches.parse(Keyword.get(overrides, :patches, %{})),
          {:ok, tags} <- tags(Keyword.get(overrides, :tags, [])),
          {:ok, ids} <- operation_ids(Keyword.get(overrides, :operation_ids, %{})) do
-      {:ok, %{tags: tags, operation_ids: ids}}
+      {:ok, %{patches: patches, tags: tags, operation_ids: ids}}
     end
   end
 
@@ -57,13 +67,14 @@ defmodule Hearth.Spec.Overrides do
   end
 
   # Returns the overridden spec and the override entries that matched
-  # nothing, or an error when a rename collides.
+  # nothing, or an error when a patch can't be applied or a rename
+  # collides.
   @spec apply(map(), t()) :: {:ok, map(), [stale()]} | {:error, String.t()}
   def apply(spec, overrides) do
-    {spec, tag_stale} = apply_tags(spec, overrides.tags)
-
-    with {:ok, spec, id_stale} <- apply_operation_ids(spec, overrides.operation_ids) do
-      {:ok, spec, tag_stale ++ id_stale}
+    with {:ok, spec, patch_stale} <- Patches.apply(spec, overrides.patches),
+         {spec, tag_stale} = apply_tags(spec, overrides.tags),
+         {:ok, spec, id_stale} <- apply_operation_ids(spec, overrides.operation_ids) do
+      {:ok, spec, patch_stale ++ tag_stale ++ id_stale}
     end
   end
 

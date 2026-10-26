@@ -31,14 +31,15 @@ defmodule Hearth.Spec.OverridesTest do
     end
 
     test "an entry without overrides has none" do
-      assert Overrides.parse(module: X) == {:ok, %{tags: [], operation_ids: %{}}}
+      assert Overrides.parse(module: X) == {:ok, %{patches: [], tags: [], operation_ids: %{}}}
     end
 
     test "rejects malformed tags and unknown override kinds" do
       assert {:error, message} = Overrides.parse(overrides: [tags: [Customers: "/v1/customers*"]])
       assert message =~ "tags:"
 
-      assert {:error, message} = Overrides.parse(overrides: [patches: []])
+      assert {:error, message} = Overrides.parse(overrides: [schemas: []])
+      assert message =~ "schemas"
       assert message =~ "patches"
       assert message =~ "operation_ids"
 
@@ -91,7 +92,8 @@ defmodule Hearth.Spec.OverridesTest do
     end
 
     test "no overrides leaves the spec as it is" do
-      assert Overrides.apply(@spec_map, %{tags: [], operation_ids: %{}}) == {:ok, @spec_map, []}
+      assert Overrides.apply(@spec_map, %{patches: [], tags: [], operation_ids: %{}}) ==
+               {:ok, @spec_map, []}
     end
   end
 
