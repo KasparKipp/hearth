@@ -145,8 +145,9 @@ if Code.ensure_loaded?(Igniter) do
             changes,
             unlisted,
             source_state(entry, result.sha256),
-            result.source == Config.source(entry)
+            result.source == Config.source_label(Config.source(entry) || "")
           )
+          |> Kernel.<>(split_advice(key, Reprune.splits(result, current)))
 
         igniter =
           if fails?(changes, fail_on),
@@ -195,6 +196,11 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
+    # Igniter prints only the issues when there are any, so the advice
+    # rides in the report.
+    defp split_advice(_key, []), do: ""
+    defp split_advice(key, splits), do: "\n" <> IntegrationMessages.split_warning(key, splits)
+
     defp note_stale_overrides(igniter, _key, %{stale_overrides: []}), do: igniter
 
     defp note_stale_overrides(igniter, key, result) do
@@ -208,7 +214,16 @@ if Code.ensure_loaded?(Igniter) do
       case entry[:source_sha256] do
         nil -> nil
         ^sha256 -> :unchanged
+        recorded when is_list(recorded) and is_list(sha256) -> changed_sources(recorded, sha256)
         _other -> :changed
+      end
+    end
+
+    # `sources:` — the keys whose checksum differs from the recorded one.
+    defp changed_sources(recorded, sha256) do
+      case for({key, sha} <- sha256, recorded[key] != sha, do: key) do
+        [] -> :unchanged
+        keys -> {:changed, keys}
       end
     end
 

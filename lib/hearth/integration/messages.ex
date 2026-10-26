@@ -110,6 +110,25 @@ defmodule Hearth.Integration.Messages do
     """
   end
 
+  # `sources:` components that were shared and now split per source.
+  def split_warning(key, splits) do
+    names = Enum.map_join(splits, ", ", fn {{_section, name}, _keeper} -> name end)
+
+    pairs =
+      Enum.map_join(splits, ", ", fn {{section, name}, keeper} ->
+        ~s|"#{section}/#{name}" => #{inspect(keeper)}|
+      end)
+
+    """
+    #{key}: #{names} is no longer the same in every source, so each source's
+    copy now carries its key — and shows as a rename in the drift. To keep
+    the plain name for the source whose copy is unchanged, add to the entry
+    in .hearth.exs:
+
+        overrides: [shared: %{#{pairs}}]
+    """
+  end
+
   # Override entries that matched nothing in the source — usually a typo,
   # or an upstream rename. Reported, never fatal.
   def stale_overrides_notice(key, source, stale) do
@@ -152,7 +171,15 @@ defmodule Hearth.Integration.Messages do
   def reprune_message(task, key, _source, :no_source, _registry) do
     """
     hearth.#{task}: #{key} is re-pruned from its source, but its
-    .hearth.exs entry has no `source:`.
+    .hearth.exs entry has no `source:` or `sources:`.
+    """
+  end
+
+  def reprune_message(task, key, _source, :source_for_sources, _registry) do
+    """
+    hearth.#{task}: `--source` can't stand in for `sources:` — #{key} merges
+    several specs. Point `sources:` in .hearth.exs at the ones to compare
+    instead.
     """
   end
 
@@ -168,6 +195,11 @@ defmodule Hearth.Integration.Messages do
   # Why `Hearth.Integration.Load` couldn't load `source`.
   def load_message(task, source, reason, registry \\ %{}),
     do: "hearth.#{task}: " <> load_detail(source, reason, registry)
+
+  defp load_detail(_source, {:in_source, source, reason}, registry),
+    do: load_detail(source, reason, registry)
+
+  defp load_detail(_source, {:merge, message}, _registry), do: message
 
   defp load_detail(source, :missing, _registry) do
     "file not found at #{inspect(source)}. " <>

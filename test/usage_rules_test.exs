@@ -70,6 +70,12 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ "A Swagger 2.0 source is converted to OpenAPI 3.0 first."
   end
 
+  test "documents sources:" do
+    assert @content =~ "## Several sources"
+    assert @content =~ ~s|sources: [items: "priv/specs/items.json", orders: "orders@1.2"]|
+    assert @content =~ ~s|overrides: [shared: %{"schemas/address" =>|
+  end
+
   test "documents headers" do
     assert @content =~ "## Headers"
     assert @content =~ ~s|headers: ["stripe-account": :account]|

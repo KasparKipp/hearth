@@ -19,6 +19,7 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         mix hearth.gen --list                  # list shortcut names
         mix hearth.gen <name> --list           # list versions for a shortcut
         mix hearth.gen <file | url> --list     # list a spec's tags
+        mix hearth.gen --integration <Name>    # the entry's source: / sources:
 
     ## Sources
 
@@ -39,6 +40,15 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
     `mix hearth.regen --sync` and `mix hearth.diff` re-read it. A
     shortcut is resolved again each time — `stripe@latest` follows
     Stripe's latest spec.
+
+    With no source, gen reads the `--integration` entry written in
+    `.hearth.exs` before it: its `source:`, or `sources:` — several
+    specs of one API merged into one integration:
+
+        # .hearth.exs
+        [integrations: [shop: [sources: [items: "priv/specs/items.json", orders: "orders@1.2"]]]]
+
+        mix hearth.gen --integration Shop --tag "Items:get_item" --tag "Orders:get_order"
 
     ## Registry shortcuts
 
@@ -132,7 +142,6 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Integration.Load
     alias Hearth.Integration.Manifest
     alias Hearth.Integration.Messages, as: IntegrationMessages
-    alias Hearth.Integration.Reprune
     alias Hearth.Render.ModuleNames
     alias Hearth.Spec.BasePath
     alias Hearth.Spec.Filter
@@ -175,13 +184,31 @@ if Code.ensure_loaded?(Igniter) do
           handle_list(igniter)
 
         is_nil(igniter.args.positional[:source]) ->
-          Igniter.add_issue(igniter, Messages.missing_source_message())
+          from_entry(igniter)
 
         true ->
           case ensure_installed(igniter) do
             {:ok, igniter} -> dispatch_source(igniter)
             {:halt, igniter} -> igniter
           end
+      end
+    end
+
+    # No source argument: the entry for `--integration`, written before
+    # gen, may name its `source:` or `sources:`.
+    defp from_entry(igniter) do
+      with {:ok, igniter, config} <- Project.load(igniter),
+           name when is_binary(name) <- igniter.args.options[:integration],
+           true <- ModuleNames.valid_segment?(name),
+           source when not is_nil(source) <-
+             Config.source(config.integrations[Config.key(name)] || []) do
+        case ensure_installed(igniter) do
+          {:ok, igniter} -> dispatch_source(igniter)
+          {:halt, igniter} -> igniter
+        end
+      else
+        {:error, message} -> Igniter.add_issue(igniter, message)
+        _no_source -> Igniter.add_issue(igniter, Messages.missing_source_message())
       end
     end
 
@@ -301,9 +328,9 @@ if Code.ensure_loaded?(Igniter) do
     # `source:` is the source as typed, with a bare shortcut pinned to
     # `@latest`.
     defp dispatch_source(igniter) do
-      with {:ok, source} <- normalize_source(igniter.args.positional[:source]),
-           {:ok, igniter, config} <- Project.load(igniter),
-           {:ok, igniter, loaded} <- load(igniter, source, config.registry),
+      with {:ok, igniter, config} <- Project.load(igniter),
+           {:ok, source} <- source(igniter, config),
+           {:ok, igniter, loaded} <- load(igniter, source, config, keep(igniter, config)),
            {:ok, overrides} <- overrides(igniter, loaded, config.integrations),
            {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
            {:ok, spec, auth} <- choose_auth(spec, overrides),
@@ -312,7 +339,7 @@ if Code.ensure_loaded?(Igniter) do
         input = %{
           source: source,
           spec: spec,
-          sha256: Reprune.sha256(loaded.bytes),
+          sha256: loaded.sha256,
           entry: loaded.entry,
           overrides: overrides.raw,
           auth: auth,
@@ -325,7 +352,7 @@ if Code.ensure_loaded?(Igniter) do
         igniter
         |> resolved_notice(input)
         |> converted_notice(loaded.converted_from)
-        |> stale_notice(overrides.key, source, stale)
+        |> stale_notice(overrides.key, Config.source_label(source), stale)
         |> select_and_report(input)
       else
         {:error, message} -> Igniter.add_issue(igniter, message)
@@ -375,6 +402,19 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
+    # The source argument, else the entry's `source:` / `sources:`.
+    defp source(igniter, config) do
+      case igniter.args.positional[:source] do
+        nil ->
+          key = Config.key(igniter.args.options[:integration])
+          source = Config.source(config.integrations[key] || [])
+          if is_list(source), do: {:ok, source}, else: normalize_source(source)
+
+        source ->
+          normalize_source(source)
+      end
+    end
+
     defp normalize_source(source) do
       case Source.resolve(source) do
         {:registry, name} -> {:ok, if(name =~ "@", do: name, else: name <> "@latest")}
@@ -383,13 +423,25 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp load(igniter, source, registry) do
-      case Load.load(igniter, source, registry) do
+    defp load(igniter, source, config, keep) do
+      case Load.load(igniter, source, config.registry, keep) do
         {:ok, igniter, loaded} ->
           {:ok, igniter, loaded}
 
         {:error, reason} ->
-          {:error, IntegrationMessages.load_message(:gen, source, reason, registry)}
+          {:error, IntegrationMessages.load_message(:gen, source, reason, config.registry)}
+      end
+    end
+
+    # `overrides: [shared: …]` from the `--integration` entry, for the
+    # merge of `sources:` (the rest of `overrides:` is read after load).
+    defp keep(igniter, config) do
+      with name when is_binary(name) <- igniter.args.options[:integration],
+           true <- ModuleNames.valid_segment?(name),
+           {:ok, parsed} <- Overrides.parse(config.integrations[Config.key(name)] || []) do
+        parsed.shared
+      else
+        _ -> %{}
       end
     end
 
@@ -558,7 +610,9 @@ if Code.ensure_loaded?(Igniter) do
         |> Hearth.Spec.Prune.to_yaml()
 
       entry =
-        [module: names.layer1, source: path, source_sha256: input.sha256] ++
+        [module: names.layer1] ++
+          source_fields(path) ++
+          [source_sha256: input.sha256] ++
           if(input.overrides, do: [overrides: input.overrides], else: []) ++
           if(input.prefixed_raw, do: [prefixed_ids: input.prefixed_raw], else: []) ++
           if(input.headers_raw, do: [headers: input.headers_raw], else: []) ++
@@ -578,7 +632,7 @@ if Code.ensure_loaded?(Igniter) do
           servers: servers,
           prefix: prefix,
           operations: selected,
-          metadata: Manifest.metadata(path, spec),
+          metadata: Manifest.metadata(Config.source_label(path), spec),
           prefixed: input.prefixed,
           headers: input.headers
         )
@@ -604,7 +658,7 @@ if Code.ensure_loaded?(Igniter) do
       })
       |> Igniter.add_notice(
         Messages.generated_notice(
-          path,
+          Config.source_label(path),
           spec,
           operations,
           selected,
@@ -617,6 +671,9 @@ if Code.ensure_loaded?(Igniter) do
       |> prefixed_notice(names, input.prefixed, covered)
       |> headers_notice(names, Hearth.Spec.Headers.suggestions(selected, input.headers, auth))
     end
+
+    defp source_fields(sources) when is_list(sources), do: [sources: sources]
+    defp source_fields(source), do: [source: source]
 
     defp headers_notice(igniter, _names, []), do: igniter
 

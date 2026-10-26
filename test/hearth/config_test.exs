@@ -132,5 +132,29 @@ defmodule Hearth.ConfigTest do
       assert Config.source([]) == nil
       assert Config.base_path(base_path: :v1) == nil
     end
+
+    test "sources: is the source when present; the label reads it" do
+      sources = [items: "priv/specs/items.json", orders: "orders@1.2"]
+
+      assert Config.source(sources: sources) == sources
+      assert Config.source_label(sources) == "items: priv/specs/items.json, orders: orders@1.2"
+      assert Config.source_label("priv/specs/stripe.yaml") == "priv/specs/stripe.yaml"
+    end
+  end
+
+  describe "parse/1 with sources:" do
+    test "accepts a keyword list of name → source" do
+      assert {:ok, [kit: _]} =
+               Config.parse(~s|[integrations: [kit: [sources: [a: "a.json", b: "b@1"]]]]|)
+    end
+
+    test "rejects anything else, naming the integration" do
+      for sources <- [~s|["a.json"]|, ~s|[a: :b]|, ~s|[]|, ~s|"a.json"|] do
+        assert {:error, message} =
+                 Config.parse("[integrations: [kit: [sources: #{sources}]]]")
+
+        assert message =~ "`sources:` for kit"
+      end
+    end
   end
 end
