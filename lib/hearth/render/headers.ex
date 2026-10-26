@@ -1,57 +1,58 @@
 defmodule Hearth.Render.Headers do
   @moduledoc false
 
-  # The code `headers:` adds to Layer 1: the `@headers` pairs and a
-  # `put_headers/1` request step. Each value resolves per request, like
-  # the credential: the request's option (`tenant_id: "…"`), else the
-  # client's config; a string, a 0-arity fun or an `{m, f, a}`. A header
-  # already on the request is left alone; a missing value raises when the
-  # request runs. `[]` renders nothing.
+  # The code `headers:` adds to Layer 1: the `@headers` names, a
+  # `put_headers/1` request step, and a `header_value/2` clause per
+  # header that looks its value up the way the entry says
+  # (`Hearth.Render.Values`): the request option, else config; the
+  # option only; or a resolver. A header already on the request is left
+  # alone; a missing value raises when the request runs. `[]` renders
+  # nothing.
 
-  @spec step([{String.t(), atom()}]) :: String.t()
+  alias Hearth.Render.Values
+
+  @spec step([{String.t(), Hearth.Spec.Values.t()}]) :: String.t()
   def step([]), do: ""
 
   def step(headers) do
+    clauses = Enum.map_join(headers, "\n", &clause/1)
+
     """
 
 
-    @headers #{inspect(headers)}
+    @headers #{inspect(Enum.map(headers, &elem(&1, 0)))}
 
     # Runs after Req's own steps, so a header already on the request wins.
     defp put_headers(request) do
-      Enum.reduce(@headers, request, fn {name, key}, request ->
+      Enum.reduce(@headers, request, fn name, request ->
         if Req.Request.get_header(request, name) == [],
-          do: Req.Request.put_header(request, name, header_value(request, name, key)),
+          do: Req.Request.put_header(request, name, header_value(request, name)),
           else: request
       end)
     end
 
-    defp header_value(request, name, key) do
-      case request.options[key] || Application.get_env(@otp_app, __MODULE__, [])[key] do
-        value when is_binary(value) ->
-          value
+    #{clauses}\
+    """
+  end
 
-        fun when is_function(fun, 0) ->
-          fun.()
-
-        {module, function, args} ->
-          apply(module, function, args)
-
-        nil ->
-          raise "missing \#{inspect(key)} for \#{inspect(__MODULE__)} (the \#{name} header) — " <>
-                  "set it in config or pass `\#{key}:` to new/1, request/2 or a behaviour function"
-      end
-    end\
+  defp clause({name, value}) do
+    """
+    # #{name}: #{Values.source(value)}.
+    defp header_value(request, #{inspect(name)}) do
+      #{Values.lookup(value, what: " (the #{name} header)")}
+    end
     """
   end
 
   # The moduledoc section, indented to sit inside the heredoc.
-  @spec doc([{String.t(), atom()}], atom(), module()) :: String.t()
+  @spec doc([{String.t(), Hearth.Spec.Values.t()}], atom(), module()) :: String.t()
   def doc([], _otp_app, _module), do: ""
 
   def doc(headers, otp_app, module) do
     lines =
-      Enum.map_join(headers, "\n", fn {name, key} -> "  * `#{name}` — `#{inspect(key)}`" end)
+      Enum.map_join(headers, "\n", fn {name, value} ->
+        "  * `#{name}` — #{Values.source(value)}"
+      end)
 
     """
 
@@ -62,12 +63,12 @@ defmodule Hearth.Render.Headers do
 
     #{lines}
 
-    Each value comes from the option of that name — accepted by `new/1`,
-    `request/2` and every function of the behaviour — or else from
-    `config #{inspect(otp_app)}, #{inspect(module)}, …`. It may be a
-    string, a 0-arity function, or an `{module, function, args}` tuple,
-    resolved when each request runs. A header you set on the request
-    yourself is left alone.
+    An option is accepted by `new/1`, `request/2` and every function of
+    the behaviour. Config means `config #{inspect(otp_app)}, #{inspect(module)}, …`.
+    An option or config value may be a string, a 0-arity function, or an
+    `{module, function, args}` tuple; a resolver must return a string.
+    Each is resolved when the request runs. A header you set on the
+    request yourself is left alone.
     """
     |> String.trim_trailing()
     |> String.replace(~r/^(?=.)/m, "  ")

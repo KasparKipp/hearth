@@ -141,8 +141,12 @@ defmodule Hearth.Render.TestsTest do
   describe "layer1/5 with headers:" do
     @headers [{"x-app-key", :app_key}, {"x-tenant-id", :tenant_id}]
 
-    defp render_headers(auth),
-      do: Tests.layer1(@test_module, @client, :my_app, auth, headers: @headers)
+    defp values(headers), do: %{Hearth.Spec.Values.default() | headers: headers}
+
+    defp render_headers(auth) do
+      headers = Enum.map(@headers, fn {name, key} -> {name, {:config, key}} end)
+      Tests.layer1(@test_module, @client, :my_app, auth, values: values(headers))
+    end
 
     test "seeds each header's config key in setup" do
       source = render_headers(:none)
@@ -179,7 +183,8 @@ defmodule Hearth.Render.TestsTest do
     end
 
     test "renders nothing extra without headers" do
-      assert Tests.layer1(@test_module, @client, :my_app, :none, headers: []) == render(:none)
+      assert Tests.layer1(@test_module, @client, :my_app, :none, values: values([])) ==
+               render(:none)
     end
   end
 
@@ -241,7 +246,10 @@ defmodule Hearth.Render.TestsTest do
           :my_app,
           :bearer,
           [op(id: "list_pets")],
-          headers: [{"x-tenant-id", :tenant_id}]
+          values: %{
+            Hearth.Spec.Values.default()
+            | headers: [{"x-tenant-id", {:config, :tenant_id}}]
+          }
         )
 
       assert source =~ "use ExUnit.Case, async: false"
@@ -256,7 +264,10 @@ defmodule Hearth.Render.TestsTest do
     test "headers alone make the external test async: false" do
       source =
         Tests.external(@external_module, @layer2, @client, :my_app, :none, [op(id: "list_pets")],
-          headers: [{"x-tenant-id", :tenant_id}]
+          values: %{
+            Hearth.Spec.Values.default()
+            | headers: [{"x-tenant-id", {:config, :tenant_id}}]
+          }
         )
 
       assert source =~ "use ExUnit.Case, async: false"

@@ -1,0 +1,43 @@
+---
+openapi: 3.0.0
+info:
+  title: Keyed
+  version: '1.0'
+servers:
+  - url: https://api.keyed.example.com/v1
+security:
+  - ApiKeyQuery: []
+paths:
+  /items:
+    get:
+      operationId: listItems
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: OK
+      tags:
+        - Items
+  /items/{itemId}:
+    get:
+      operationId: getItem
+      parameters:
+        - in: path
+          name: itemId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+      tags:
+        - Items
+components:
+  securitySchemes:
+    ApiKeyQuery:
+      in: query
+      name: api_key
+      type: apiKey

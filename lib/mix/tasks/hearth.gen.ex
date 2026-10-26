@@ -335,18 +335,19 @@ if Code.ensure_loaded?(Igniter) do
            {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
            {:ok, spec, auth} <- choose_auth(spec, overrides),
            {:ok, prefixed} <- prefixed_ids(spec, overrides),
-           {:ok, headers} <- headers(overrides) do
+           {:ok, values} <- values(overrides) do
         input = %{
           source: source,
           spec: spec,
           sha256: loaded.sha256,
           entry: loaded.entry,
           overrides: overrides.raw,
-          auth: auth,
+          auth: with_credential(auth, overrides.entry),
           prefixed: prefixed,
           prefixed_raw: overrides.entry[:prefixed_ids],
-          headers: headers,
-          headers_raw: overrides.entry[:headers]
+          values: values,
+          headers_raw: overrides.entry[:headers],
+          base_url_raw: Keyword.fetch(overrides.entry, :base_url)
         }
 
         igniter
@@ -381,14 +382,30 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    # Like `prefixed_ids:`, kept from an entry written before gen.
-    defp headers(overrides) do
-      case Hearth.Spec.Headers.parse(overrides.entry) do
-        {:ok, headers} ->
-          {:ok, headers}
+    # Like `prefixed_ids:`, kept from an entry written before gen:
+    # `headers:`, `auth: [credential:]` and `base_url:`.
+    defp values(overrides) do
+      case Hearth.Spec.Values.parse(overrides.entry) do
+        {:ok, values} ->
+          {:ok, values}
 
         {:error, detail} ->
-          {:error, IntegrationMessages.bad_headers_message(:gen, overrides.key, detail)}
+          {:error, IntegrationMessages.bad_values_message(:gen, overrides.key, detail)}
+      end
+    end
+
+    # The `auth:` record gen writes, keeping a `credential:` written
+    # before gen.
+    defp with_credential(auth, entry) do
+      case get_in(entry, [:auth]) do
+        written when is_list(written) ->
+          case Keyword.fetch(written, :credential) do
+            {:ok, credential} -> auth ++ [credential: credential]
+            :error -> auth
+          end
+
+        _ ->
+          auth
       end
     end
 
@@ -616,6 +633,7 @@ if Code.ensure_loaded?(Igniter) do
           if(input.overrides, do: [overrides: input.overrides], else: []) ++
           if(input.prefixed_raw, do: [prefixed_ids: input.prefixed_raw], else: []) ++
           if(input.headers_raw, do: [headers: input.headers_raw], else: []) ++
+          base_url_field(input.base_url_raw) ++
           [base_path: prefix] ++
           Hearth.Spec.Selection.describe(operations, selected) ++
           if(input.auth == [], do: [], else: [auth: input.auth])
@@ -634,7 +652,7 @@ if Code.ensure_loaded?(Igniter) do
           operations: selected,
           metadata: Manifest.metadata(Config.source_label(path), spec),
           prefixed: input.prefixed,
-          headers: input.headers
+          values: input.values
         )
         |> Enum.map(fn file ->
           location = Igniter.Project.Module.proper_location(igniter, file.module, file.kind)
@@ -654,7 +672,7 @@ if Code.ensure_loaded?(Igniter) do
         auth: auth,
         servers: servers,
         prefix: prefix,
-        headers: input.headers
+        values: input.values
       })
       |> Igniter.add_notice(
         Messages.generated_notice(
@@ -663,14 +681,22 @@ if Code.ensure_loaded?(Igniter) do
           operations,
           selected,
           Enum.map(files, &{&1.module, &1.location, &1.label}),
-          Patches.wired_files(auth, input.headers) ++
+          Patches.wired_files(auth, input.values) ++
             ["#{pruned_spec_path} (pruned spec)", ".hearth.exs (integration entry)"],
-          Messages.credential_hint(auth, names) <> Messages.headers_hint(input.headers, names)
+          Messages.credential_hint(auth, names, input.values.credential) <>
+            Messages.headers_hint(input.values.headers, names) <>
+            Messages.base_url_hint(input.values.base_url, names)
         )
       )
       |> prefixed_notice(names, input.prefixed, covered)
-      |> headers_notice(names, Hearth.Spec.Headers.suggestions(selected, input.headers, auth))
+      |> headers_notice(
+        names,
+        Hearth.Spec.Headers.suggestions(selected, input.values.headers, auth)
+      )
     end
+
+    defp base_url_field({:ok, base_url}), do: [base_url: base_url]
+    defp base_url_field(:error), do: []
 
     defp source_fields(sources) when is_list(sources), do: [sources: sources]
     defp source_fields(source), do: [source: source]

@@ -4,32 +4,6 @@ defmodule Hearth.Spec.HeadersTest do
   alias Hearth.Spec.Headers
   alias Hearth.Spec.Operation
 
-  describe "parse/1" do
-    test "reads header → config key pairs, lowercasing header names" do
-      assert Headers.parse(headers: ["X-App-Key": :app_key, "x-tenant-id": :tenant_id]) ==
-               {:ok, [{"x-app-key", :app_key}, {"x-tenant-id", :tenant_id}]}
-    end
-
-    test "an entry without headers has none" do
-      assert Headers.parse(module: X) == {:ok, []}
-    end
-
-    test "rejects malformed entries" do
-      for bad <- [
-            :nope,
-            ["x-app-key": "app_key"],
-            ["x-app-key": :"Not Valid"],
-            ["bad header!": :key],
-            ["x-a": :same, "x-b": :same],
-            ["x-a": :api_key],
-            ["x-a": :headers]
-          ] do
-        assert {:error, message} = Headers.parse(headers: bad), inspect(bad)
-        assert message =~ "headers:"
-      end
-    end
-  end
-
   describe "suggestions/3" do
     defp operations(header_params_per_op) do
       paths =

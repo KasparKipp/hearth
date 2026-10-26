@@ -69,6 +69,9 @@ defmodule Hearth.MixProject do
       # validation and rejected: it has no spec-pruning, and its
       # decoder raises on OAS 3.1 specs, which Hearth must support.)
       {:ymlr, "~> 5.0"},
+      # Validates the value forms in `.hearth.exs` (`credential:`,
+      # `base_url:`, `headers:` values).
+      {:nimble_options, "~> 1.1"},
       # Referenced by generated code, not by Hearth itself — optional so
       # they are not forced on consumers transitively. `req` is the
       # runtime of the generated client; `plug` backs the `Req.Test`

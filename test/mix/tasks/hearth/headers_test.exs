@@ -58,7 +58,8 @@ defmodule Mix.Tasks.Hearth.HeadersTest do
       igniter = gen()
 
       layer1 = created_file(igniter, @layer1)
-      assert layer1 =~ ~s|@headers [{"x-tenant-id", :tenant_id}]|
+      assert layer1 =~ ~s|@headers ["x-tenant-id"]|
+      assert layer1 =~ ~s|# x-tenant-id: the `:tenant_id` option, else config.|
       assert layer1 =~ "put_headers: &put_headers/1"
 
       assert created_file(igniter, @layer1_test) =~
@@ -105,12 +106,12 @@ defmodule Mix.Tasks.Hearth.HeadersTest do
 
     test "halts on a malformed headers: entry" do
       assert gen(headers: ["x-tenant-id": "tenant_id"]) |> issue_text() =~
-               "`headers:` maps header names to the config keys"
+               ~s|`headers:` "x-tenant-id" takes a config key|
     end
 
     test "halts on a config key Req already uses" do
       assert gen(headers: ["x-tenant-id": :retry]) |> issue_text() =~
-               "`headers:` config key :retry is already a request option"
+               ~s|`headers:` "x-tenant-id" uses :retry, which is already a request option|
     end
   end
 
@@ -124,7 +125,7 @@ defmodule Mix.Tasks.Hearth.HeadersTest do
 
       regen = Igniter.compose_task(igniter, "hearth.regen", ["shop"])
 
-      assert read(regen, @layer1) =~ ~s|@headers [{"x-tenant-id", :tenant_id}]|
+      assert read(regen, @layer1) =~ ~s|@headers ["x-tenant-id"]|
       assert read(regen, @layer1_test) =~ "x-tenant-id"
       assert read(regen, "config/runtime.exs") =~ "SHOP_TENANT_ID"
 
@@ -142,7 +143,7 @@ defmodule Mix.Tasks.Hearth.HeadersTest do
         |> apply_igniter!()
 
       assert igniter |> Igniter.compose_task("hearth.regen", ["shop"]) |> issue_text() =~
-               "problem in `headers:`"
+               "`headers:` maps header names"
     end
   end
 end

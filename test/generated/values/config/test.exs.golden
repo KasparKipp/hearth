@@ -1,0 +1,6 @@
+import Config
+
+config :test, Test.Integrations.Tenanted, base_url: "https://api.keyed.example.com/v1"
+
+config :test, Test.Integrations.Tenanted.TenantedApi,
+  impl: Test.Integrations.Tenanted.TenantedApi.Mock

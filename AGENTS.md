@@ -388,7 +388,8 @@ lib/
       overrides.ex             # an entry's overrides: applied to the source spec
       patches.ex               # overrides: [patches:] — JSON pointer → value edits
       prefixed_ids.ex          # prefixed_ids: functions, resolved resources
-      headers.ex               # headers: pairs + required-header suggestions
+      headers.ex               # required-header suggestions for headers:
+      values.ex                # credential: / headers: / base_url: — config, option or resolver
       drift.ex                 # pruned spec vs re-pruned source → changes
       drift/schema.ex          # JSON schema shape changes (additive / breaking)
     render/                    # pure: data → source strings
@@ -397,6 +398,9 @@ lib/
       tests.ex                 # Req.Test auth test + :external scaffold
       prefixed_ids.ex          # resource_path/2 + the prefixed-id functions
       headers.ex               # Layer 1's put_headers step + moduledoc section
+      credential.ex            # Layer 1's put_api_key / credential steps + moduledoc section
+      base_url.ex              # Layer 1's @base_url or resolve_base_url step + moduledoc section
+      values.ex                # one value's lookup code (config / option / resolver)
       mocks.ex                 # test/support/mocks.ex
     integration/
       manifest.ex              # the files an integration consists of (gen + regen)
@@ -476,13 +480,15 @@ What exists, condensed. The blow-by-blow is in git history.
   taken names.
 - **Layer 1** — `@base_url` from the default server plus the folded base path
   (a placeholder + TODO when the spec has no servers), overridable via
-  `config … base_url:`; `new/1` (mirrors `Req.new/1`, ends with
-  `Req.merge(opts)`), `request/2`, `request!/2`. Bearer / API-key (header or
-  query) register an `:api_key` option and attach the credential in an
-  appended request step (`put_api_key/1`): resolved per request from the
-  option (per call, through every layer) or else `config … api_key:`; a
-  string, 0-arity fun or `{m, f, a}`; a caller's explicit `auth:` / header /
-  query param wins; the query key goes into the URL, never `:params`.
+  `config … base_url:` (`Render.BaseUrl`); `new/1` (mirrors `Req.new/1`,
+  ends with `Req.merge(opts)`), `request/2`, `request!/2`. Bearer / API-key
+  (header or query) register an `:api_key` option and attach the credential
+  in an appended request step (`put_api_key/1`, `Render.Credential`):
+  resolved per request from the option (per call, through every layer) or
+  else `config … api_key:`; a string, 0-arity fun or `{m, f, a}`; a caller's
+  explicit `auth:` / header / query param wins; the query key goes into the
+  URL, never `:params`. The entry's values can change where the credential,
+  headers and base URL come from (see **Values**).
   `test/hearth/render/layer1_runtime_test.exs` compiles and runs each variant
   against `Req.Test`.
 - **Layer 2** — per operation a `@callback` plus a delegating `def`
@@ -512,7 +518,7 @@ What exists, condensed. The blow-by-blow is in git history.
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
   with conventional top-level key order. Plain OpenAPI — no Hearth block.
 - **`.hearth.exs`** — `[integrations: [<snake_name>: [module:, source:,
-  source_sha256:, overrides:, base_path:, tags:, auth:]]]`, evaluated like `.formatter.exs`
+  source_sha256:, overrides:, headers:, base_url:, base_path:, tags:, auth:]]]`, evaluated like `.formatter.exs`
   (`Hearth.Config.parse/1`). `source_sha256` is the source's checksum at
   the last gen / `--sync` (`Reprune.sha256/1`).
   `tags:` (`Hearth.Spec.Selection.describe/2`) lists every tag in the source
@@ -625,16 +631,34 @@ What exists, condensed. The blow-by-blow is in git history.
   selection check exempts them. A function name an operation already uses
   halts gen (`clashes/2`); gen keeps `prefixed_ids:` and notices the pairs.
 - **Headers** — the entry's `headers: ["x-tenant-id": :tenant_id]`
-  (`Spec.Headers.parse/1`: names lowercased, keys can't be a Req option).
-  Layer 1 registers each key and appends `put_headers/1`
-  (`Render.Headers`): the value is the request option, else config — a
-  string, 0-arity fun or MFA — skipped when the header is already set,
-  raising when missing. The client test checks each header from config,
-  per call and set explicitly; the external scaffold reads `<INT>_<KEY>`.
-  `Patches.wire_headers/4` writes those env vars into runtime.exs — from gen
-  and from every regen that renders headers (entry-driven, so no `--sync`).
+  (names lowercased; values parsed by `Spec.Values`). Layer 1 appends
+  `put_headers/1` (`Render.Headers`) with one `header_value/2` clause per
+  header, skipped when the header is already set, raising when missing.
   Gen keeps `headers:` and notices required header params common to every
-  selected operation that nothing sends (`suggestions/3`).
+  selected operation that nothing sends (`Spec.Headers.suggestions/3`).
+- **Values** — where the credential (`auth: [credential:]`), each
+  `headers:` value and the base URL (`base_url:`) come from
+  (`Spec.Values.parse/1`; keyword forms validated with NimbleOptions,
+  shared keys and Req option names checked across values):
+  `key` — the option, else config, `<INT>_<KEY>` wired into runtime.exs
+  (the default credential `:api_key`; `base_url: :base_url` wires
+  `<INT>_BASE_URL`, dev without a placeholder); `[option: key]` — the option
+  only, nothing wired; `[resolve: {M, :f}, options: [...]]` — `M.f/1` given
+  those request options, after the `:api_key` / `:base_url` option for the
+  credential / base URL; a non-string raises without showing the value.
+  `Render.Values` renders each lookup inline, so an option or resolver
+  value never reaches `Application.get_env` (and `@otp_app` is left out
+  when nothing reads config); a resolved or per-call base URL drops
+  `@base_url` for a `resolve_base_url/1` step prepended before Req's
+  `put_base_url`. The client test seeds config values in app env and puts
+  the others in `@opts` on every request (resolvers never run); the external
+  scaffold reads option values from `<INT>_<KEY>` into an `opts/0` and lets
+  resolvers run live. `Patches.wire_values/4` wires the bare keys — from gen,
+  and from every regen for headers, the base URL and an explicit
+  `credential:` (entry-driven, so no `--sync`); regen notices runtime.exs
+  lines for values that moved off config (it doesn't remove config). Gen
+  keeps `credential:` and `base_url:` in the entry; with `base_url:` set the
+  no-servers warning is skipped. Golden case `values`.
 - **Call sites on `--sync`** — `Regen.CallSites` reads the old Layer 2's
   `@callback`s before rendering; a callback that's gone because an operation
   was renamed, or is now covered by a prefixed-id function, maps to its

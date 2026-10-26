@@ -1,0 +1,12 @@
+import Config
+
+if config_env() == :prod do
+  config :test, Test.Integrations.Tenanted,
+    app_key:
+      System.get_env("TENANTED_APP_KEY") || raise("missing TENANTED_APP_KEY environment variable")
+end
+
+if config_env() == :dev do
+  config :test, Test.Integrations.Tenanted,
+    app_key: System.get_env("TENANTED_APP_KEY") || "DEV_NO_TENANTED_APP_KEY"
+end

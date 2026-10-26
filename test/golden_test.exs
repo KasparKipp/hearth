@@ -14,17 +14,29 @@ defmodule Hearth.GoldenTest do
   #
   #     HEARTH_UPDATE_GOLDEN=1 mix test test/golden_test.exs
 
+  # An optional `.hearth.exs` entry, written before gen.
+  @values_entry [
+    auth: [credential: [resolve: {MyApp.Tenancy, :token}, options: [:tenant]]],
+    headers: [
+      "x-app-key": :app_key,
+      "x-tenant-id": [option: :tenant_id],
+      "x-region": [resolve: {MyApp.Tenancy, :region}]
+    ],
+    base_url: [resolve: {MyApp.Tenancy, :gateway}, options: [:tenant]]
+  ]
+
   @cases [
-    {"petstore", "test/fixtures/specs/petstore-3.0.yaml", "Petstore"},
-    {"tictactoe", "test/fixtures/specs/tictactoe-3.1.yaml", "Tictactoe"},
-    {"keyed", "test/fixtures/specs/keyed-3.0.yaml", "Keyed"}
+    {"petstore", "test/fixtures/specs/petstore-3.0.yaml", "Petstore", nil},
+    {"tictactoe", "test/fixtures/specs/tictactoe-3.1.yaml", "Tictactoe", nil},
+    {"keyed", "test/fixtures/specs/keyed-3.0.yaml", "Keyed", nil},
+    {"values", "test/fixtures/specs/keyed-3.0.yaml", "Tenanted", @values_entry}
   ]
 
   @update? System.get_env("HEARTH_UPDATE_GOLDEN") == "1"
 
-  for {name, fixture, integration} <- @cases do
+  for {name, fixture, integration, entry} <- @cases do
     test "#{name}: generated output matches the golden files" do
-      generated = generate(unquote(fixture), unquote(integration))
+      generated = generate(unquote(fixture), unquote(integration), unquote(entry))
       dir = Path.join("test/generated", unquote(name))
 
       if @update?, do: write_golden(dir, generated)
@@ -36,11 +48,17 @@ defmodule Hearth.GoldenTest do
   # Runs `mix hearth.gen` on the fixture in a fresh test project and
   # returns `%{path => content}` for every file the task created or
   # changed.
-  defp generate(fixture, integration) do
+  defp generate(fixture, integration, entry) do
     spec_path = Path.join("priv/specs", Path.basename(fixture))
+    files = %{spec_path => File.read!(fixture)}
+
+    files =
+      if entry,
+        do: Map.put(files, ".hearth.exs", "[integrations: [tenanted: #{inspect(entry)}]]"),
+        else: files
 
     igniter =
-      test_project(files: %{spec_path => File.read!(fixture)})
+      test_project(files: files)
       |> Igniter.compose_task("hearth.gen", [spec_path, "--integration", integration])
 
     assert igniter.issues == []

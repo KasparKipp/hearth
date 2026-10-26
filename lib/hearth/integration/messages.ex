@@ -86,9 +86,10 @@ defmodule Hearth.Integration.Messages do
     """
   end
 
-  def bad_headers_message(task, key, detail) do
+  # `headers:`, `credential:` or `base_url:` — the detail names which.
+  def bad_values_message(task, key, detail) do
     """
-    hearth.#{task}: the .hearth.exs entry for #{key} has a problem in `headers:`.
+    hearth.#{task}: the .hearth.exs entry for #{key} has a problem.
 
     #{detail}
     """

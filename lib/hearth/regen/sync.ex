@@ -105,7 +105,7 @@ if Code.ensure_loaded?(Igniter) do
         renamed = Enum.filter(changes.renamed, fn {old, _new} -> calls?(content, old) end)
 
         igniter
-        |> append_tests(names, location, added)
+        |> append_tests(names, location, added, Regex.match?(~r/defp opts\b/, content))
         |> note_stale(location, Enum.filter(changes.removed, &calls?(content, &1)))
         |> note_renamed(location, renamed)
       else
@@ -113,13 +113,15 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp append_tests(igniter, _names, _location, []), do: igniter
+    defp append_tests(igniter, _names, _location, [], _opts?), do: igniter
 
-    defp append_tests(igniter, names, location, added) do
+    # `opts?` — the scaffold passes per-call values through its `opts/0`,
+    # so the added tests do too.
+    defp append_tests(igniter, names, location, added, opts?) do
       ids = Enum.map(added, & &1.id)
 
       if accept?(igniter, location, ids) do
-        code = Hearth.Render.Tests.external_tests(names.layer2, added)
+        code = Hearth.Render.Tests.external_tests(names.layer2, added, opts?)
 
         igniter
         |> Igniter.update_elixir_file(location, &append_to_module(&1, names.external_test, code))
