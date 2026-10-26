@@ -657,7 +657,8 @@ What exists, condensed. The blow-by-blow is in git history.
   and from every regen for headers, the base URL and an explicit
   `credential:` (entry-driven, so no `--sync`); regen notices runtime.exs
   lines for values that moved off config (it doesn't remove config). Gen
-  keeps `credential:` and `base_url:` in the entry; with `base_url:` set the
+  keeps `credential:` and `base_url:` in the entry, and `--sync` keeps
+  `credential:` when it rewrites `auth:` (`Auth.with_credential/2`); with `base_url:` set the
   no-servers warning is skipped. Golden case `values`.
 - **Call sites on `--sync`** — `Regen.CallSites` reads the old Layer 2's
   `@callback`s before rendering; a callback that's gone because an operation

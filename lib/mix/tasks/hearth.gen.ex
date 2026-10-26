@@ -342,7 +342,7 @@ if Code.ensure_loaded?(Igniter) do
           sha256: loaded.sha256,
           entry: loaded.entry,
           overrides: overrides.raw,
-          auth: with_credential(auth, overrides.entry),
+          auth: Hearth.Spec.Auth.with_credential(auth, overrides.entry),
           prefixed: prefixed,
           prefixed_raw: overrides.entry[:prefixed_ids],
           values: values,
@@ -391,21 +391,6 @@ if Code.ensure_loaded?(Igniter) do
 
         {:error, detail} ->
           {:error, IntegrationMessages.bad_values_message(:gen, overrides.key, detail)}
-      end
-    end
-
-    # The `auth:` record gen writes, keeping a `credential:` written
-    # before gen.
-    defp with_credential(auth, entry) do
-      case get_in(entry, [:auth]) do
-        written when is_list(written) ->
-          case Keyword.fetch(written, :credential) do
-            {:ok, credential} -> auth ++ [credential: credential]
-            :error -> auth
-          end
-
-        _ ->
-          auth
       end
     end
 
