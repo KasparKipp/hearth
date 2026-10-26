@@ -122,6 +122,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Render.ModuleNames
     alias Hearth.Spec.Auth
     alias Hearth.Spec.BasePath
+    alias Hearth.Spec.Headers
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
     alias Hearth.Spec.PrefixedIds
@@ -382,16 +383,34 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     defp render_prefixed(igniter, names, {spec_path, spec, entry}, operations, prefix) do
-      case PrefixedIds.prepare(spec, entry) do
-        {:ok, prefixed} ->
-          functions = functions(operations, prefixed)
-          render_layers(igniter, names, {spec_path, spec, entry, prefixed}, functions, prefix)
+      key = Config.key(names.integration)
 
-        {:error, detail} ->
-          key = Config.key(names.integration)
-          message = IntegrationMessages.bad_prefixed_ids_message(:regen, key, detail)
-          Igniter.add_issue(igniter, message)
+      with {:prefixed, {:ok, prefixed}} <- {:prefixed, PrefixedIds.prepare(spec, entry)},
+           {:headers, {:ok, headers}} <- {:headers, Headers.parse(entry)} do
+        functions = functions(operations, prefixed)
+
+        igniter
+        |> render_layers(names, {spec_path, spec, entry, prefixed, headers}, functions, prefix)
+        |> wire_headers(names, headers)
+      else
+        {:prefixed, {:error, detail}} ->
+          Igniter.add_issue(
+            igniter,
+            IntegrationMessages.bad_prefixed_ids_message(:regen, key, detail)
+          )
+
+        {:headers, {:error, detail}} ->
+          Igniter.add_issue(igniter, IntegrationMessages.bad_headers_message(:regen, key, detail))
       end
+    end
+
+    # Headers come from the entry, not the spec: their config is wired
+    # whenever they're rendered (existing values are kept).
+    defp wire_headers(igniter, _names, []), do: igniter
+
+    defp wire_headers(igniter, names, headers) do
+      otp_app = Igniter.Project.Application.app_name(igniter)
+      Patches.wire_headers(igniter, otp_app, names, headers)
     end
 
     # The operations that become functions: all of the pruned spec's,
@@ -414,7 +433,13 @@ if Code.ensure_loaded?(Igniter) do
     defp prefix(entry, operations),
       do: Config.base_path(entry) || BasePath.common_prefix(operations)
 
-    defp render_layers(igniter, names, {spec_path, spec, entry, prefixed}, operations, prefix) do
+    defp render_layers(
+           igniter,
+           names,
+           {spec_path, spec, entry, prefixed, headers},
+           operations,
+           prefix
+         ) do
       otp_app = Igniter.Project.Application.app_name(igniter)
       auth = Auth.strategy(spec)
       servers = Servers.resolve(spec)
@@ -433,7 +458,8 @@ if Code.ensure_loaded?(Igniter) do
           prefix: prefix,
           operations: selected,
           metadata: Manifest.metadata(Config.source(entry) || spec_path, spec),
-          prefixed: prefixed
+          prefixed: prefixed,
+          headers: headers
         )
 
       {igniter, results} =

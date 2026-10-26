@@ -33,8 +33,12 @@ defmodule Hearth.Render.Tests do
   @api_key "hearth-test-credential"
   @explicit "explicit-credential"
 
-  @spec layer1(module(), module(), atom(), Auth.strategy()) :: String.t()
-  def layer1(test_module, client_module, otp_app, auth) do
+  # `opts`: `:headers` — the `[{header, config_key}]` pairs Layer 1
+  # sets (`Hearth.Spec.Headers.parse/1`); each gets its own tests.
+  @spec layer1(module(), module(), atom(), Auth.strategy(), keyword()) :: String.t()
+  def layer1(test_module, client_module, otp_app, auth, opts \\ []) do
+    headers = opts[:headers] || []
+
     """
     # This test drives `Req.Test` through Plug; it is active only when
     # `plug` is loaded. To run it, add `{:plug, "~> 1.0"}` to your deps
@@ -55,7 +59,9 @@ defmodule Hearth.Render.Tests do
         @api_key #{inspect(@api_key)}
 
         #{setup_block(auth, otp_app)}
+        #{header_setup(headers, otp_app)}
         #{auth_test(auth, client_module)}
+        #{header_tests(headers)}
       end
     end
     """
@@ -92,6 +98,46 @@ defmodule Hearth.Render.Tests do
     # lookup. Called when each request runs.
     def fetch_api_key, do: "from-mfa"
     """
+  end
+
+  # Seeds each header's config key with a placeholder. Runs after the
+  # credential setup, so `previous` includes the seeded credential and
+  # the two `on_exit`s unwind in order.
+  defp header_setup([], _otp_app), do: ""
+
+  defp header_setup(headers, otp_app) do
+    values =
+      Enum.map_join(headers, ", ", fn {_name, key} -> "#{key}: #{inspect(header_value(key))}" end)
+
+    """
+    setup do
+      previous = Application.get_env(#{inspect(otp_app)}, @client, [])
+      Application.put_env(#{inspect(otp_app)}, @client, Keyword.merge(previous, #{values}))
+      on_exit(fn -> Application.put_env(#{inspect(otp_app)}, @client, previous) end)
+      :ok
+    end
+    """
+  end
+
+  defp header_value(key), do: "hearth-test-#{key}"
+
+  # Per header: the value from config, a per-call override, and a header
+  # the caller sets winning.
+  defp header_tests(headers) do
+    Enum.map_join(headers, "\n", fn {name, key} ->
+      assertion = &~s|assert Plug.Conn.get_req_header(conn, #{inspect(name)}) == [#{inspect(&1)}]|
+
+      [
+        test_block("request! sets the #{name} header from config", assertion.(header_value(key))),
+        test_block("a per-call #{key}: overrides config", assertion.("per-call"),
+          opts: ~s|#{key}: "per-call"|
+        ),
+        test_block("an explicit #{name} header wins", assertion.(@explicit),
+          opts: ~s|headers: [{#{inspect(name)}, #{inspect(@explicit)}}]|
+        )
+      ]
+      |> Enum.join("\n")
+    end)
   end
 
   defp examples_note(:bearer), do: examples_note({:api_key, nil, nil})
@@ -228,9 +274,17 @@ defmodule Hearth.Render.Tests do
   `:external`. Generated once and never overwritten — `mix hearth.gen`
   writes it with `on_exists: :skip`.
   """
-  @spec external(module(), module(), module(), atom(), Auth.strategy(), [Operation.t()]) ::
-          String.t()
-  def external(test_module, layer2, layer1, otp_app, auth, operations) do
+  @spec external(
+          module(),
+          module(),
+          module(),
+          atom(),
+          Auth.strategy(),
+          [Operation.t()],
+          keyword()
+        ) :: String.t()
+  def external(test_module, layer2, layer1, otp_app, auth, operations, opts \\ []) do
+    headers = opts[:headers] || []
     alias_name = layer2 |> Module.split() |> List.last()
 
     """
@@ -242,12 +296,12 @@ defmodule Hearth.Render.Tests do
       # it freely. Tagged `:external` and skipped by `mix test` — run
       # it with `mix test --include external`.
 
-      use ExUnit.Case, async: #{external_async(auth)}
+      use ExUnit.Case, async: #{external_async(auth, headers)}
 
       @moduletag :external
 
       alias #{inspect(layer2)}
-      #{external_setup(auth, otp_app, layer1)}
+      #{external_setup(auth, otp_app, layer1, headers)}
       #{Enum.map_join(operations, "\n\n", &external_op_test(&1, alias_name))}
     end
     """
@@ -256,23 +310,65 @@ defmodule Hearth.Render.Tests do
     |> Kernel.<>("\n")
   end
 
-  defp external_async(:bearer), do: "false"
-  defp external_async({:api_key, _location, _name}), do: "false"
-  defp external_async(_auth), do: "true"
+  # Config seeded into application env is process-global.
+  defp external_async(auth, headers), do: to_string(not keyed?(auth) and headers == [])
 
   # Credentialed auth needs the key seeded into app config: `:test` env
   # has none (`config/runtime.exs` only sets it for prod/dev).
-  defp external_setup(:bearer, otp_app, layer1), do: external_credential_setup(otp_app, layer1)
-
-  defp external_setup({:api_key, _location, _name}, otp_app, layer1),
+  # Headers read their values the same way, each from its own
+  # `<INT>_<KEY>` env var.
+  defp external_setup(:bearer, otp_app, layer1, []),
     do: external_credential_setup(otp_app, layer1)
 
-  defp external_setup(_auth, _otp_app, _layer1), do: ""
+  defp external_setup({:api_key, _location, _name}, otp_app, layer1, []),
+    do: external_credential_setup(otp_app, layer1)
+
+  defp external_setup(_auth, _otp_app, _layer1, []), do: ""
+
+  defp external_setup(auth, otp_app, layer1, headers) do
+    keys = if keyed?(auth), do: [:api_key], else: []
+    keys = keys ++ Enum.map(headers, &elem(&1, 1))
+
+    values =
+      Enum.map_join(keys, ",\n", fn key ->
+        env_var = env_var(layer1, key)
+        ~s|#{key}: System.get_env(#{inspect(env_var)}) \|\| #{inspect("DEV_NO_" <> env_var)}|
+      end)
+
+    """
+    @client #{inspect(layer1)}
+
+    setup do
+      # Merge into the existing config — `config/test.exs` sets a
+      # `:base_url` on @client; a bare `put_env` would wipe it and the
+      # external test would hit production.
+      previous = Application.get_env(#{inspect(otp_app)}, @client, [])
+
+      config =
+        Keyword.merge(previous,
+          #{values}
+        )
+
+      Application.put_env(#{inspect(otp_app)}, @client, config)
+      on_exit(fn -> Application.put_env(#{inspect(otp_app)}, @client, previous) end)
+      :ok
+    end
+    """
+  end
+
+  defp keyed?(:bearer), do: true
+  defp keyed?({:api_key, _location, _name}), do: true
+  defp keyed?(_auth), do: false
+
+  # `<INT>_<KEY>` — the env var `config/runtime.exs` reads a config key
+  # from (`Hearth.Gen.Patches`).
+  defp env_var(layer1, key) do
+    (layer1 |> Module.split() |> List.last() |> Macro.underscore() |> String.upcase()) <>
+      "_" <> String.upcase(Atom.to_string(key))
+  end
 
   defp external_credential_setup(otp_app, layer1) do
-    env_var =
-      (layer1 |> Module.split() |> List.last() |> Macro.underscore() |> String.upcase()) <>
-        "_API_KEY"
+    env_var = env_var(layer1, :api_key)
 
     """
     @client #{inspect(layer1)}

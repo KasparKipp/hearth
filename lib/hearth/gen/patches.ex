@@ -43,6 +43,7 @@ if Code.ensure_loaded?(Igniter) do
       |> compile_test_support()
       |> patch_test_helper()
       |> patch_credential_config(otp_app, names.layer1, names.integration, auth)
+      |> wire_headers(otp_app, names, ctx[:headers] || [])
       |> patch_impl_config(otp_app, names.layer2, names.mock)
       |> patch_base_url_config(otp_app, names.layer1, servers, prefix)
       |> patch_base_url_alternates(otp_app, names.layer1, servers, prefix)
@@ -206,8 +207,21 @@ if Code.ensure_loaded?(Igniter) do
     defp patch_credential_config(igniter, _otp_app, _layer1, _integration, {:unsupported, _}),
       do: igniter
 
-    defp patch_credential_config(igniter, otp_app, layer1, integration, _auth) do
-      env_var = String.upcase(Macro.underscore(integration)) <> "_API_KEY"
+    defp patch_credential_config(igniter, otp_app, layer1, integration, _auth),
+      do: configure_from_env(igniter, otp_app, layer1, integration, :api_key)
+
+    # Each `headers:` config key, wired like the credential from its own
+    # `<INT>_<KEY>` env var. Keeps any value already configured — also
+    # what `regen --sync` uses when headers join an entry.
+    @spec wire_headers(Igniter.t(), atom(), map(), [{String.t(), atom()}]) :: Igniter.t()
+    def wire_headers(igniter, otp_app, names, headers) do
+      Enum.reduce(headers, igniter, fn {_name, key}, igniter ->
+        configure_from_env(igniter, otp_app, names.layer1, names.integration, key)
+      end)
+    end
+
+    defp configure_from_env(igniter, otp_app, layer1, integration, key) do
+      env_var = String.upcase(Macro.underscore(integration) <> "_" <> Atom.to_string(key))
 
       prod =
         Sourceror.parse_string!(
@@ -220,14 +234,14 @@ if Code.ensure_loaded?(Igniter) do
       |> Igniter.Project.Config.configure_runtime_env(
         :prod,
         otp_app,
-        [layer1, :api_key],
+        [layer1, key],
         {:code, prod},
         updater: &{:ok, &1}
       )
       |> Igniter.Project.Config.configure_runtime_env(
         :dev,
         otp_app,
-        [layer1, :api_key],
+        [layer1, key],
         {:code, dev},
         updater: &{:ok, &1}
       )
@@ -340,7 +354,7 @@ if Code.ensure_loaded?(Igniter) do
       |> Kernel.<>("\n")
     end
 
-    def wired_files(auth) do
+    def wired_files(auth, headers \\ []) do
       base = [
         "test/support/mocks.ex",
         "mix.exs (test/support in elixirc_paths)",
@@ -348,11 +362,16 @@ if Code.ensure_loaded?(Igniter) do
         "config/test.exs (impl, base_url)"
       ]
 
-      case auth do
-        :none -> base
-        {:unsupported, _} -> base
-        _ -> base ++ ["config/runtime.exs (credential)"]
-      end
+      runtime =
+        case auth do
+          :none -> []
+          {:unsupported, _} -> []
+          _ -> ["credential"]
+        end ++ if(headers == [], do: [], else: ["headers"])
+
+      if runtime == [],
+        do: base,
+        else: base ++ ["config/runtime.exs (#{Enum.join(runtime, ", ")})"]
     end
   end
 end

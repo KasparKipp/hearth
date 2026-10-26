@@ -138,6 +138,51 @@ defmodule Hearth.Render.TestsTest do
     end
   end
 
+  describe "layer1/5 with headers:" do
+    @headers [{"x-app-key", :app_key}, {"x-tenant-id", :tenant_id}]
+
+    defp render_headers(auth),
+      do: Tests.layer1(@test_module, @client, :my_app, auth, headers: @headers)
+
+    test "seeds each header's config key in setup" do
+      source = render_headers(:none)
+
+      assert source =~ "Keyword.merge(previous,"
+      assert source =~ ~s/app_key: "hearth-test-app_key"/
+      assert source =~ ~s/tenant_id: "hearth-test-tenant_id"/
+
+      assert source =~ "on_exit(fn -> Application.put_env(:my_app, @client, previous) end)"
+    end
+
+    test "checks each header from config, per call, and set by the caller" do
+      source = render_headers(:none)
+
+      for {name, key} <- @headers do
+        assert source =~ ~s(test "request! sets the #{name} header from config" do)
+
+        assert source =~
+                 ~s|assert Plug.Conn.get_req_header(conn, "#{name}") == ["hearth-test-#{key}"]|
+
+        assert source =~ ~s(test "a per-call #{key}: overrides config" do)
+        assert source =~ ~s(#{key}: "per-call")
+        assert source =~ ~s(test "an explicit #{name} header wins" do)
+        assert source =~ ~s(headers: [{"#{name}", "explicit-credential"}])
+      end
+    end
+
+    test "keeps the credential setup and tests alongside" do
+      source = render_headers(:bearer)
+
+      assert source =~ "configure_api_key(@api_key)"
+      assert source =~ ~s(test "request! attaches a bearer token from config" do)
+      assert source =~ ~s(test "request! sets the x-tenant-id header from config" do)
+    end
+
+    test "renders nothing extra without headers" do
+      assert Tests.layer1(@test_module, @client, :my_app, :none, headers: []) == render(:none)
+    end
+  end
+
   describe "external/6" do
     test "renders an :external-tagged ExUnit module aliasing Layer 2" do
       source = render_external(:none)
@@ -185,6 +230,37 @@ defmodule Hearth.Render.TestsTest do
       assert source =~ "use ExUnit.Case, async: true"
       refute source =~ "setup do"
       refute source =~ "Application.put_env"
+    end
+
+    test "headers read their values from env vars, next to the credential" do
+      source =
+        Tests.external(
+          @external_module,
+          @layer2,
+          @client,
+          :my_app,
+          :bearer,
+          [op(id: "list_pets")],
+          headers: [{"x-tenant-id", :tenant_id}]
+        )
+
+      assert source =~ "use ExUnit.Case, async: false"
+      assert source =~ ~s/api_key: System.get_env("STRIPE_API_KEY") || "DEV_NO_STRIPE_API_KEY"/
+
+      assert source =~
+               ~s/tenant_id: System.get_env("STRIPE_TENANT_ID") || "DEV_NO_STRIPE_TENANT_ID"/
+
+      assert source =~ "Application.put_env(:my_app, @client, config)"
+    end
+
+    test "headers alone make the external test async: false" do
+      source =
+        Tests.external(@external_module, @layer2, @client, :my_app, :none, [op(id: "list_pets")],
+          headers: [{"x-tenant-id", :tenant_id}]
+        )
+
+      assert source =~ "use ExUnit.Case, async: false"
+      refute source =~ "api_key"
     end
 
     test "every rendered external file is syntactically valid Elixir" do

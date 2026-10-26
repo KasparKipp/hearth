@@ -65,6 +65,11 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ ~s|StripeApi.retrieve("cus_123")|
   end
 
+  test "documents headers" do
+    assert @content =~ "## Headers"
+    assert @content =~ ~s|headers: ["stripe-account": :account]|
+  end
+
   test "documents hearth.diff for CI" do
     assert @content =~ "mix hearth.diff stripe"
     assert @content =~ "--fail-on breaking"

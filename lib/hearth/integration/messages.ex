@@ -86,6 +86,14 @@ defmodule Hearth.Integration.Messages do
     """
   end
 
+  def bad_headers_message(task, key, detail) do
+    """
+    hearth.#{task}: the .hearth.exs entry for #{key} has a problem in `headers:`.
+
+    #{detail}
+    """
+  end
+
   def prefixed_clash_message(task, key, names) do
     """
     hearth.#{task}: `prefixed_ids:` for #{key} defines #{Enum.map_join(names, ", ", &"`#{&1}`")}, \
