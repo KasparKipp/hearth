@@ -170,10 +170,10 @@ defmodule Hearth.RegistryTest do
 
   describe "a local registry" do
     @local %{
-      "ohip_blk" => %{
-        "26.2" => "https://example.com/26.2/blk.json",
-        "26.3" => "priv/specs/blk-26.3.json",
-        "latest" => {:alias, "26.3"}
+      "acme_api" => %{
+        "1.2" => "https://example.com/1.2/openapi.json",
+        "1.3" => "priv/specs/acme-1.3.json",
+        "latest" => {:alias, "1.3"}
       },
       "stripe" => %{"mirror" => "https://mirror.example.com/stripe.yaml"}
     }
@@ -181,14 +181,14 @@ defmodule Hearth.RegistryTest do
     test "resolves its entries, aliases and file locations included" do
       assert {:ok,
               %{
-                location: "https://example.com/26.2/blk.json",
+                location: "https://example.com/1.2/openapi.json",
                 local?: true,
-                integration: "OhipBlk"
+                integration: "AcmeApi"
               }} =
-               Registry.lookup("ohip_blk@26.2", @local)
+               Registry.lookup("acme_api@1.2", @local)
 
-      assert {:ok, %{location: "priv/specs/blk-26.3.json", resolved_version: "26.3"}} =
-               Registry.lookup("ohip_blk", @local)
+      assert {:ok, %{location: "priv/specs/acme-1.3.json", resolved_version: "1.3"}} =
+               Registry.lookup("acme_api", @local)
     end
 
     test "shadows a built-in name" do
@@ -204,8 +204,8 @@ defmodule Hearth.RegistryTest do
     end
 
     test "list/1 and versions/2 merge it in" do
-      assert "ohip_blk" in Registry.list(@local)
-      assert Registry.versions("ohip_blk", @local) == ["26.3", "26.2"]
+      assert "acme_api" in Registry.list(@local)
+      assert Registry.versions("acme_api", @local) == ["1.3", "1.2"]
     end
   end
 end

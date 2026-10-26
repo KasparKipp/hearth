@@ -61,23 +61,23 @@ defmodule Hearth.ConfigTest do
       content = """
       [
         registry: %{
-          "OHIP_blk" => %{
-            "26.2" => "https://example.com/26.2/blk.json",
-            "26.3" => "priv/specs/blk-26.3.json",
-            "latest" => {:alias, "26.3"}
+          "ACME_api" => %{
+            "1.2" => "https://example.com/1.2/openapi.json",
+            "1.3" => "priv/specs/acme-1.3.json",
+            "latest" => {:alias, "1.3"}
           }
         },
-        integrations: [blk: [module: MyApp.Integrations.Blk, source: "ohip_blk@26.2"]]
+        integrations: [acme: [module: MyApp.Integrations.Acme, source: "acme_api@1.2"]]
       ]
       """
 
-      assert {:ok, %{integrations: [blk: _], registry: registry}} = Config.load(content)
+      assert {:ok, %{integrations: [acme: _], registry: registry}} = Config.load(content)
 
       assert registry == %{
-               "ohip_blk" => %{
-                 "26.2" => "https://example.com/26.2/blk.json",
-                 "26.3" => "priv/specs/blk-26.3.json",
-                 "latest" => {:alias, "26.3"}
+               "acme_api" => %{
+                 "1.2" => "https://example.com/1.2/openapi.json",
+                 "1.3" => "priv/specs/acme-1.3.json",
+                 "latest" => {:alias, "1.3"}
                }
              }
     end
@@ -88,10 +88,10 @@ defmodule Hearth.ConfigTest do
 
     test "rejects a malformed registry" do
       for registry <- [
-            ~s|[ohip: "x"]|,
-            ~s|%{"ohip" => "https://x"}|,
-            ~s|%{"ohip" => %{"1" => :url}}|,
-            ~s|%{"ohip" => %{"1" => {:alias, :two}}}|,
+            ~s|[acme: "x"]|,
+            ~s|%{"acme" => "https://x"}|,
+            ~s|%{"acme" => %{"1" => :url}}|,
+            ~s|%{"acme" => %{"1" => {:alias, :two}}}|,
             ~s|%{"bad name!" => %{"1" => "x.json"}}|
           ] do
         assert {:error, message} = Config.load("[registry: #{registry}]")

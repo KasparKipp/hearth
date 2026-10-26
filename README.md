@@ -3,7 +3,7 @@
 **Strike sparks from OpenAPI specs into Req HTTP clients.**
 
 Hearth is a set of [Igniter](https://hexdocs.pm/igniter) Mix tasks that turn an
-OpenAPI 3.0 / 3.1 spec into a ready-to-use, testable [Req](https://hexdocs.pm/req)
+OpenAPI 3.0 / 3.1 (or Swagger 2.0) spec into a ready-to-use, testable [Req](https://hexdocs.pm/req)
 integration in your app — plain Elixir files you own, not a runtime macro.
 
 ```bash

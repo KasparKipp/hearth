@@ -8,12 +8,12 @@ defmodule Mix.Tasks.Hearth.PatchesTest do
 
   @spec_map %{
     "openapi" => "3.0.0",
-    "info" => %{"title" => "Blk", "version" => "26.2"},
-    "servers" => [%{"url" => "https://api.blk.test"}],
+    "info" => %{"title" => "Acme", "version" => "1.0"},
+    "servers" => [%{"url" => "https://api.acme.test"}],
     "paths" => %{
-      "/blocks/{id}" => %{
+      "/items/{id}" => %{
         "get" => %{
-          "operationId" => "getBlock",
+          "operationId" => "getItem",
           "parameters" => [
             %{"name" => "authorization", "in" => "header", "required" => true}
           ]
@@ -27,26 +27,26 @@ defmodule Mix.Tasks.Hearth.PatchesTest do
     "/security" => [%{"bearerAuth" => []}]
   }
 
-  @layer1 "lib/test/integrations/blk.ex"
+  @layer1 "lib/test/integrations/acme.ex"
 
   defp gen(patches \\ @patches, spec \\ @spec_map) do
     test_project(
       files: %{
-        "priv/specs/blk.json" => JSON.encode!(spec),
-        ".hearth.exs" => "[integrations: [blk: [overrides: [patches: #{inspect(patches)}]]]]"
+        "priv/specs/acme.json" => JSON.encode!(spec),
+        ".hearth.exs" => "[integrations: [acme: [overrides: [patches: #{inspect(patches)}]]]]"
       }
     )
-    |> Igniter.compose_task("hearth.gen", ["priv/specs/blk.json", "--integration", "Blk"])
+    |> Igniter.compose_task("hearth.gen", ["priv/specs/acme.json", "--integration", "Acme"])
   end
 
   defp entry(igniter) do
     igniter = Igniter.include_existing_file(igniter, ".hearth.exs")
-    {:ok, [blk: entry]} = igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
+    {:ok, [acme: entry]} = igniter |> created_file(".hearth.exs") |> Hearth.Config.parse()
     entry
   end
 
   defp pruned(igniter),
-    do: igniter |> created_file("priv/hearth/blk.yaml") |> YamlElixir.read_from_string!()
+    do: igniter |> created_file("priv/hearth/acme.yaml") |> YamlElixir.read_from_string!()
 
   describe "gen" do
     test "a patched-in bearer scheme is wired like a declared one" do
@@ -54,7 +54,7 @@ defmodule Mix.Tasks.Hearth.PatchesTest do
 
       assert igniter.issues == []
       assert created_file(igniter, @layer1) =~ "Bearer"
-      assert created_file(igniter, "config/runtime.exs") =~ "BLK_API_KEY"
+      assert created_file(igniter, "config/runtime.exs") =~ "ACME_API_KEY"
       assert entry(igniter)[:auth] == [scheme: "bearerAuth", available: [bearerAuth: "bearer"]]
     end
 
@@ -73,9 +73,9 @@ defmodule Mix.Tasks.Hearth.PatchesTest do
     test "regen and diff are clean right after gen" do
       igniter = gen() |> apply_igniter!()
 
-      igniter |> Igniter.compose_task("hearth.regen", ["blk"]) |> assert_unchanged()
+      igniter |> Igniter.compose_task("hearth.regen", ["acme"]) |> assert_unchanged()
 
-      assert igniter |> Igniter.compose_task("hearth.diff", ["blk"]) |> notice_text() =~
+      assert igniter |> Igniter.compose_task("hearth.diff", ["acme"]) |> notice_text() =~
                "no drift"
     end
 
@@ -103,19 +103,19 @@ defmodule Mix.Tasks.Hearth.PatchesTest do
 
       igniter =
         igniter
-        |> Hearth.Config.Project.put_fields(:blk, overrides: [patches: @patches])
+        |> Hearth.Config.Project.put_fields(:acme, overrides: [patches: @patches])
         |> apply_igniter!()
 
-      assert igniter |> Igniter.compose_task("hearth.diff", ["blk"]) |> issue_text() =~
+      assert igniter |> Igniter.compose_task("hearth.diff", ["acme"]) |> issue_text() =~
                "auth: none → bearer"
 
-      synced = Igniter.compose_task(igniter, "hearth.regen", ["blk", "--sync"])
+      synced = Igniter.compose_task(igniter, "hearth.regen", ["acme", "--sync"])
       layer1 = synced |> Igniter.include_existing_file(@layer1) |> created_file(@layer1)
       assert layer1 =~ "Bearer"
 
       assert synced
              |> Igniter.include_existing_file("config/runtime.exs")
-             |> created_file("config/runtime.exs") =~ "BLK_API_KEY"
+             |> created_file("config/runtime.exs") =~ "ACME_API_KEY"
     end
   end
 end

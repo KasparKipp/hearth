@@ -30,6 +30,18 @@ defmodule Hearth.Spec.ServersTest do
       assert %{default: nil, test: nil, warn?: true} = Servers.resolve(%{})
     end
 
+    test "only a relative server → a placeholder with its path, and a warning" do
+      r = Servers.resolve(spec(["/api/v1/"]))
+      assert %{default: nil, test: nil, warn?: true, path: "/api/v1"} = r
+    end
+
+    test "a relative server next to absolute ones is ignored" do
+      r = Servers.resolve(spec(["/api/v1", "https://api.acme.com"]))
+      assert r.default == "https://api.acme.com"
+      assert r.path == ""
+      refute r.warn?
+    end
+
     test "one server is both the default and the test URL" do
       r = Servers.resolve(spec(["https://api.acme.com"]))
       assert r.default == "https://api.acme.com"

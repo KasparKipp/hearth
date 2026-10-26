@@ -69,8 +69,8 @@ if Code.ensure_loaded?(Igniter) do
       Modified:
         • .formatter.exs
 
-      Next: generate your first integration. You will need an OpenAPI 3.x spec
-      (YAML or JSON) — many vendors publish one (Stripe, GitHub, …), or you
+      Next: generate your first integration. You will need an OpenAPI 3.x or
+      Swagger 2.0 spec (YAML or JSON) — many vendors publish one (Stripe, GitHub, …), or you
       can hand-write a small one for a single endpoint. Then run:
 
           mix hearth.gen priv/specs/<api>.yaml --integration <Name>

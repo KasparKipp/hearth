@@ -7,7 +7,7 @@ defmodule Hearth.Spec.Patches do
   #     patches: %{
   #       "/components/securitySchemes/bearerAuth" => %{"type" => "http", "scheme" => "bearer"},
   #       "/security" => [%{"bearerAuth" => []}],
-  #       "/paths/~1blocks/get/deprecated" => nil
+  #       "/paths/~1items/get/deprecated" => nil
   #     }
   #
   # A value replaces whatever is there; maps missing on the way are

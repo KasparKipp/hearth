@@ -66,6 +66,10 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ ~s|StripeApi.retrieve("cus_123")|
   end
 
+  test "documents Swagger 2.0 input" do
+    assert @content =~ "A Swagger 2.0 source is converted to OpenAPI 3.0 first."
+  end
+
   test "documents headers" do
     assert @content =~ "## Headers"
     assert @content =~ ~s|headers: ["stripe-account": :account]|

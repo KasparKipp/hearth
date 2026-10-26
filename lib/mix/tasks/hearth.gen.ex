@@ -324,6 +324,7 @@ if Code.ensure_loaded?(Igniter) do
 
         igniter
         |> resolved_notice(input)
+        |> converted_notice(loaded.converted_from)
         |> stale_notice(overrides.key, source, stale)
         |> select_and_report(input)
       else
@@ -415,6 +416,11 @@ if Code.ensure_loaded?(Igniter) do
           igniter,
           IntegrationMessages.stale_overrides_notice(key, source, stale)
         )
+
+    defp converted_notice(igniter, nil), do: igniter
+
+    defp converted_notice(igniter, from),
+      do: Igniter.add_notice(igniter, Messages.converted_notice(from))
 
     defp resolved_notice(igniter, %{entry: nil}), do: igniter
 

@@ -114,7 +114,7 @@ defmodule Hearth.Config do
     else
       {:error,
        "#{@path}: `registry:` must be a map of name → %{version => URL or file path}, " <>
-         ~s|e.g. `registry: %{"ohip_blk" => %{"26.3" => "https://…/blk.json", "latest" => {:alias, "26.3"}}}`.|}
+         ~s|e.g. `registry: %{"acme_api" => %{"1.3" => "https://…/openapi.json", "latest" => {:alias, "1.3"}}}`.|}
     end
   end
 

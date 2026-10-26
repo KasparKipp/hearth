@@ -201,7 +201,8 @@ all live there and rarely round-trip back into the spec.
 
 ## v1 — first release scope
 
-- [x] **OpenAPI 3.0 / 3.1 parsing**, local YAML or JSON file path.
+- [x] **OpenAPI 3.0 / 3.1 parsing**, local YAML or JSON file path; Swagger
+      2.0 converted to OpenAPI 3.0.
 - [x] **Operation → function** mapping. `operationId` → safe `snake_case`;
       missing operationId falls back to `<verb>_<path slug>`. Collisions get
       numeric suffixes.
@@ -239,8 +240,8 @@ all live there and rarely round-trip back into the spec.
 - [ ] **Multiple auth schemes.** v1 auto-picks the primary. Planned: `gen`
       prompts; `--auth-scheme <name>` selects non-interactively; under `--yes`
       with several schemes and no flag, halt rather than guess.
-- [ ] **Swagger 2.0 conversion.** Detect Swagger 2 input and convert to OpenAPI
-      3 in memory before generating. Many real-world specs are still Swagger 2.
+- [x] **Swagger 2.0 conversion.** `Spec.Swagger` converts in memory before
+      anything else sees the spec.
 - [ ] **Pagination opinion.** Recognize common pagination markers (`cursor`,
       `page_token`, `Link` header) and offer an opt-in `Hearth.Pagination.stream/2`
       helper.
@@ -382,6 +383,7 @@ lib/
       base_path.ex             # shared path prefix (stops at templated segments)
       prune.ex                 # spec → pruned spec + YAML encoding
       selection.ex             # the tags / operations gen selected, for .hearth.exs
+      swagger.ex               # Swagger 2.0 → OpenAPI 3.0, right after decode
       overrides.ex             # an entry's overrides: applied to the source spec
       patches.ex               # overrides: [patches:] — JSON pointer → value edits
       prefixed_ids.ex          # prefixed_ids: functions, resolved resources
@@ -418,7 +420,8 @@ test/
   hearth/…  mix/tasks/hearth/… # mirror lib/
   mix/tasks/hearth/gen/        # gen's tests, one file per concern
   support/hearth/task_case.ex  # Hearth.TaskCase — Igniter.Test + read-back helpers
-  fixtures/specs/              # OAI petstore (3.0), tictactoe (3.1), keyed (API key in query)
+  fixtures/specs/              # OAI petstore (3.0), tictactoe (3.1), keyed (API key in query),
+                               # Swagger petstore (2.0)
   generated/<case>/…golden     # golden snapshots of everything gen writes
   golden_test.exs  usage_rules_test.exs
 ```
@@ -550,13 +553,25 @@ What exists, condensed. The blow-by-blow is in git history.
   `Patches.unwire/3` cuts its config entries, alternates and `defmock`
   by Sourceror range from the text (AST removal crashes Sourceror on its
   trailing-comment blocks and drops comments).
+- **Swagger 2.0** — `Integration.Load` runs `Spec.Swagger.to_openapi/1` on a
+  `"swagger": "2.0"` source (`converted_from` → gen's notice), so overrides,
+  selection, pruning, auth, rendering and drift only see OpenAPI 3.0.3:
+  `host` / `basePath` / `schemes` → `servers` (no host: a relative server,
+  which `Spec.Servers` turns into the placeholder base URL plus its path);
+  `definitions` / `parameters` / `responses` / `securityDefinitions` →
+  `components` (refs rewritten; body / formData params referenced by `$ref`
+  are inlined); `body` → `requestBody` per `consumes`; `formData` → a form
+  `requestBody`; param / header types → `schema` (`collectionFormat` →
+  `style` / `explode`); response `schema` → `content` per `produces`;
+  `x-nullable`, `type: file`, string `discriminator`. Layer 2's footer shows
+  the converted version, so regen matches gen. Fixture: the Swagger
+  petstore (`test/fixtures/specs/petstore-swagger-2.0.json`).
 - **Overrides** — an entry's `overrides:` (`Spec.Overrides`) corrects the
   source spec before selection: `parse/1` validates it (unknown kinds are an
   error naming the supported ones), `apply/2` rewrites the decoded source and
   returns stale entries. `patches:` (`Spec.Patches`) — JSON pointer → value,
   `nil` removes, `-` appends, maps created on the way; applied first, in
-  pointer order, to the OpenAPI 3 form (after Swagger 2 conversion, once
-  that exists); a value already there or a missing key to remove is stale,
+  pointer order, to the OpenAPI 3 form (after Swagger 2 conversion); a value already there or a missing key to remove is stale,
   an unfollowable pointer an error. `tags:` — path globs (`*` crosses `/`),
   `method /glob`, or operationIds; adds to upstream tags. `operation_ids:` —
   upstream operationId (or `"method /path"`) → new operationId, applied after
