@@ -29,7 +29,7 @@
       untagged: :none,
       auth: [
         scheme: "bearerAuth",
-        available: [basicAuth: "http/basic (not supported)", bearerAuth: "bearer"]
+        available: [basicAuth: "basic", bearerAuth: "bearer"]
       ]
     ]
   ]

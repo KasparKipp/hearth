@@ -107,6 +107,7 @@ defmodule Hearth.Render.Layer1 do
   end
 
   defp auth_label(:bearer), do: " — bearer auth"
+  defp auth_label(:basic), do: " — HTTP basic auth"
   defp auth_label({:api_key, :header, _name}), do: " — API-key header"
   defp auth_label({:api_key, :query, _name}), do: " — API-key query param"
   defp auth_label({:unsupported, _type}), do: " — auth not wired (see TODO above)"

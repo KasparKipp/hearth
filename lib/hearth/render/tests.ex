@@ -240,6 +240,7 @@ defmodule Hearth.Render.Tests do
   end
 
   defp examples_note(:bearer), do: examples_note({:api_key, nil, nil})
+  defp examples_note(:basic), do: examples_note({:api_key, nil, nil})
 
   defp examples_note({:api_key, _location, _name}),
     do: "\n    # The tests double as examples of every way to supply the credential."
@@ -271,6 +272,20 @@ defmodule Hearth.Render.Tests do
           ~s|assert Plug.Conn.get_req_header(conn, "authorization") == [#{inspect("Bearer " <> key)}]|
       end,
       ~s|auth: {:bearer, #{inspect(@explicit)}}|
+    }
+  end
+
+  defp keyed(:basic) do
+    {
+      "sends basic auth",
+      fn
+        :config ->
+          ~s|assert Plug.Conn.get_req_header(conn, "authorization") == ["Basic " <> Base.encode64(@api_key)]|
+
+        key ->
+          ~s|assert Plug.Conn.get_req_header(conn, "authorization") == [#{inspect("Basic " <> Base.encode64(key))}]|
+      end,
+      ~s|auth: {:basic, #{inspect(@explicit)}}|
     }
   end
 

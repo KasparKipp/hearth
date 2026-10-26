@@ -237,13 +237,14 @@ would now fetch a customer. Match `"sub_" <> _` in
 ## Auth
 
 Stripe's spec offers HTTP basic auth first (the secret key as the
-username) and bearer second. Hearth doesn't wire basic, so `gen` picked
-bearer and recorded the choice in `.hearth.exs`:
+username) and bearer second. Hearth picks basic only when nothing else
+can be wired, so `gen` picked bearer and recorded the choice in
+`.hearth.exs`:
 
 ```elixir
 auth: [
   scheme: "bearerAuth",
-  available: [basicAuth: "http/basic (not supported)", bearerAuth: "bearer"]
+  available: [basicAuth: "basic", bearerAuth: "bearer"]
 ]
 ```
 

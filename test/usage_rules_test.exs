@@ -55,6 +55,8 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ ~s|"/security" => [%{"bearerAuth" => []}]|
     assert @content =~ "## Auth"
     assert @content =~ ~s|scheme: "bearerAuth"|
+    assert @content =~ "HTTP basic only when nothing else is"
+    refute @content =~ "http/basic (not supported)"
   end
 
   test "documents --sync renaming call sites" do

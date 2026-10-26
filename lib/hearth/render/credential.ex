@@ -4,6 +4,8 @@ defmodule Hearth.Render.Credential do
   # Layer 1's auth, rendered from the spec's security scheme:
   #
   #   * `:bearer`               → an `authorization: Bearer …` header
+  #   * `:basic`                → an `authorization: Basic …` header, the
+  #                               credential (`user:password`) base64-encoded
   #   * `{:api_key, :header, n}` → a request header
   #   * `{:api_key, :query, n}`  → a query parameter
   #   * `:none`                 → nothing
@@ -54,6 +56,14 @@ defmodule Hearth.Render.Credential do
     """)
   end
 
+  defp auth_step(:basic) do
+    put_api_key("""
+    if Req.Request.get_header(request, "authorization") == [],
+      do: Req.Request.put_header(request, "authorization", "Basic " <> Base.encode64(credential(request))),
+      else: request
+    """)
+  end
+
   defp auth_step({:api_key, :header, name}) do
     header = inspect(String.downcase(name))
 
@@ -96,7 +106,7 @@ defmodule Hearth.Render.Credential do
 
       ## Credentials
 
-      #{source(credential, module, otp_app)}
+      #{source(credential, module, otp_app)}#{basic_note(auth)}
       A credential you set explicitly on the request (`auth:`, the
       header, or the query param) is left alone.
       """
@@ -106,6 +116,9 @@ defmodule Hearth.Render.Credential do
       ""
     end
   end
+
+  defp basic_note(:basic), do: "\nFor HTTP basic auth it is `user:password`."
+  defp basic_note(_auth), do: ""
 
   defp source({:config, key}, module, otp_app) do
     """

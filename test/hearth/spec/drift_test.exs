@@ -239,8 +239,7 @@ defmodule Hearth.Spec.DriftTest do
       end
 
       assert summary(Drift.compare(with_auth.("basicAuth"), with_auth.("keyAuth"))) == [
-               {:auth, :changed, "auth", "http/basic (not supported) → API key in header X-Key",
-                true}
+               {:auth, :changed, "auth", "basic → API key in header X-Key", true}
              ]
 
       assert Drift.compare(with_auth.("keyAuth"), with_auth.("keyAuth")) == []

@@ -50,12 +50,12 @@ defmodule Mix.Tasks.Hearth.AuthTest do
   end
 
   describe "gen" do
-    test "records every scheme and wires the first one Hearth supports" do
+    test "records every scheme and wires bearer over basic, though basic comes first" do
       igniter = gen()
 
       assert entry(igniter)[:auth] == [
                scheme: "bearerAuth",
-               available: [basicAuth: "http/basic (not supported)", bearerAuth: "bearer"]
+               available: [basicAuth: "basic", bearerAuth: "bearer"]
              ]
 
       assert created_file(igniter, @layer1) =~ "Bearer"
@@ -67,9 +67,8 @@ defmodule Mix.Tasks.Hearth.AuthTest do
       igniter = gen(~s|[integrations: [pay: [auth: [scheme: "basicAuth"]]]]|)
 
       assert entry(igniter)[:auth][:scheme] == "basicAuth"
-      assert created_file(igniter, @layer1) =~ "TODO"
-      assert notice_text(igniter) =~ "Auth isn't wired"
-      refute notice_text(igniter) =~ "Set the credential"
+      assert created_file(igniter, @layer1) =~ ~s|"Basic " <> Base.encode64(credential(request))|
+      assert notice_text(igniter) =~ "Set the credential (`user:password`)"
     end
 
     test "halts on a scheme the spec doesn't have, listing the ones it does" do
@@ -106,7 +105,7 @@ defmodule Mix.Tasks.Hearth.AuthTest do
       igniter = generated() |> set_scheme("bearerAuth")
 
       assert igniter |> Igniter.compose_task("hearth.diff", ["pay"]) |> issue_text() =~
-               "~ auth: http/basic (not supported) → bearer  [breaking]"
+               "~ auth: basic → bearer  [breaking]"
 
       synced = Igniter.compose_task(igniter, "hearth.regen", ["pay", "--sync"])
 
