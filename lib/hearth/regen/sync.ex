@@ -55,7 +55,7 @@ if Code.ensure_loaded?(Igniter) do
             |> Igniter.create_new_file(spec_path, result.yaml, on_exists: :overwrite)
             |> Project.put_fields(
               key,
-              fields ++ auth_field(result) ++ [source_sha256: result.sha256]
+              fields ++ auth_field(result, entry) ++ [source_sha256: result.sha256]
             )
             |> Igniter.add_notice(Messages.synced_notice(key, result.source, spec_path, drift))
 
@@ -195,8 +195,14 @@ if Code.ensure_loaded?(Igniter) do
           do: {op.id, function}
     end
 
-    defp auth_field(%{auth: []}), do: []
-    defp auth_field(%{auth: auth}), do: [auth: auth]
+    # Keeps the entry's `credential:`: the re-pruned spec only knows the
+    # schemes.
+    defp auth_field(%{auth: auth}, entry) do
+      case Auth.with_credential(auth, entry) do
+        [] -> []
+        auth -> [auth: auth]
+      end
+    end
 
     # The new auth strategy when the sync changed it, so the task can
     # wire its credential config; nil otherwise.

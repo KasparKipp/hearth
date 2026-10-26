@@ -143,6 +143,21 @@ defmodule Mix.Tasks.Hearth.ValuesTest do
   end
 
   describe "regen" do
+    test "--sync keeps credential:, so the regen after it is a no-op" do
+      synced =
+        gen()
+        |> apply_igniter!()
+        |> Igniter.compose_task("hearth.regen", ["kiosk", "--sync"])
+        |> apply_igniter!()
+
+      assert entry(synced)[:auth][:credential] == @entry[:auth][:credential]
+      assert entry(synced)[:auth][:scheme] == "bearerAuth"
+
+      synced
+      |> Igniter.compose_task("hearth.regen", ["kiosk"])
+      |> assert_unchanged()
+    end
+
     test "a value that moved off config: its runtime.exs line is named for deletion" do
       igniter =
         gen(headers: ["x-tenant-id": :tenant_id])

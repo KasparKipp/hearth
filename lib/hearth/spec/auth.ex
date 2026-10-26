@@ -139,6 +139,18 @@ defmodule Hearth.Spec.Auth do
     end
   end
 
+  # The `auth:` record to write — `describe/2`'s, or `choose/2`'s — with
+  # the entry's `credential:` kept: it's the user's, not the spec's.
+  @spec with_credential(keyword(), keyword()) :: keyword()
+  def with_credential(record, entry) do
+    with written when is_list(written) <- Keyword.get(entry, :auth),
+         {:ok, credential} <- Keyword.fetch(written, :credential) do
+      record ++ [credential: credential]
+    else
+      _ -> record
+    end
+  end
+
   # The entry's `auth: [scheme: …]`, if it names one.
   @spec auth_scheme(keyword()) :: {:ok, String.t() | nil} | {:error, term()}
   def auth_scheme(entry) do
