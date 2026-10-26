@@ -191,4 +191,138 @@ defmodule Mix.Tasks.Hearth.PrefixedIdsTest do
       refute created_file(synced, @api) =~ "def get_customer("
     end
   end
+
+  describe "a sync that covers an existing function" do
+    # Subscriptions start with their own get_subscription/2, called from
+    # app code, a Mox test and the external test; then `sub:` joins the
+    # prefixes, and retrieve/2 covers it.
+    @cus_only [functions: [retrieve: :get], prefixes: [cus: "GetCustomer"]]
+    @with_sub [
+      functions: [retrieve: :get],
+      prefixes: [cus: "GetCustomer", sub: "GetSubscription"]
+    ]
+
+    @app "lib/test/billing.ex"
+    @app_test "test/test/billing_test.exs"
+    @external "test/test/integrations/shop_external_test.exs"
+
+    defp gen_subscriptions do
+      entry = [
+        overrides: [
+          tags: [Customers: ["get /v1/customers"], Subscriptions: ["get /v1/subscriptions/{id}"]]
+        ],
+        prefixed_ids: @cus_only
+      ]
+
+      test_project(
+        files: %{
+          "priv/specs/shop.json" => @spec_json,
+          ".hearth.exs" => "[integrations: [shop: #{inspect(entry)}]]",
+          @app => """
+          defmodule Test.Billing do
+            alias Test.Integrations.Shop.ShopApi
+
+            def status(id), do: ShopApi.get_subscription(id)
+            def status(id, opts), do: ShopApi.get_subscription(id, opts)
+          end
+          """,
+          @app_test => """
+          defmodule Test.BillingTest do
+            use ExUnit.Case
+            import Mox
+            alias Test.Integrations.Shop.ShopApi
+
+            test "status" do
+              expect(ShopApi.Mock, :get_subscription, fn "sub_1", [] -> {:ok, %{}} end)
+              Mox.stub(ShopApi.Mock, :get_subscription, fn _, _ -> {:ok, %{}} end)
+            end
+          end
+          """
+        }
+      )
+      |> Igniter.compose_task("hearth.gen", [
+        "priv/specs/shop.json",
+        "--integration",
+        "Shop",
+        "--tag",
+        "Customers",
+        "--tag",
+        "Subscriptions"
+      ])
+      |> apply_igniter!()
+    end
+
+    defp set_prefixed(igniter, prefixed) do
+      igniter
+      |> Hearth.Config.Project.put_fields(:shop, prefixed_ids: prefixed)
+      |> apply_igniter!()
+    end
+
+    defp add_sub(igniter), do: set_prefixed(igniter, @with_sub)
+
+    defp read(igniter, path) do
+      igniter |> Igniter.include_existing_file(path) |> created_file(path)
+    end
+
+    test "the setup generates get_subscription/2" do
+      assert read(gen_subscriptions(), @api) =~ "def get_subscription("
+    end
+
+    test "--sync moves call sites, Mox expectations and the external test to retrieve/2" do
+      synced =
+        gen_subscriptions()
+        |> add_sub()
+        |> Igniter.compose_task("hearth.regen", ["shop", "--sync"])
+
+      refute read(synced, @api) =~ "def get_subscription("
+
+      app = read(synced, @app)
+      assert app =~ "def status(id), do: ShopApi.retrieve(id)"
+      assert app =~ "def status(id, opts), do: ShopApi.retrieve(id, opts)"
+
+      app_test = read(synced, @app_test)
+      assert app_test =~ "expect(ShopApi.Mock, :retrieve, fn"
+      assert app_test =~ "Mox.stub(ShopApi.Mock, :retrieve, fn"
+
+      assert read(synced, @external) =~ "ShopApi.Req.retrieve("
+      refute read(synced, @external) =~ "ShopApi.Req.get_subscription("
+
+      assert notice_text(synced) =~ "get_subscription → retrieve"
+    end
+
+    test "an operationId rename moves the call sites too" do
+      igniter = gen_subscriptions() |> Igniter.include_existing_file(".hearth.exs")
+
+      exs =
+        igniter
+        |> created_file(".hearth.exs")
+        |> String.replace(
+          ~s|Subscriptions: ["get /v1/subscriptions/{id}"]]|,
+          ~s|Subscriptions: ["get /v1/subscriptions/{id}"]], operation_ids: %{"GetSubscription" => "FetchSubscription"}|
+        )
+
+      synced =
+        igniter
+        |> Igniter.create_new_file(".hearth.exs", exs, on_exists: :overwrite)
+        |> apply_igniter!()
+        |> Igniter.compose_task("hearth.regen", ["shop", "--sync"])
+
+      assert read(synced, @app) =~ "ShopApi.fetch_subscription(id)"
+      assert read(synced, @app_test) =~ "expect(ShopApi.Mock, :fetch_subscription, fn"
+      assert notice_text(synced) =~ "get_subscription → fetch_subscription"
+    end
+
+    test "dropping a prefix gives the operation its function back, with an external test" do
+      synced =
+        gen_subscriptions()
+        |> add_sub()
+        |> Igniter.compose_task("hearth.regen", ["shop", "--sync"])
+        |> apply_igniter!()
+        |> set_prefixed(@cus_only)
+        |> Igniter.compose_task("hearth.regen", ["shop", "--sync"])
+
+      assert read(synced, @api) =~ "def get_subscription("
+      assert read(synced, @external) =~ "ShopApi.Req.get_subscription("
+    end
+  end
 end

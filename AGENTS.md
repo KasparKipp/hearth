@@ -405,6 +405,7 @@ lib/
       messages.ex              # regen's user-facing text
       move.ex                  # --module / --remove-old (Igniter-guarded)
       sync.ex                  # --sync: re-prune from source by tags: (Igniter-guarded)
+      call_sites.ex            # --sync: rename calls to removed functions (Igniter-guarded)
     diff/
       messages.ex              # diff's report and halts
     fs/
@@ -583,6 +584,16 @@ What exists, condensed. The blow-by-blow is in git history.
   regen renders all pruned operations minus unselected targets, and its
   selection check exempts them. A function name an operation already uses
   halts gen (`clashes/2`); gen keeps `prefixed_ids:` and notices the pairs.
+- **Call sites on `--sync`** — `Regen.CallSites` reads the old Layer 2's
+  `@callback`s before rendering; a callback that's gone because an operation
+  was renamed, or is now covered by a prefixed-id function, maps to its
+  replacement (`replacements/4`). After a y/N prompt (`--yes` / test mode
+  accept) it runs `Igniter.Refactors.Rename.rename_function/4` on Layer 2 and
+  Layer 3 and rewrites the function atom in Mox `expect` / `stub` calls on the
+  mock. `Igniter.update_all_elixir_files/2` runs once per igniter (it marks
+  files included and skips later updaters), so each pass clears
+  `assigns.private.included_all_elixir_files?` first. The external test's
+  "added" means a function the old Layer 2 didn't have, minus rename targets.
 - **`hearth.diff`** — same names / `--all` as regen (`Integration.Names`).
   Per integration: reads the pruned spec, re-prunes `source:` (or
   `--source`, one integration only) with `tags:` via

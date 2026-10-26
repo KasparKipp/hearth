@@ -223,6 +223,31 @@ defmodule Hearth.Regen.Messages do
     """
   end
 
+  def call_sites_prompt(replacements) do
+    "hearth.regen: rename the calls to #{replacement_list(replacements)} in lib and test?"
+  end
+
+  def call_sites_moved_notice(layer2, replacements) do
+    lines = Enum.map_join(replacements, "\n", fn {from, to} -> "  * #{from} → #{to}" end)
+
+    """
+    Renamed calls to #{inspect(layer2)} and its Req implementation, and
+    the matching Mox expectations, across lib and test:
+
+    #{lines}
+    """
+  end
+
+  def call_sites_left_notice(replacements) do
+    """
+    These functions are gone after the sync; rename their calls by hand:
+    #{replacement_list(replacements)}.
+    """
+  end
+
+  defp replacement_list(replacements),
+    do: Enum.map_join(replacements, ", ", fn {from, to} -> "#{from} → #{to}" end)
+
   def external_prompt(location, ids) do
     "hearth.regen: append external tests for #{Enum.join(ids, ", ")} to #{location}?"
   end

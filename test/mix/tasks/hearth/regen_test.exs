@@ -759,7 +759,11 @@ defmodule Mix.Tasks.Hearth.RegenTest do
 
       notices = notice_text(igniter)
       assert notices =~ "renamed to listAllPets — call sites: list_pets → list_all_pets"
-      assert notices =~ "#{@external} still calls list_pets, renamed to list_all_pets"
+      assert notices =~ "list_pets → list_all_pets"
+      external = created_file(igniter, @external)
+      assert external =~ "PetstoreApi.Req.list_all_pets("
+      refute external =~ "PetstoreApi.Req.list_pets("
+      refute notices =~ "Appended external tests"
     end
 
     test "--sync --all re-prunes every integration once confirmed (test mode accepts)" do

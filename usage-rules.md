@@ -123,9 +123,11 @@ and `--sync` would undo it. `source:` must be a local spec file.
 `--sync --all` asks before re-pruning everything (`--yes` skips the
 question); run `mix hearth.diff --all` first to see what it would change.
 
-`--sync` never rewrites the external test. It asks before appending
-tests for the operations it added (`--yes` accepts), and names tests
-that still call an operation it removed — delete those yourself.
+When a function goes away — renamed, or now covered by a `prefixed_ids`
+function — `--sync` asks to rename its calls in lib and test, Mox
+expectations included. It asks before appending external tests for new
+functions, and names tests that still call a removed operation.
+`--yes` accepts both questions.
 
 To move one integration into a new namespace:
 

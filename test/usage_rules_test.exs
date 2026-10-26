@@ -56,6 +56,10 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ ~s|scheme: "bearerAuth"|
   end
 
+  test "documents --sync renaming call sites" do
+    assert @content =~ "asks to rename its calls in lib and test"
+  end
+
   test "documents prefixed ids" do
     assert @content =~ "## Prefixed ids"
     assert @content =~ ~s|StripeApi.retrieve("cus_123")|
