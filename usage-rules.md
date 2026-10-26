@@ -225,6 +225,26 @@ Before the first `gen`, write the entry with just `overrides:`. Later,
 edit them and run `mix hearth.regen <int> --sync`. An override that
 matches nothing is reported.
 
+## Prefixed ids
+
+For APIs with type-prefixed ids (Stripe's `cus_…`, `sub_…`), add
+functions that take an id and find its resource:
+
+    stripe: [
+      prefixed_ids: [
+        functions: [get_by: :get, update: :post, destroy: :delete],
+        prefixes: [cus: "GetCustomer", pi: "/v1/payment_intents/{intent}"]
+      ],
+      ...
+    ]
+
+`StripeApi.retrieve("cus_123")` sends `GET /customers/cus_123`, and the
+raw client's `request/2` takes a prefixed id as a path too. Name the
+functions as you like; each maps to an HTTP method. A prefix names its
+resource by an operation on it (after any `operation_ids` renames) or by
+its path. The operations aren't generated unless selected, so a few
+functions cover many resources.
+
 ## Check for drift with `diff`
 
     mix hearth.diff stripe               # one integration (or stripe,send_grid, or --all)

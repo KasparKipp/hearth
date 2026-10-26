@@ -19,6 +19,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
     alias Hearth.Spec.Overrides
+    alias Hearth.Spec.PrefixedIds
     alias Hearth.Spec.Prune
     alias Hearth.Spec.Selection
 
@@ -39,6 +40,7 @@ if Code.ensure_loaded?(Igniter) do
             | {:bad_tags, String.t()}
             | {:bad_overrides, String.t()}
             | {:bad_auth, term(), [String.t()]}
+            | {:bad_prefixed_ids, String.t()}
             | :no_source
             | :empty_selection
             | Load.reason()
@@ -58,10 +60,11 @@ if Code.ensure_loaded?(Igniter) do
            {:ok, igniter, loaded} <- Load.load(igniter, source, opts[:registry] || %{}),
            {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
            {:ok, spec, auth} <- Auth.choose(spec, entry),
+           {:ok, prefixed} <- prefixed_ids(spec, entry),
            operations = Operation.extract(spec),
            rule = carry_renames(rule, opts[:current], operations),
            [_ | _] = selected <- Selection.select(operations, rule) do
-        yaml = spec |> Prune.prune(selected) |> Prune.to_yaml()
+        yaml = spec |> Prune.prune(selected ++ targets(operations, prefixed)) |> Prune.to_yaml()
         {:ok, pruned} = Loader.decode(yaml, :yaml)
 
         {:ok, igniter,
@@ -96,6 +99,20 @@ if Code.ensure_loaded?(Igniter) do
         {:error, detail} -> {:error, {:bad_overrides, detail}}
       end
     end
+
+    defp prefixed_ids(spec, entry) do
+      case PrefixedIds.prepare(spec, entry) do
+        {:ok, prefixed} -> {:ok, prefixed}
+        {:error, detail} -> {:error, {:bad_prefixed_ids, detail}}
+      end
+    end
+
+    # The operations `prefixed_ids:` functions call, kept in the pruned
+    # spec beside the selected ones.
+    defp targets(_operations, nil), do: []
+
+    defp targets(operations, prefixed),
+      do: PrefixedIds.targets(operations, prefixed.resources, prefixed.functions)
 
     defp overrides(entry) do
       case Overrides.parse(entry) do

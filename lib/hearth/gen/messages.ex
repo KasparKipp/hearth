@@ -124,6 +124,38 @@ defmodule Hearth.Gen.Messages do
       "config/runtime.exs), or `api_key:` in #{inspect(names.layer1)}'s config."
   end
 
+  # Which prefixes each `prefixed_ids:` function works for.
+  def prefixed_notice(layer2, pairs, covered) do
+    lines =
+      Enum.map_join(pairs, "\n", fn {name, prefixes} ->
+        "* #{inspect(layer2)}.#{name}/2 — #{Enum.join(prefixes, ", ")}"
+      end)
+
+    """
+    Prefixed-id functions, and the id prefixes each one works for:
+
+    #{lines}
+    #{covered_section(covered)}\
+    """
+  end
+
+  defp covered_section([]), do: ""
+
+  defp covered_section(covered) do
+    lines =
+      Enum.map_join(covered, "\n", fn {op, name} ->
+        label = if op.operation_id, do: " (#{op.operation_id})", else: ""
+        "* #{op.method} #{op.path}#{label} — through #{name}/2"
+      end)
+
+    """
+
+    Selected, but reached through those functions instead of their own:
+
+    #{lines}
+    """
+  end
+
   def integration_exists_message(layer1, existing) do
     files = Enum.map_join(existing, "\n", &"  * #{&1}")
 

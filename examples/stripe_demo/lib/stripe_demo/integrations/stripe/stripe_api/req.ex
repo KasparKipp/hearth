@@ -21,7 +21,16 @@ defmodule StripeDemo.Integrations.Stripe.StripeApi.Req do
   end
 
   @impl true
-  def get_customer(customer, opts \\ []) do
-    Stripe.request("/customers/#{customer}", opts)
+  def get_subscription(subscription_exposed_id, opts \\ []) do
+    Stripe.request("/subscriptions/#{subscription_exposed_id}", opts)
   end
+
+  @impl true
+  def retrieve(id, opts \\ []), do: Stripe.request(id, opts)
+
+  @impl true
+  def update(id, opts \\ []), do: Stripe.request(id, [method: :post] ++ opts)
+
+  @impl true
+  def delete(id, opts \\ []), do: Stripe.request(id, [method: :delete] ++ opts)
 end

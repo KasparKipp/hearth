@@ -17,8 +17,8 @@ defmodule Hearth.Render.Layer3 do
 
   alias Hearth.Spec.Operation
 
-  @spec render(module(), module(), module(), [Operation.t()]) :: String.t()
-  def render(layer3, layer2, layer1, operations) when is_list(operations) do
+  @spec render(module(), module(), module(), [Operation.t()], map() | nil) :: String.t()
+  def render(layer3, layer2, layer1, operations, prefixed \\ nil) when is_list(operations) do
     client = layer1 |> Module.split() |> List.last()
 
     """
@@ -34,7 +34,7 @@ defmodule Hearth.Render.Layer3 do
 
       alias #{inspect(layer1)}
 
-      #{Enum.map_join(operations, "\n\n", &impl_fun(&1, client))}
+      #{Enum.map_join(operations, "\n\n", &impl_fun(&1, client))}#{Hearth.Render.PrefixedIds.layer3(prefixed, client)}
     end
     """
     |> Code.format_string!()

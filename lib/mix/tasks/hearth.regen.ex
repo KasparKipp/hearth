@@ -121,6 +121,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Spec.BasePath
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
+    alias Hearth.Spec.PrefixedIds
     alias Hearth.Spec.Selection
     alias Hearth.Spec.Servers
 
@@ -213,7 +214,7 @@ if Code.ensure_loaded?(Igniter) do
 
           target in [nil, layer1] ->
             igniter
-            |> Sync.extend_external_test(names, spec, changes)
+            |> Sync.extend_external_test(names, spec, drop_covered(changes, spec, entry))
             |> render(names, spec_path, spec, entry)
             |> wire_new_auth(names, changes)
 
@@ -239,6 +240,26 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     defp wire_new_auth(igniter, _names, _changes), do: igniter
+
+    # Added operations a prefixed-id function reaches get no function, so
+    # no external test either.
+    defp drop_covered(nil, _spec, _entry), do: nil
+
+    defp drop_covered(changes, spec, entry) do
+      case PrefixedIds.prepare(spec, entry) do
+        {:ok, prefixed} ->
+          covered =
+            spec
+            |> Operation.extract()
+            |> PrefixedIds.covered(prefixed)
+            |> MapSet.new(fn {op, _name} -> {op.method, op.path} end)
+
+          %{changes | added: Enum.reject(changes.added, &MapSet.member?(covered, &1))}
+
+        {:error, _detail} ->
+          changes
+      end
+    end
 
     defp layer1(key, entry) do
       case Config.module(entry) do
@@ -275,8 +296,16 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     defp check_selection(key, entry, spec_path, spec) do
+      operations = Operation.extract(spec)
+
+      exempt =
+        case PrefixedIds.prepare(spec, entry) do
+          {:ok, prefixed} -> unselected_targets(operations, entry, prefixed)
+          {:error, _detail} -> []
+        end
+
       with {:ok, rule} <- Selection.rule(entry),
-           [_ | _] = problems <- Selection.check(rule, Operation.extract(spec)) do
+           [_ | _] = problems <- Selection.check(rule, operations -- exempt) do
         {:halt, Messages.selection_mismatch_message(key, spec_path, problems)}
       else
         :none -> :ok
@@ -324,7 +353,7 @@ if Code.ensure_loaded?(Igniter) do
       prefix = prefix(entry, operations)
 
       if BasePath.prefix_of_all?(operations, prefix) do
-        render_layers(igniter, names, {spec_path, spec, entry}, operations, prefix)
+        render_prefixed(igniter, names, {spec_path, spec, entry}, operations, prefix)
       else
         Igniter.add_issue(
           igniter,
@@ -333,10 +362,40 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
+    defp render_prefixed(igniter, names, {spec_path, spec, entry}, operations, prefix) do
+      case PrefixedIds.prepare(spec, entry) do
+        {:ok, prefixed} ->
+          functions = functions(operations, prefixed)
+          render_layers(igniter, names, {spec_path, spec, entry, prefixed}, functions, prefix)
+
+        {:error, detail} ->
+          key = Config.key(names.integration)
+          message = IntegrationMessages.bad_prefixed_ids_message(:regen, key, detail)
+          Igniter.add_issue(igniter, message)
+      end
+    end
+
+    # The operations that become functions: all of the pruned spec's,
+    # minus the ones a `prefixed_ids:` function reaches, selected or not.
+    defp functions(operations, prefixed) do
+      operations -- Enum.map(PrefixedIds.covered(operations, prefixed), &elem(&1, 0))
+    end
+
+    defp unselected_targets(_operations, _entry, nil), do: []
+
+    defp unselected_targets(operations, entry, prefixed) do
+      targets = PrefixedIds.targets(operations, prefixed.resources, prefixed.functions)
+
+      case Selection.rule(entry) do
+        {:ok, rule} -> targets -- Selection.select(targets, rule)
+        _none -> targets
+      end
+    end
+
     defp prefix(entry, operations),
       do: Config.base_path(entry) || BasePath.common_prefix(operations)
 
-    defp render_layers(igniter, names, {spec_path, spec, entry}, operations, prefix) do
+    defp render_layers(igniter, names, {spec_path, spec, entry, prefixed}, operations, prefix) do
       otp_app = Igniter.Project.Application.app_name(igniter)
       auth = Auth.strategy(spec)
       servers = Servers.resolve(spec)
@@ -354,7 +413,8 @@ if Code.ensure_loaded?(Igniter) do
           servers: servers,
           prefix: prefix,
           operations: selected,
-          metadata: Manifest.metadata(Config.source(entry) || spec_path, spec)
+          metadata: Manifest.metadata(Config.source(entry) || spec_path, spec),
+          prefixed: prefixed
         )
 
       {igniter, results} =

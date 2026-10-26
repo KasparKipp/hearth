@@ -47,7 +47,7 @@ defmodule Hearth.Render.Layer2 do
 
       @otp_app #{inspect(otp_app)}
 
-      #{Enum.map_join(operations, "\n\n", &operation/1)}
+      #{Enum.map_join(operations, "\n\n", &operation/1)}#{Hearth.Render.PrefixedIds.layer2(opts[:prefixed])}
 
       defp impl, do: Application.get_env(@otp_app, __MODULE__, [])[:impl] || __MODULE__.Req
     end

@@ -61,20 +61,34 @@ defmodule Hearth.Integration.Manifest do
     [
       entry(
         names.layer1,
-        Render.Layer1.render(names.layer1, otp_app, servers.default, prefix, auth),
+        Render.Layer1.render(
+          names.layer1,
+          otp_app,
+          servers.default,
+          prefix,
+          auth,
+          prefixed(opts)
+        ),
         "raw Req client"
       ),
       entry(
         names.layer2,
         Render.Layer2.render(names.layer2, operations,
           metadata: Keyword.fetch!(opts, :metadata),
-          otp_app: otp_app
+          otp_app: otp_app,
+          prefixed: prefixed(opts)
         ),
         "behaviour, #{count} #{Messages.pluralize("callback", count)}"
       ),
       entry(
         names.layer3,
-        Render.Layer3.render(names.layer3, names.layer2, names.layer1, operations),
+        Render.Layer3.render(
+          names.layer3,
+          names.layer2,
+          names.layer1,
+          operations,
+          prefixed(opts)
+        ),
         "Req implementation, #{count} #{Messages.pluralize("function", count)}"
       ),
       entry(
@@ -99,6 +113,15 @@ defmodule Hearth.Integration.Manifest do
     |> Enum.map(fn {entry, {_module, kind, policy}} ->
       Map.merge(entry, %{kind: kind, policy: policy})
     end)
+  end
+
+  # `:prefixed` — `Hearth.Spec.PrefixedIds.prepare/2`'s result, or nil;
+  # the renderers also need the base path.
+  defp prefixed(opts) do
+    case opts[:prefixed] do
+      nil -> nil
+      prefixed -> Map.put(prefixed, :base_path, Keyword.fetch!(opts, :prefix))
+    end
   end
 
   # The integration's pruned spec — its versioned source of truth.
