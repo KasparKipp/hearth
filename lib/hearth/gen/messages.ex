@@ -301,6 +301,14 @@ defmodule Hearth.Gen.Messages do
   def pluralize(word, _count), do: word <> "s"
 
   # A registry shortcut was resolved: which entry, and where it pointed.
+  def converted_notice(from) do
+    """
+    The source is #{from}; Hearth converted it to OpenAPI 3.0. The pruned
+    spec is OpenAPI 3, and `overrides:` address that form — e.g.
+    `/components/securitySchemes` in `patches:`.
+    """
+  end
+
   def resolved_notice(source, entry) do
     alias_note =
       if entry.version == entry.resolved_version,

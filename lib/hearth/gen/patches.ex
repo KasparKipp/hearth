@@ -47,15 +47,15 @@ if Code.ensure_loaded?(Igniter) do
       |> patch_impl_config(otp_app, names.layer2, names.mock)
       |> patch_base_url_config(otp_app, names.layer1, servers, prefix)
       |> patch_base_url_alternates(otp_app, names.layer1, servers, prefix)
-      |> warn_servers(otp_app, names.layer1, servers)
+      |> warn_servers(otp_app, names.layer1, servers, prefix)
     end
 
     # `config/test.exs` overrides Layer 1's base URL with a non-prod
     # server, so the external test points there (not at production).
     # The shared path prefix is folded in, matching Layer 1's @base_url.
-    # 0 servers → a placeholder; `warn_servers/3` flags it.
+    # 0 servers → a placeholder; `warn_servers/5` flags it.
     defp patch_base_url_config(igniter, otp_app, layer1, servers, prefix) do
-      url = with_prefix(servers.test || "https://api.example.com", prefix)
+      url = with_prefix(servers.test || Hearth.Spec.Servers.placeholder(servers), prefix)
 
       Igniter.Project.Config.configure(
         igniter,
@@ -102,23 +102,25 @@ if Code.ensure_loaded?(Igniter) do
 
     # When the spec declared no `servers`, the base URL is a placeholder
     # — warn the user where to set the real one.
-    defp warn_servers(igniter, otp_app, layer1, %{warn?: true}) do
+    defp warn_servers(igniter, otp_app, layer1, %{warn?: true} = servers, prefix) do
+      url = with_prefix(Hearth.Spec.Servers.placeholder(servers), prefix)
+
       Igniter.add_warning(igniter, """
       The spec declared no `servers` — Layer 1's base URL is a placeholder.
       Set the real one:
 
-          config #{inspect(otp_app)}, #{inspect(layer1)}, base_url: "https://api.example.com"
+          config #{inspect(otp_app)}, #{inspect(layer1)}, base_url: #{inspect(url)}
       """)
     end
 
-    defp warn_servers(igniter, _otp_app, _layer1, %{fallback_default?: true}) do
+    defp warn_servers(igniter, _otp_app, _layer1, %{fallback_default?: true}, _prefix) do
       Igniter.add_notice(
         igniter,
         "Every spec server looked non-production; used the first as the default base URL."
       )
     end
 
-    defp warn_servers(igniter, _otp_app, _layer1, _servers), do: igniter
+    defp warn_servers(igniter, _otp_app, _layer1, _servers, _prefix), do: igniter
 
     defp with_prefix(url, ""), do: url
     defp with_prefix(url, prefix), do: String.trim_trailing(url, "/") <> prefix

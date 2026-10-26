@@ -14,7 +14,9 @@ if Code.ensure_loaded?(Igniter) do
     #     `.hearth.exs` registry, then Hearth's built-in one, and loaded
     #     from the location it points at
     #
-    # Errors are reasons for the callers to word.
+    # A Swagger 2.0 spec is converted to OpenAPI 3 (`Hearth.Spec.Swagger`)
+    # before anything sees it; `converted_from` says so. Errors are
+    # reasons for the callers to word.
     #
     # Guarded like the Mix tasks: Igniter is an optional dependency.
 
@@ -23,12 +25,14 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Spec.Fetcher
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Source
+    alias Hearth.Spec.Swagger
 
     @type loaded :: %{
             spec: map(),
             bytes: binary(),
             location: String.t(),
-            entry: Registry.entry() | nil
+            entry: Registry.entry() | nil,
+            converted_from: String.t() | nil
           }
 
     @type reason ::
@@ -42,6 +46,12 @@ if Code.ensure_loaded?(Igniter) do
     @spec load(Igniter.t(), String.t(), map()) ::
             {:ok, Igniter.t(), loaded()} | {:error, reason()}
     def load(igniter, source, registry \\ %{}) do
+      with {:ok, igniter, loaded} <- resolve(igniter, source, registry) do
+        {:ok, igniter, normalize(loaded)}
+      end
+    end
+
+    defp resolve(igniter, source, registry) do
       case Source.resolve(source) do
         {:registry, name} ->
           with {:ok, entry} <- lookup(name, registry),
@@ -52,6 +62,12 @@ if Code.ensure_loaded?(Igniter) do
         _location ->
           location(igniter, source)
       end
+    end
+
+    defp normalize(%{spec: spec} = loaded) do
+      if Swagger.swagger?(spec),
+        do: %{loaded | spec: Swagger.to_openapi(spec), converted_from: "Swagger 2.0"},
+        else: loaded
     end
 
     defp lookup(name, registry) do
@@ -74,7 +90,8 @@ if Code.ensure_loaded?(Igniter) do
     defp file(igniter, path) do
       with {:ok, igniter, spec} <- Content.read_spec(igniter, path),
            {:ok, bytes} <- Content.read(igniter, path) do
-        {:ok, igniter, %{spec: spec, bytes: bytes, location: path, entry: nil}}
+        {:ok, igniter,
+         %{spec: spec, bytes: bytes, location: path, entry: nil, converted_from: nil}}
       end
     end
 
@@ -83,7 +100,8 @@ if Code.ensure_loaded?(Igniter) do
 
       with {:ok, bytes} <- fetched(fetch.(url), url),
            {:ok, spec} <- decode(bytes, format(url, bytes)) do
-        {:ok, igniter, %{spec: spec, bytes: bytes, location: url, entry: nil}}
+        {:ok, igniter,
+         %{spec: spec, bytes: bytes, location: url, entry: nil, converted_from: nil}}
       end
     end
 

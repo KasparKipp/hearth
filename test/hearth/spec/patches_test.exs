@@ -6,9 +6,9 @@ defmodule Hearth.Spec.PatchesTest do
   @spec_map %{
     "swagger" => "2.0",
     "paths" => %{
-      "/blocks/{id}" => %{
+      "/items/{id}" => %{
         "get" => %{
-          "operationId" => "getBlock",
+          "operationId" => "getItem",
           "deprecated" => true,
           "parameters" => [%{"name" => "id", "in" => "path"}]
         }
@@ -67,8 +67,8 @@ defmodule Hearth.Spec.PatchesTest do
     end
 
     test "nil removes a key" do
-      assert {:ok, spec, []} = apply_patches(%{"/paths/~1blocks~1{id}/get/deprecated" => nil})
-      refute Map.has_key?(spec["paths"]["/blocks/{id}"]["get"], "deprecated")
+      assert {:ok, spec, []} = apply_patches(%{"/paths/~1items~1{id}/get/deprecated" => nil})
+      refute Map.has_key?(spec["paths"]["/items/{id}"]["get"], "deprecated")
     end
 
     test "~1 is a / and ~0 a ~ inside a segment" do
@@ -77,22 +77,22 @@ defmodule Hearth.Spec.PatchesTest do
     end
 
     test "list items by index, and - appends" do
-      base = "/paths/~1blocks~1{id}/get/parameters"
+      base = "/paths/~1items~1{id}/get/parameters"
 
       assert {:ok, spec, []} =
                apply_patches(%{
-                 "#{base}/0/description" => "The block id",
-                 "#{base}/-" => %{"name" => "x-hotelid", "in" => "header"}
+                 "#{base}/0/description" => "The item id",
+                 "#{base}/-" => %{"name" => "x-tenant-id", "in" => "header"}
                })
 
-      [id, hotel] = spec["paths"]["/blocks/{id}"]["get"]["parameters"]
-      assert id["description"] == "The block id"
-      assert hotel["name"] == "x-hotelid"
+      [id, tenant] = spec["paths"]["/items/{id}"]["get"]["parameters"]
+      assert id["description"] == "The item id"
+      assert tenant["name"] == "x-tenant-id"
     end
 
     test "nil on a list index removes the item" do
-      assert {:ok, spec, []} = apply_patches(%{"/paths/~1blocks~1{id}/get/parameters/0" => nil})
-      assert spec["paths"]["/blocks/{id}"]["get"]["parameters"] == []
+      assert {:ok, spec, []} = apply_patches(%{"/paths/~1items~1{id}/get/parameters/0" => nil})
+      assert spec["paths"]["/items/{id}"]["get"]["parameters"] == []
     end
 
     test "a value the source already has is stale" do
@@ -112,7 +112,7 @@ defmodule Hearth.Spec.PatchesTest do
     end
 
     test "a list index must exist" do
-      assert {:error, message} = apply_patches(%{"/paths/~1blocks~1{id}/get/parameters/5" => %{}})
+      assert {:error, message} = apply_patches(%{"/paths/~1items~1{id}/get/parameters/5" => %{}})
       assert message =~ "no item 5"
     end
 

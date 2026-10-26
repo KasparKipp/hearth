@@ -66,7 +66,8 @@ defmodule Hearth.Integration.Manifest do
           names.layer1,
           otp_app,
           servers.default,
-          prefix,
+          # A relative server's path, when the spec has nothing better.
+          servers.path <> prefix,
           auth,
           prefixed: prefixed(opts),
           headers: headers(opts)

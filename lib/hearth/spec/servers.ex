@@ -14,6 +14,11 @@ defmodule Hearth.Spec.Servers do
   #   * the **test** URL — written into `config/test.exs`, where the
   #     generated external test points — is a non-prod server.
   #
+  # A relative server URL (`/v2` — what a hostless Swagger 2.0 spec
+  # converts to) has no host to call. Alone, it resolves like no servers
+  # at all, plus its `path` for the placeholder base URL; next to
+  # absolute servers it is ignored.
+  #
   # Pure: no I/O. The gen task drives the rendering and config patches.
 
   @non_prod_markers ["dev.", "staging.", "preview.", "demo.", "sandbox."]
@@ -24,7 +29,8 @@ defmodule Hearth.Spec.Servers do
           test: String.t() | nil,
           test_alternates: [String.t()],
           warn?: boolean(),
-          fallback_default?: boolean()
+          fallback_default?: boolean(),
+          path: String.t()
         }
 
   @doc "The `servers[].url` strings from a decoded spec, in spec order."
@@ -48,18 +54,18 @@ defmodule Hearth.Spec.Servers do
 
   @doc "Resolves the spec's `servers:` list — see the module comment."
   @spec resolve(map()) :: t()
-  def resolve(spec), do: spec |> urls() |> from_urls()
-
-  defp from_urls([]) do
-    %{
-      default: nil,
-      default_alternates: [],
-      test: nil,
-      test_alternates: [],
-      warn?: true,
-      fallback_default?: false
-    }
+  def resolve(spec) do
+    case Enum.split_with(urls(spec), &String.starts_with?(&1, "/")) do
+      {[relative | _], []} -> %{from_urls([]) | path: String.trim_trailing(relative, "/")}
+      {_relative, absolute} -> from_urls(absolute)
+    end
   end
+
+  # The base URL to use when the spec gives no host.
+  @spec placeholder(t()) :: String.t()
+  def placeholder(servers), do: "https://api.example.com" <> servers.path
+
+  defp from_urls([]), do: %{blank() | warn?: true}
 
   defp from_urls([only]) do
     %{blank() | default: only, test: only}
@@ -97,7 +103,8 @@ defmodule Hearth.Spec.Servers do
       test: nil,
       test_alternates: [],
       warn?: false,
-      fallback_default?: false
+      fallback_default?: false,
+      path: ""
     }
   end
 

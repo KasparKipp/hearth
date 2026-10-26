@@ -1,6 +1,6 @@
 # Hearth — Usage Rules
 
-Hearth turns an OpenAPI 3.x spec into a complete three-layer Req
+Hearth turns an OpenAPI 3.x (or Swagger 2.0) spec into a complete three-layer Req
 HTTP client: a raw client, a behaviour, and a Req implementation,
 plus Mox plumbing, a `Req.Test` auth test, an external integration
 test, and idempotent config patches. The generator is opinionated —
@@ -39,6 +39,10 @@ URLs and shortcuts are fetched on every `gen`, `regen --sync` and
 `diff` — nothing is cached — and the `.hearth.exs` `source:` keeps the
 source as given, so `stripe@latest` follows upstream. Plain `regen`
 never fetches.
+
+A Swagger 2.0 source is converted to OpenAPI 3.0 first. The pruned spec
+is OpenAPI 3, and `overrides:` address that form. A spec without a host
+gets a placeholder base URL: set `base_url:` in config.
 
 Declare your own shortcuts in `.hearth.exs` — same shape as Hearth's
 built-in registry. A version points at a URL or a file;

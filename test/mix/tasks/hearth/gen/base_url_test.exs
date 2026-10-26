@@ -115,6 +115,23 @@ defmodule Mix.Tasks.Hearth.Gen.BaseUrlTest do
                        }
                      })
 
+    test "a relative server's path joins the placeholder, ahead of the shared prefix" do
+      spec = @no_servers_spec |> JSON.decode!() |> Map.put("servers", [%{"url" => "/api"}])
+
+      igniter =
+        test_project(files: %{"priv/specs/srv.json" => JSON.encode!(spec)})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/srv.json", "--integration", "Srv"])
+
+      layer1 = created_file(igniter, "lib/test/integrations/srv.ex")
+      assert layer1 =~ "# TODO: the spec declared no `servers`"
+      assert layer1 =~ ~s(@base_url "https://api.example.com/api/v3")
+
+      assert created_file(igniter, "config/test.exs") =~
+               ~s(base_url: "https://api.example.com/api/v3")
+
+      assert Enum.any?(igniter.warnings, &String.contains?(&1, "https://api.example.com/api/v3"))
+    end
+
     test "the prefix folds into the base-URL placeholder when the spec has no servers" do
       igniter =
         test_project(files: %{"priv/specs/srv.json" => @no_servers_spec})

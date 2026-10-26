@@ -3,7 +3,7 @@ defmodule Hearth do
   Strike sparks from OpenAPI specs into Req HTTP clients.
 
   Hearth is a set of [Igniter](https://hexdocs.pm/igniter) Mix tasks that turn
-  an OpenAPI 3.0 / 3.1 spec into a three-layer Req integration:
+  an OpenAPI 3.0 / 3.1 (or Swagger 2.0) spec into a three-layer Req integration:
 
     * **Layer 1** — a raw Req client (base URL, auth, `request/2`);
     * **Layer 2** — a behaviour plus a dispatcher. Business logic calls this
