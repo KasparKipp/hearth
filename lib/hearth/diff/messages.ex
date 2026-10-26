@@ -9,8 +9,8 @@ defmodule Hearth.Diff.Messages do
   alias Hearth.Spec.Operation
 
   # `source_state` — how the compared source relates to the entry's
-  # `source_sha256`: `:unchanged`, `:changed`, or `nil` when there's
-  # nothing recorded. `entry_source?` — whether `source` is the entry's
+  # `source_sha256`: `:unchanged`, `:changed` (`{:changed, keys}` for
+  # `sources:`), or `nil` when there's nothing recorded. `entry_source?` — whether `source` is the entry's
   # own `source:` (or a `--source` candidate).
   def report(key, source, changes, unlisted, source_state, entry_source?) do
     [
@@ -39,6 +39,9 @@ defmodule Hearth.Diff.Messages do
     do: "It is identical to the source recorded at the last gen or sync."
 
   defp source_line(:changed, _changes, true), do: "The source changed since the last gen or sync."
+
+  defp source_line({:changed, keys}, _changes, _entry_source?),
+    do: "#{Enum.join(keys, ", ")} changed since the last gen or sync."
 
   defp source_line(:unchanged, [], true),
     do: "The source is unchanged since the last gen or sync."

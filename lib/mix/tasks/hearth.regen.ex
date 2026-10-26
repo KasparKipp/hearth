@@ -457,7 +457,7 @@ if Code.ensure_loaded?(Igniter) do
           servers: servers,
           prefix: prefix,
           operations: selected,
-          metadata: Manifest.metadata(Config.source(entry) || spec_path, spec),
+          metadata: Manifest.metadata(source_label(entry, spec_path), spec),
           prefixed: prefixed,
           headers: headers
         )
@@ -469,6 +469,13 @@ if Code.ensure_loaded?(Igniter) do
         end)
 
       Igniter.add_notice(igniter, Messages.regen_notice(names, spec_path, Enum.reverse(results)))
+    end
+
+    defp source_label(entry, spec_path) do
+      case Config.source(entry) do
+        nil -> spec_path
+        source -> Config.source_label(source)
+      end
     end
 
     defp regen_file(igniter, %{module: module, content: content, kind: kind, policy: :scaffold}) do

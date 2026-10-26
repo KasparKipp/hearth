@@ -31,7 +31,8 @@ defmodule Hearth.Spec.OverridesTest do
     end
 
     test "an entry without overrides has none" do
-      assert Overrides.parse(module: X) == {:ok, %{patches: [], tags: [], operation_ids: %{}}}
+      assert Overrides.parse(module: X) ==
+               {:ok, %{patches: [], tags: [], operation_ids: %{}, shared: %{}}}
     end
 
     test "rejects malformed tags and unknown override kinds" do

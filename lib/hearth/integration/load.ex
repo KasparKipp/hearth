@@ -15,7 +15,11 @@ if Code.ensure_loaded?(Igniter) do
     #     from the location it points at
     #
     # A Swagger 2.0 spec is converted to OpenAPI 3 (`Hearth.Spec.Swagger`)
-    # before anything sees it; `converted_from` says so. Errors are
+    # before anything sees it; `converted_from` says so. A `sources:`
+    # list (`[items: "…", events: "…"]`) loads each source that way and
+    # merges them (`Hearth.Spec.Merge`); `sha256` is then one checksum
+    # per source, `splits` the components the merge prefixed per source
+    # (`keep` pins plain names — `overrides: [shared: …]`). Errors are
     # reasons for the callers to word.
     #
     # Guarded like the Mix tasks: Igniter is an optional dependency.
@@ -24,6 +28,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Registry
     alias Hearth.Spec.Fetcher
     alias Hearth.Spec.Loader
+    alias Hearth.Spec.Merge
     alias Hearth.Spec.Source
     alias Hearth.Spec.Swagger
 
@@ -32,7 +37,9 @@ if Code.ensure_loaded?(Igniter) do
             bytes: binary(),
             location: String.t(),
             entry: Registry.entry() | nil,
-            converted_from: String.t() | nil
+            converted_from: String.t() | nil,
+            sha256: String.t() | [{atom(), String.t()}],
+            splits: [Merge.component()]
           }
 
     @type reason ::
@@ -42,12 +49,52 @@ if Code.ensure_loaded?(Igniter) do
             | {:fetch, String.t(), term()}
             | {:registry, Registry.lookup_error()}
             | {:invalid, String.t()}
+            | {:in_source, String.t(), term()}
+            | {:merge, String.t()}
 
-    @spec load(Igniter.t(), String.t(), map()) ::
+    @spec load(Igniter.t(), Hearth.Config.source(), map(), map()) ::
             {:ok, Igniter.t(), loaded()} | {:error, reason()}
-    def load(igniter, source, registry \\ %{}) do
+    def load(igniter, source, registry \\ %{}, keep \\ %{})
+
+    def load(igniter, [{_key, _source} | _] = sources, registry, keep) do
+      with {:ok, igniter, loaded} <- load_each(igniter, sources, registry),
+           {:ok, spec, splits} <- merge(loaded, keep) do
+        {:ok, igniter,
+         %{
+           spec: spec,
+           bytes: nil,
+           location: Hearth.Config.source_label(sources),
+           entry: nil,
+           converted_from: Enum.find_value(loaded, fn {_key, l} -> l.converted_from end),
+           sha256: Enum.map(loaded, fn {key, l} -> {key, l.sha256} end),
+           splits: splits
+         }}
+      end
+    end
+
+    def load(igniter, source, registry, _keep) do
       with {:ok, igniter, loaded} <- resolve(igniter, source, registry) do
-        {:ok, igniter, normalize(loaded)}
+        {:ok, igniter,
+         loaded |> normalize() |> Map.merge(%{sha256: sha256(loaded.bytes), splits: []})}
+      end
+    end
+
+    @spec sha256(binary()) :: String.t()
+    def sha256(bytes), do: :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
+
+    defp load_each(igniter, sources, registry) do
+      Enum.reduce_while(sources, {:ok, igniter, []}, fn {key, source}, {:ok, igniter, acc} ->
+        case load(igniter, source, registry) do
+          {:ok, igniter, loaded} -> {:cont, {:ok, igniter, acc ++ [{key, loaded}]}}
+          {:error, reason} -> {:halt, {:error, {:in_source, source, reason}}}
+        end
+      end)
+    end
+
+    defp merge(loaded, keep) do
+      case Merge.merge(Enum.map(loaded, fn {key, l} -> {key, l.spec} end), keep) do
+        {:ok, spec, splits} -> {:ok, spec, splits}
+        {:error, message} -> {:error, {:merge, message}}
       end
     end
 

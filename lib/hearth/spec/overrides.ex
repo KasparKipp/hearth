@@ -16,6 +16,10 @@ defmodule Hearth.Spec.Overrides do
   #       patches: %{"/security" => [%{"bearerAuth" => []}]}
   #     ]
   #
+  #   * `shared` — for `sources:`, which source keeps the plain name of a
+  #     component the sources define differently
+  #     (`%{"schemas/policyDeadlineType" => :blk}`); read by
+  #     `Hearth.Spec.Merge`, not applied here.
   #   * `patches` — JSON pointer → value edits to the document
   #     (`Hearth.Spec.Patches`), applied first: tags and renames see
   #     the patched spec.
@@ -33,7 +37,7 @@ defmodule Hearth.Spec.Overrides do
   # them. Everything downstream sees the result. An entry that matches
   # nothing is returned as stale, for the tasks to report.
 
-  @kinds [:patches, :tags, :operation_ids]
+  @kinds [:patches, :tags, :operation_ids, :shared]
   @methods ~w(get put post delete options head patch trace)
 
   alias Hearth.Spec.Operation
@@ -42,7 +46,8 @@ defmodule Hearth.Spec.Overrides do
   @type t :: %{
           patches: [Patches.patch()],
           tags: [{String.t(), [String.t()]}],
-          operation_ids: %{String.t() => String.t()}
+          operation_ids: %{String.t() => String.t()},
+          shared: %{{String.t(), String.t()} => atom()}
         }
   @type stale :: {:patches | :tags | :operation_ids, String.t()}
 
@@ -54,8 +59,9 @@ defmodule Hearth.Spec.Overrides do
          :ok <- known_kinds(overrides),
          {:ok, patches} <- Patches.parse(Keyword.get(overrides, :patches, %{})),
          {:ok, tags} <- tags(Keyword.get(overrides, :tags, [])),
-         {:ok, ids} <- operation_ids(Keyword.get(overrides, :operation_ids, %{})) do
-      {:ok, %{patches: patches, tags: tags, operation_ids: ids}}
+         {:ok, ids} <- operation_ids(Keyword.get(overrides, :operation_ids, %{})),
+         {:ok, shared} <- shared(Keyword.get(overrides, :shared, %{})) do
+      {:ok, %{patches: patches, tags: tags, operation_ids: ids, shared: shared}}
     end
   end
 
@@ -207,6 +213,28 @@ defmodule Hearth.Spec.Overrides do
        "`overrides: [operation_ids: …]` must map upstream operationIds (or " <>
          ~s|"method /path") to new ones, e.g. `operation_ids: %{"GetCustomersCustomer" => "GetCustomer"}`.|}
     end
+  end
+
+  defp shared(shared) do
+    pairs =
+      is_map(shared) &&
+        Enum.map(shared, fn
+          {component, key} when is_binary(component) and is_atom(key) ->
+            case String.split(component, "/", parts: 2) do
+              [section, name] when section != "" and name != "" -> {{section, name}, key}
+              _ -> nil
+            end
+
+          _ ->
+            nil
+        end)
+
+    if pairs && Enum.all?(pairs),
+      do: {:ok, Map.new(pairs)},
+      else:
+        {:error,
+         ~s|`overrides: [shared: …]` maps a component ("section/name") to the source | <>
+           ~s|that keeps its name, e.g. `shared: %{"schemas/address" => :items}`.|}
   end
 
   defp shape_message do

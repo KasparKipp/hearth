@@ -61,6 +61,15 @@ if Code.ensure_loaded?(Igniter) do
 
           igniter = note_stale_overrides(igniter, key, result)
 
+          igniter =
+            case Reprune.splits(result, previous) do
+              [] ->
+                igniter
+
+              splits ->
+                Igniter.add_warning(igniter, IntegrationMessages.split_warning(key, splits))
+            end
+
           {:ok, igniter, result.pruned,
            %{added: Enum.map(added, &key/1), removed: removed, renamed: renamed, auth: auth}}
 
