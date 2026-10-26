@@ -50,9 +50,11 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
     be a local spec file. `--sync --all` asks for confirmation first
     (`--yes` skips it) — run `mix hearth.diff --all` to see the drift.
 
-    The external test is yours, so `--sync` doesn't rewrite it. It asks
-    before appending tests for the operations it added (`--yes`
-    accepts), and lists tests that still call an operation it removed.
+    When a function goes away — renamed, or now covered by a
+    `prefixed_ids` function — `--sync` asks to rename its calls across
+    lib and test, Mox expectations included. It asks before appending
+    external tests for new functions, and lists tests that still call an
+    operation it removed. `--yes` accepts both.
 
     ## Moving an integration
 
@@ -113,6 +115,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Integration.Manifest
     alias Hearth.Integration.Messages, as: IntegrationMessages
     alias Hearth.Integration.Names
+    alias Hearth.Regen.CallSites
     alias Hearth.Regen.Messages
     alias Hearth.Regen.Move
     alias Hearth.Regen.Sync
@@ -213,10 +216,16 @@ if Code.ensure_loaded?(Igniter) do
             Igniter.add_issue(igniter, Messages.remove_old_needs_module_message())
 
           target in [nil, layer1] ->
+            {igniter, old_functions} = CallSites.functions(igniter, names)
+
+            {replacements, rewrite?, changes} =
+              plan_sync(igniter, old_functions, spec, entry, changes)
+
             igniter
-            |> Sync.extend_external_test(names, spec, drop_covered(changes, spec, entry))
+            |> Sync.extend_external_test(names, spec, changes)
             |> render(names, spec_path, spec, entry)
             |> wire_new_auth(names, changes)
+            |> CallSites.rewrite(names, replacements, rewrite?)
 
           true ->
             new = ModuleNames.from_layer1(target)
@@ -241,24 +250,34 @@ if Code.ensure_loaded?(Igniter) do
 
     defp wire_new_auth(igniter, _names, _changes), do: igniter
 
-    # Added operations a prefixed-id function reaches get no function, so
-    # no external test either.
-    defp drop_covered(nil, _spec, _entry), do: nil
+    # `--sync` only: which removed functions to replace at their call
+    # sites (`Hearth.Regen.CallSites`), whether the user agreed, and the
+    # changes for the external test — "added" means a function the old
+    # Layer 2 didn't have, and renames the call-site rewrite handles are
+    # left out of its notices.
+    defp plan_sync(_igniter, _old, _spec, _entry, nil), do: {[], false, nil}
 
-    defp drop_covered(changes, spec, entry) do
-      case PrefixedIds.prepare(spec, entry) do
-        {:ok, prefixed} ->
-          covered =
-            spec
-            |> Operation.extract()
-            |> PrefixedIds.covered(prefixed)
-            |> MapSet.new(fn {op, _name} -> {op.method, op.path} end)
+    defp plan_sync(igniter, old, spec, entry, changes) do
+      prefixed =
+        case PrefixedIds.prepare(spec, entry) do
+          {:ok, prefixed} -> prefixed
+          {:error, _detail} -> nil
+        end
 
-          %{changes | added: Enum.reject(changes.added, &MapSet.member?(covered, &1))}
+      replacements = CallSites.replacements(old, spec, prefixed, changes.renamed)
+      rewrite? = CallSites.accept?(igniter, replacements)
 
-        {:error, _detail} ->
-          changes
-      end
+      # A rename's new name isn't new: its calls are the old ones.
+      renamed_to = MapSet.new(changes.renamed, &elem(&1, 1))
+
+      added =
+        for op <- functions(Operation.extract(spec), prefixed),
+            not MapSet.member?(old, op.id),
+            not MapSet.member?(renamed_to, op.id),
+            do: {op.method, op.path}
+
+      renamed = if rewrite?, do: [], else: changes.renamed
+      {replacements, rewrite?, %{changes | added: added, renamed: renamed}}
     end
 
     defp layer1(key, entry) do
