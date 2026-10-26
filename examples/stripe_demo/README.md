@@ -16,19 +16,26 @@ mix deps.get
 Stripe's spec has 587 operations and none of them carry a tag, so
 `--tag` has nothing to select from, and its operationIds make long
 function names (`GetCustomersCustomer` → `get_customers_customer`).
-`.hearth.exs` fixes both with overrides written before the first gen:
+Stripe's ids are also type-prefixed (`cus_…`), so a few functions can
+cover a resource instead of one function per operation. `.hearth.exs`,
+written before the first gen:
 
 ```elixir
 stripe: [
+  prefixed_ids: [
+    functions: [retrieve: :get, update: :post, delete: :delete],
+    prefixes: [cus: "GetCustomer"]
+  ],
   overrides: [
     tags: [
       Customers: ["get /v1/customers", "post /v1/customers", "get /v1/customers/{customer}"],
-      Subscriptions: ["/v1/subscriptions*"]
+      Subscriptions: ["get /v1/subscriptions/{subscription_exposed_id}"]
     ],
     operation_ids: %{
       "GetCustomers" => "ListCustomers",
       "PostCustomers" => "CreateCustomer",
-      "GetCustomersCustomer" => "GetCustomer"
+      "GetCustomersCustomer" => "GetCustomer",
+      "GetSubscriptionsSubscriptionExposedId" => "GetSubscription"
     }
   ]
 ]
@@ -36,27 +43,31 @@ stripe: [
 
 A tag entry is a path glob (`*` matches anything, `/` included), a method
 plus a path, or an operationId. `operation_ids` renames an operation; the
-function follows. Then:
+function follows. `prefixed_ids` adds `retrieve/2`, `update/2` and
+`delete/2`, which take a prefixed id: `retrieve("cus_123")` sends
+`GET /customers/cus_123`. Each prefix names its resource by an operation
+on it. Then:
 
 ```bash
-mix hearth.gen stripe@2026-04-22.dahlia --tag Customers --yes
+mix hearth.gen stripe@2026-04-22.dahlia --tag Customers --tag Subscriptions --yes
 ```
 
 fetched that pinned release from Stripe's GitHub repo, picked the three
-`Customers` operations out of 587, and wrote everything in this
-directory that `mix new` didn't:
+`Customers` operations and the subscription lookup out of 587, and wrote
+everything in this directory that `mix new` didn't. `GetCustomer` is selected, but
+`retrieve/2` reaches it, so it gets no function of its own:
 
 | File | What it is |
 | --- | --- |
-| `lib/stripe_demo/integrations/stripe.ex` | the raw Req client — base URL `https://api.stripe.com/v1` |
-| `lib/stripe_demo/integrations/stripe/stripe_api.ex` | the behaviour your code calls: `list_customers/1`, `create_customer/1`, `get_customer/2` |
+| `lib/stripe_demo/integrations/stripe.ex` | the raw Req client — base URL `https://api.stripe.com/v1`; `request/2` also takes a prefixed id |
+| `lib/stripe_demo/integrations/stripe/stripe_api.ex` | the behaviour your code calls: `list_customers/1`, `create_customer/1`, `get_subscription/2`, and `retrieve/2`, `update/2`, `delete/2` for prefixed ids |
 | `lib/stripe_demo/integrations/stripe/stripe_api/req.ex` | the Req implementation |
 | `test/stripe_demo/integrations/stripe_test.exs` | the client's `Req.Test` test |
 | `test/stripe_demo/integrations/stripe_external_test.exs` | live-API tests, yours to edit |
 | `test/support/mocks.ex` | the Mox mock for `StripeApi` |
 | `config/test.exs` | points `StripeApi` at the mock in tests |
 | `config/runtime.exs` | reads the API key from `STRIPE_API_KEY` in dev and prod |
-| `priv/hearth/stripe.yaml` | Stripe's spec pruned to these three operations |
+| `priv/hearth/stripe.yaml` | Stripe's spec pruned to these operations and the ones the prefixed functions reach |
 | `.hearth.exs` | the rest of the entry: module, source, checksum, base path, which tags were selected, and the auth scheme |
 
 ### Where `stripe@2026-04-22.dahlia` comes from
@@ -107,9 +118,10 @@ also runs `test/stripe_demo/integrations/stripe_external_test.exs`: one
 test per operation against the real API, with placeholder arguments to
 replace. Hearth creates that file once and never overwrites it.
 
-In your own code you'd call the behaviour,
-`StripeDemo.Integrations.Stripe.StripeApi.list_customers(params: [limit: 3])`,
-and stub it in tests with `StripeDemo.Integrations.Stripe.StripeApi.Mock`.
+Your code calls the behaviour and stubs it in tests with
+`StripeDemo.Integrations.Stripe.StripeApi.Mock`. `lib/stripe_demo/billing.ex`
+is such a caller: `subscription_status/1` calls `StripeApi.get_subscription/1`,
+and `test/stripe_demo/billing_test.exs` stubs it with the mock.
 
 ## 3. Check it's in sync
 
@@ -149,6 +161,7 @@ It differs from the source recorded at the last gen or sync.
 
 Operations:
   ~ post /v1/customers (CreateCustomer): request body application/x-www-form-urlencoded: tax_id_data[].type: enum gains ic_nif
+  ...
 
 Schemas:
   ~ account_business_profile: property specified_commercial_transactions_act_url added
@@ -157,13 +170,14 @@ Schemas:
   ~ card: property iin removed  [breaking]
   ...
 
-247 changes (30 breaking). To apply them, point `source:` at stripe@latest in .hearth.exs and run:
+250 changes (30 breaking). To apply them, point `source:` at stripe@latest in .hearth.exs and run:
 
   mix hearth.regen stripe --sync
 ```
 
-That's every change to the three operations and to the schemas they
-reach, with the breaking ones marked. Run `mix hearth.gen stripe --list`
+That's every change to the selected operations, the ones the prefixed
+functions reach, and the schemas they use, with the breaking ones
+marked. Run `mix hearth.gen stripe --list`
 to see the versions Hearth knows.
 
 ## 5. Move to another version

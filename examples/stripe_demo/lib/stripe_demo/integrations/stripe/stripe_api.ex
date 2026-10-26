@@ -37,15 +37,43 @@ defmodule StripeDemo.Integrations.Stripe.StripeApi do
   """
   def create_customer(opts \\ []), do: impl().create_customer(opts)
 
-  @callback get_customer(customer :: String.t(), opts :: keyword()) ::
+  @callback get_subscription(subscription_exposed_id :: String.t(), opts :: keyword()) ::
               {:ok, Req.Response.t()} | {:error, Exception.t()}
 
   @doc """
-  Retrieve a customer
+  Retrieve a subscription
 
-  <p>Retrieves a Customer object.</p>
+  <p>Retrieves the subscription with the given ID.</p>
   """
-  def get_customer(customer, opts \\ []), do: impl().get_customer(customer, opts)
+  def get_subscription(subscription_exposed_id, opts \\ []),
+    do: impl().get_subscription(subscription_exposed_id, opts)
+
+  @callback retrieve(id :: String.t(), opts :: keyword()) ::
+              {:ok, Req.Response.t()} | {:error, Exception.t()}
+
+  @doc """
+  `GET` the resource a type-prefixed id names —
+  `retrieve("cus_123")`. Works for: cus.
+  """
+  def retrieve(id, opts \\ []), do: impl().retrieve(id, opts)
+
+  @callback update(id :: String.t(), opts :: keyword()) ::
+              {:ok, Req.Response.t()} | {:error, Exception.t()}
+
+  @doc """
+  `POST` the resource a type-prefixed id names —
+  `update("cus_123")`. Works for: cus.
+  """
+  def update(id, opts \\ []), do: impl().update(id, opts)
+
+  @callback delete(id :: String.t(), opts :: keyword()) ::
+              {:ok, Req.Response.t()} | {:error, Exception.t()}
+
+  @doc """
+  `DELETE` the resource a type-prefixed id names —
+  `delete("cus_123")`. Works for: cus.
+  """
+  def delete(id, opts \\ []), do: impl().delete(id, opts)
 
   defp impl, do: Application.get_env(@otp_app, __MODULE__, [])[:impl] || __MODULE__.Req
 end

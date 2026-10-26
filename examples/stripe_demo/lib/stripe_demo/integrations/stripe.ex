@@ -28,11 +28,14 @@ defmodule StripeDemo.Integrations.Stripe do
     |> Req.merge(opts)
   end
 
-  @doc "Performs a request — returns `{:ok, response}` or `{:error, exception}`."
-  def request(url, opts \\ []), do: Req.request(new(url: url), opts)
+  @doc """
+  Performs a request — returns `{:ok, response}` or `{:error, exception}`.
+  `url` may be a type-prefixed id, which stands for its resource's path.
+  """
+  def request(url, opts \\ []), do: Req.request(new(url: parse_url(url)), opts)
 
   @doc "Like `request/2`, but raises on error."
-  def request!(url, opts \\ []), do: Req.request!(new(url: url), opts)
+  def request!(url, opts \\ []), do: Req.request!(new(url: parse_url(url)), opts)
 
   defp base_url, do: Application.get_env(@otp_app, __MODULE__, [])[:base_url] || @base_url
 
@@ -59,4 +62,10 @@ defmodule StripeDemo.Integrations.Stripe do
                 "or pass `api_key:` to new/1, request/2 or a behaviour function"
     end
   end
+
+  # A type-prefixed id stands for its resource's path:
+  # `"cus_123"` → `"/customers/cus_123"`. Anything after
+  # the id comes along; any other URL passes through.
+  defp parse_url("cus_" <> _ = id), do: "/customers/#{id}"
+  defp parse_url(url), do: url
 end
