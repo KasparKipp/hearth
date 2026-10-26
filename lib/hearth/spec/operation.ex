@@ -74,6 +74,7 @@ defmodule Hearth.Spec.Operation do
 
     spec
     |> Map.get("paths", %{})
+    |> Enum.sort_by(&elem(&1, 0))
     |> Enum.flat_map(&extract_path(&1, component_params))
     |> assign_ids()
   end

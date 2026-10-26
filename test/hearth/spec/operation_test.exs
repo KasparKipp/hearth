@@ -214,6 +214,28 @@ defmodule Hearth.Spec.OperationTest do
 
   defp param_names(params), do: Enum.map(params, & &1["name"])
 
+  describe "extract/1 — order" do
+    # Maps over 32 keys iterate in hash order, so a big source spec and
+    # its small pruned spec would list the same operations differently —
+    # and gen and regen would render them in different orders.
+    test "operations come in path order, whatever the size of the spec" do
+      paths =
+        Map.new(1..40, fn i ->
+          {"/r#{String.pad_leading("#{i}", 2, "0")}",
+           %{"get" => %{"operationId" => "op#{i}"}, "post" => %{"operationId" => "make#{i}"}}}
+        end)
+
+      ops = Operation.extract(%{"paths" => paths})
+
+      assert Enum.map(ops, & &1.path) == ops |> Enum.map(& &1.path) |> Enum.sort()
+      assert ops |> Enum.take(2) |> Enum.map(& &1.id) == ["op1", "make1"]
+
+      small = Operation.extract(%{"paths" => Map.take(paths, ["/r07", "/r33"])})
+      big = Enum.filter(ops, &(&1.path in ["/r07", "/r33"]))
+      assert Enum.map(small, & &1.id) == Enum.map(big, & &1.id)
+    end
+  end
+
   describe "extract/1 — id derivation" do
     test "falls back to <verb>_<path-slug> when operationId is absent" do
       spec = %{
