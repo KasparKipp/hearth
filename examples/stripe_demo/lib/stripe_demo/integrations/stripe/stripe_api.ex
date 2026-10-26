@@ -18,25 +18,26 @@ defmodule StripeDemo.Integrations.Stripe.StripeApi do
 
   @otp_app :stripe_demo
 
-  @callback get_customers(opts :: keyword()) :: {:ok, Req.Response.t()} | {:error, Exception.t()}
+  @callback list_customers(opts :: keyword()) :: {:ok, Req.Response.t()} | {:error, Exception.t()}
 
   @doc """
   List all customers
 
   <p>Returns a list of your customers. The customers are returned sorted by creation date, with the most recent customers appearing first.</p>
   """
-  def get_customers(opts \\ []), do: impl().get_customers(opts)
+  def list_customers(opts \\ []), do: impl().list_customers(opts)
 
-  @callback post_customers(opts :: keyword()) :: {:ok, Req.Response.t()} | {:error, Exception.t()}
+  @callback create_customer(opts :: keyword()) ::
+              {:ok, Req.Response.t()} | {:error, Exception.t()}
 
   @doc """
   Create a customer
 
   <p>Creates a new customer object.</p>
   """
-  def post_customers(opts \\ []), do: impl().post_customers(opts)
+  def create_customer(opts \\ []), do: impl().create_customer(opts)
 
-  @callback get_customers_customer(customer :: String.t(), opts :: keyword()) ::
+  @callback get_customer(customer :: String.t(), opts :: keyword()) ::
               {:ok, Req.Response.t()} | {:error, Exception.t()}
 
   @doc """
@@ -44,8 +45,7 @@ defmodule StripeDemo.Integrations.Stripe.StripeApi do
 
   <p>Retrieves a Customer object.</p>
   """
-  def get_customers_customer(customer, opts \\ []),
-    do: impl().get_customers_customer(customer, opts)
+  def get_customer(customer, opts \\ []), do: impl().get_customer(customer, opts)
 
   defp impl, do: Application.get_env(@otp_app, __MODULE__, [])[:impl] || __MODULE__.Req
 end

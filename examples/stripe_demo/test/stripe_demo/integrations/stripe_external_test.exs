@@ -25,17 +25,17 @@ defmodule StripeDemo.Integrations.StripeExternalTest do
   end
 
   # TODO: replace the placeholder args/opts and assert on your use-case.
-  test "get_customers reaches the live API" do
-    assert {:ok, %Req.Response{}} = StripeApi.Req.get_customers([])
+  test "list_customers reaches the live API" do
+    assert {:ok, %Req.Response{}} = StripeApi.Req.list_customers([])
   end
 
   # TODO: replace the placeholder args/opts and assert on your use-case.
-  test "post_customers reaches the live API" do
-    assert {:ok, %Req.Response{}} = StripeApi.Req.post_customers([])
+  test "create_customer reaches the live API" do
+    assert {:ok, %Req.Response{}} = StripeApi.Req.create_customer([])
   end
 
   # TODO: replace the placeholder args/opts and assert on your use-case.
-  test "get_customers_customer reaches the live API" do
-    assert {:ok, %Req.Response{}} = StripeApi.Req.get_customers_customer("TODO", [])
+  test "get_customer reaches the live API" do
+    assert {:ok, %Req.Response{}} = StripeApi.Req.get_customer("TODO", [])
   end
 end

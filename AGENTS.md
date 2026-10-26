@@ -548,7 +548,12 @@ What exists, condensed. The blow-by-blow is in git history.
   source spec before selection: `parse/1` validates it (unknown kinds are an
   error naming the supported ones), `apply/2` rewrites the decoded source and
   returns stale entries. `tags:` — path globs (`*` crosses `/`),
-  `method /glob`, or operationIds; adds to upstream tags.
+  `method /glob`, or operationIds; adds to upstream tags. `operation_ids:` —
+  upstream operationId (or `"method /path"`) → new operationId, applied after
+  tags so both refer to the source as published; a new id or derived function
+  name that clashes with another operation is an error (`apply/2` returns
+  `{:error, _}`). Downstream — `tags:` lists, code, diff — sees the new ids, and
+  `Selection.carry_renames/3` keeps a renamed operation selected.
 - **Auth choice** — the entry's `auth: [scheme:, available:]`
   (`Spec.Auth.describe/2`) records the spec's schemes and the wired one.
   `Auth.choose/2` applies `scheme:` — or `Auth.default/1`, the first scheme

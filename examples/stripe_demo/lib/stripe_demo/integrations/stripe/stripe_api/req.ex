@@ -11,17 +11,17 @@ defmodule StripeDemo.Integrations.Stripe.StripeApi.Req do
   alias StripeDemo.Integrations.Stripe
 
   @impl true
-  def get_customers(opts \\ []) do
+  def list_customers(opts \\ []) do
     Stripe.request("/customers", opts)
   end
 
   @impl true
-  def post_customers(opts \\ []) do
+  def create_customer(opts \\ []) do
     Stripe.request("/customers", [method: :post] ++ opts)
   end
 
   @impl true
-  def get_customers_customer(customer, opts \\ []) do
+  def get_customer(customer, opts \\ []) do
     Stripe.request("/customers/#{customer}", opts)
   end
 end
