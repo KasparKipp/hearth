@@ -14,7 +14,7 @@ With Igniter (recommended):
 
 Or manually — add to `mix.exs`:
 
-    {:hearth, "~> 0.0", only: [:dev, :test], runtime: false},
+    {:hearth, "~> 0.1", only: [:dev, :test], runtime: false},
     {:igniter, "~> 0.5", only: [:dev, :test]}
 
 then run `mix deps.get` and `mix hearth.install` (formatter import).
