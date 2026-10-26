@@ -119,15 +119,23 @@ mix hearth.diff acme
 mix hearth.diff acme --source priv/specs/acme-2.0.yaml   # preview a new version
 ```
 
-Stripe's spec tags nothing, so its operations get tags in `.hearth.exs`
-before `--tag` can pick them — the [Stripe example](https://github.com/KasparKipp/hearth/tree/main/examples/stripe_demo)
-walks through it.
-
 Hand-edited a generated file? Put `hearth:owned` in its `@moduledoc` and
 `regen` skips it; `hearth:collaborating` makes `regen` ask first.
 
 Run `mix help hearth.gen` for every option. [`usage-rules.md`](usage-rules.md)
 is the full guide — and what a coding agent working in your project should read.
+
+## Examples
+
+Stripe's spec tags nothing, so its operations get tags in `.hearth.exs`
+before `--tag` can pick them — the [Stripe example](https://github.com/KasparKipp/hearth/tree/main/examples/stripe_demo)
+walks through it.
+
+For a bigger case, the [OHIP example](https://github.com/KasparKipp/hearth/tree/main/examples/ohip_demo)
+builds clients from two of Oracle's hospitality specs plus their OAuth API,
+with per-chain tokens and hotel IDs. It then moves them to the next API
+release: `hearth.diff` shows what changed and what breaks before anything is
+touched, and `regen --sync` applies it.
 
 ## Status
 
