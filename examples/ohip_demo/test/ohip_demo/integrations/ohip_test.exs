@@ -18,20 +18,12 @@ if Code.ensure_loaded?(Plug.Conn) do
     @api_key "hearth-test-credential"
 
     # Values Layer 1 takes per call, never from config.
-    @opts [api_key: @api_key, hotel_id: "hearth-test-hotel_id", base_url: "http://hearth.test"]
-
-    setup do
-      previous = Application.get_env(:ohip_demo, @client, [])
-
-      Application.put_env(
-        :ohip_demo,
-        @client,
-        Keyword.merge(previous, app_key: "hearth-test-app_key")
-      )
-
-      on_exit(fn -> Application.put_env(:ohip_demo, @client, previous) end)
-      :ok
-    end
+    @opts [
+      api_key: @api_key,
+      hotel_id: "hearth-test-hotel_id",
+      headers: [{"x-app-key", "hearth-test-x-app-key"}],
+      base_url: "http://hearth.test"
+    ]
 
     # Without `api_key:`, OhipDemo.Tenancy.token/1 resolves the credential —
     # it's yours to test.
@@ -70,25 +62,8 @@ if Code.ensure_loaded?(Plug.Conn) do
                )
     end
 
-    test "request! sets the x-app-key header from config" do
-      plug = fn conn ->
-        assert Plug.Conn.get_req_header(conn, "x-app-key") == ["hearth-test-app_key"]
-        Plug.Conn.send_resp(conn, 200, JSON.encode!(%{}))
-      end
-
-      assert %Req.Response{status: 200} = @client.request!("/ping", @opts ++ [plug: plug])
-    end
-
-    test "a per-call app_key: overrides config" do
-      plug = fn conn ->
-        assert Plug.Conn.get_req_header(conn, "x-app-key") == ["per-call"]
-        Plug.Conn.send_resp(conn, 200, JSON.encode!(%{}))
-      end
-
-      assert %Req.Response{status: 200} =
-               @client.request!("/ping", @opts ++ [plug: plug, app_key: "per-call"])
-    end
-
+    # Without the header on the request, OhipDemo.Tenancy.app_key/1 resolves
+    # x-app-key — it's yours to test.
     test "an explicit x-app-key header wins" do
       plug = fn conn ->
         assert Plug.Conn.get_req_header(conn, "x-app-key") == ["explicit-credential"]

@@ -6,11 +6,16 @@
 # other two headers every operation requires. They have no host either:
 # each customer has its own gateway.
 #
-# Per hotel, nothing comes from config: `OhipDemo.Tenancy` resolves the
-# token and the gateway from the `hotel:` each call passes, and every
-# call passes `hotel_id:` for `x-hotelid`. Only the app key is config
-# (OHIP_APP_KEY). `mix hearth.gen` keeps all of this and fills in the
-# rest of the entry.
+# A hotel chain shares one gateway, app key, client ID and secret, and
+# enterprise ID; each of its hotels has its own hotel ID. So every call
+# passes the `chain:` and the `hotel_id:` it acts for, and nothing comes
+# from config: `OhipDemo.Tenancy` resolves the gateway, the app key and
+# a token per chain, which it gets from OHIP's OAuth API (`ohip_oauth`,
+# HTTP basic with the client ID and secret). The OAuth spec moved
+# between releases, from property/v1/oauth.json to
+# security/v1/publishedoauth.json; the registry hides that.
+#
+# `mix hearth.gen` keeps all of this and fills in the rest of each entry.
 [
   registry: %{
     "ohip_blk" => %{
@@ -24,6 +29,12 @@
         "https://raw.githubusercontent.com/oracle/hospitality-api-docs/52ca1813e050980441a8a9988d0ced3d209698e4/rest-api-specs/property/v1/evm.json",
       "26.3" =>
         "https://raw.githubusercontent.com/oracle/hospitality-api-docs/dd631fbd5d0fce74a7dbdf96b43f07ce587211f2/rest-api-specs/property/v1/evm.json"
+    },
+    "ohip_oauth" => %{
+      "26.2" =>
+        "https://raw.githubusercontent.com/oracle/hospitality-api-docs/52ca1813e050980441a8a9988d0ced3d209698e4/rest-api-specs/property/v1/oauth.json",
+      "26.3" =>
+        "https://raw.githubusercontent.com/oracle/hospitality-api-docs/dd631fbd5d0fce74a7dbdf96b43f07ce587211f2/rest-api-specs/security/v1/publishedoauth.json"
     }
   },
   integrations: [
@@ -40,8 +51,11 @@
           "/security" => [%{"bearerAuth" => []}]
         }
       ],
-      headers: ["x-app-key": :app_key, "x-hotelid": [option: :hotel_id]],
-      base_url: [resolve: {OhipDemo.Tenancy, :gateway}, options: [:hotel]],
+      headers: [
+        "x-app-key": [resolve: {OhipDemo.Tenancy, :app_key}, options: [:chain]],
+        "x-hotelid": [option: :hotel_id]
+      ],
+      base_url: [resolve: {OhipDemo.Tenancy, :gateway}, options: [:chain]],
       base_path: "",
       tags: [
         Block: [
@@ -188,7 +202,24 @@
       auth: [
         scheme: "bearerAuth",
         available: [bearerAuth: "bearer"],
-        credential: [resolve: {OhipDemo.Tenancy, :token}, options: [:hotel]]
+        credential: [resolve: {OhipDemo.Tenancy, :token}, options: [:chain]]
+      ]
+    ],
+    ohip_oauth: [
+      module: OhipDemo.Integrations.OhipOauth,
+      source: "ohip_oauth@26.2",
+      source_sha256: "fb15055a018282cdf894dd426fa3975f40942d6fa1bf1e75c19be78199b3c248",
+      headers: [
+        "x-app-key": [resolve: {OhipDemo.Tenancy, :app_key}, options: [:chain]],
+        enterpriseid: [resolve: {OhipDemo.Tenancy, :enterprise_id}, options: [:chain]]
+      ],
+      base_url: [resolve: {OhipDemo.Tenancy, :gateway}, options: [:chain]],
+      base_path: "",
+      tags: [Authentication: :all],
+      auth: [
+        scheme: "basicAuth",
+        available: [basicAuth: "basic"],
+        credential: [resolve: {OhipDemo.Tenancy, :client_credentials}, options: [:chain]]
       ]
     ]
   ]

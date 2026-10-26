@@ -4,3 +4,7 @@
 # `config/test.exs` points each behaviour at its mock.
 
 Mox.defmock(OhipDemo.Integrations.Ohip.OhipApi.Mock, for: OhipDemo.Integrations.Ohip.OhipApi)
+
+Mox.defmock(OhipDemo.Integrations.OhipOauth.OhipOauthApi.Mock,
+  for: OhipDemo.Integrations.OhipOauth.OhipOauthApi
+)

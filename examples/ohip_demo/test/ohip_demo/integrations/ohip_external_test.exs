@@ -11,28 +11,20 @@ defmodule OhipDemo.Integrations.OhipExternalTest do
   @moduletag :external
 
   alias OhipDemo.Integrations.Ohip.OhipApi
-  @client OhipDemo.Integrations.Ohip
+  alias OhipDemo.Integrations.OhipOauth.OhipOauthApi
 
+  # `OhipDemo.Tenancy` gets the token through `OhipOauthApi`, which
+  # `config/test.exs` points at its Mox mock; here it has to be the real
+  # one.
   setup do
-    # Merge into the existing config — `config/test.exs` sets a
-    # `:base_url` on @client; a bare `put_env` would wipe it and the
-    # external test would hit production.
-    previous = Application.get_env(:ohip_demo, @client, [])
-
-    config =
-      Keyword.merge(previous,
-        app_key: System.get_env("OHIP_APP_KEY") || "DEV_NO_OHIP_APP_KEY"
-      )
-
-    Application.put_env(:ohip_demo, @client, config)
-    on_exit(fn -> Application.put_env(:ohip_demo, @client, previous) end)
+    previous = Application.get_env(:ohip_demo, OhipOauthApi, [])
+    Application.put_env(:ohip_demo, OhipOauthApi, Keyword.put(previous, :impl, OhipOauthApi.Req))
+    on_exit(fn -> Application.put_env(:ohip_demo, OhipOauthApi, previous) end)
     :ok
   end
 
-  # Values Layer 1 takes per call, never from config.
-  defp opts do
-    [hotel_id: System.get_env("OHIP_HOTEL_ID") || "DEV_NO_OHIP_HOTEL_ID"]
-  end
+  # The chain and the hotel every call acts for (`OhipDemo.LiveChain`).
+  defp opts, do: [chain: OhipDemo.LiveChain.chain!(), hotel_id: OhipDemo.LiveChain.hotel_id!()]
 
   # TODO: replace the placeholder args/opts and assert on your use-case.
   test "get_blocks reaches the live API" do
