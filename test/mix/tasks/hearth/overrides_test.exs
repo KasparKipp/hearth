@@ -88,9 +88,9 @@ defmodule Mix.Tasks.Hearth.OverridesTest do
     end
 
     test "halts on an override kind that doesn't exist yet" do
-      igniter = gen(patches: [])
+      igniter = gen(schemas: [])
 
-      assert issue_text(igniter) =~ "unknown override `patches:`"
+      assert issue_text(igniter) =~ "unknown override `schemas:`"
     end
   end
 
