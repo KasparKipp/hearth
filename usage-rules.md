@@ -392,6 +392,9 @@ comes first:
 * `[resolve: {M, :f}, options: [...]]` — `M.f/1` when each request
   runs, given those options; it must return a string. The credential
   still takes a per-call `api_key:` first, the base URL a `base_url:`.
+  A resolved base URL is the host (say, a customer's gateway): the
+  client appends the spec's base path (`/v1`). A `base_url:` passed per
+  call is used as is.
 
 Then run `mix hearth.regen <int>`. A value that moves off config leaves
 its `config/runtime.exs` line behind; `regen` names it for you to

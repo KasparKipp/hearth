@@ -15,11 +15,12 @@ defmodule Hearth.Render.ValuesRuntimeTest do
 
   def gateway(opts), do: "https://#{opts[:region] || "eu"}.gateway.test"
 
-  defp client(auth, values, config \\ []) do
+  defp client(auth, values, config \\ [], base \\ {"https://api.example.com", ""}) do
     n = System.unique_integer([:positive])
     module = Module.concat([__MODULE__, "Client#{n}"])
     otp_app = :"hearth_values_runtime_#{n}"
-    source = Layer1.render(module, otp_app, "https://api.example.com", "", auth, values: values)
+    {base_url, path_prefix} = base
+    source = Layer1.render(module, otp_app, base_url, path_prefix, auth, values: values)
     Code.compile_string(source)
 
     Application.put_env(otp_app, module, config)
@@ -105,6 +106,18 @@ defmodule Hearth.Render.ValuesRuntimeTest do
       assert call(client, base_url: "https://mine.test").host == "mine.test"
       refute source =~ "@base_url"
       refute source =~ "Application.get_env"
+    end
+
+    test "[resolve:] gives the host; the spec's base path is appended, a base_url: option is as is" do
+      from = {:resolve, {__MODULE__, :gateway}, [:region]}
+      # A spec with a relative server (`/oauth/v1`) and no host.
+      {client, _source} = client(:none, values(base_url: from), [], {nil, "/oauth/v1"})
+
+      conn = call(client, region: "us")
+      assert {conn.host, conn.request_path} == {"us.gateway.test", "/oauth/v1/ping"}
+
+      conn = call(client, base_url: "https://mine.test/v9")
+      assert {conn.host, conn.request_path} == {"mine.test", "/v9/ping"}
     end
 
     test "[option:] raises without base_url:" do

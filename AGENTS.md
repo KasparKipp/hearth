@@ -651,7 +651,9 @@ What exists, condensed. The blow-by-blow is in git history.
   value never reaches `Application.get_env` (and `@otp_app` is left out
   when nothing reads config); a resolved or per-call base URL drops
   `@base_url` for a `resolve_base_url/1` step prepended before Req's
-  `put_base_url`. The client test seeds config values in app env and puts
+  `put_base_url`; a resolver gives the host and the spec's base path
+  (server path + folded prefix) is kept as `@base_path` and appended,
+  while a per-call `base_url:` is used as is. The client test seeds config values in app env and puts
   the others in `@opts` on every request (resolvers never run); the external
   scaffold reads option values from `<INT>_<KEY>` into an `opts/0` and lets
   resolvers run live. `Patches.wire_values/4` wires the bare keys — from gen,

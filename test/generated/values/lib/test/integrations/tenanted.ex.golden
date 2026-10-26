@@ -32,12 +32,13 @@ defmodule Test.Integrations.Tenanted do
 
   ## Base URL
 
-  The base URL comes from `MyApp.Tenancy.gateway/1`, given `:tenant`, when each request runs. A
+  The base URL comes from `MyApp.Tenancy.gateway/1`, given `:tenant`, plus the spec's base path `/v1`, when each request runs. A
   `base_url:` passed to `new/1`, `request/2` or a behaviour function is
   used as is.
   """
 
   @otp_app :test
+  @base_path "/v1"
 
   @doc "Builds a configured Req request — API-key query param. Accepts `Req.new/1` options plus `:api_key`, `:tenant`, `:app_key`, `:tenant_id`."
   def new(opts \\ []) do
@@ -54,7 +55,7 @@ defmodule Test.Integrations.Tenanted do
   @doc "Like `request/2`, but raises on error."
   def request!(url, opts \\ []), do: Req.request!(new(url: url), opts)
 
-  # Runs before Req's own steps; a `base_url:` passed per call wins.
+  # Runs before Req's own steps; a `base_url:` passed per call wins, as is.
   defp resolve_base_url(request) do
     if request.options[:base_url],
       do: request,
@@ -62,10 +63,13 @@ defmodule Test.Integrations.Tenanted do
         Req.Request.put_option(
           request,
           :base_url,
-          resolved!(
-            MyApp.Tenancy.gateway(resolver_options(request, [:tenant])),
-            "MyApp.Tenancy.gateway/1 (the base URL)"
-          )
+          String.trim_trailing(
+            resolved!(
+              MyApp.Tenancy.gateway(resolver_options(request, [:tenant])),
+              "MyApp.Tenancy.gateway/1 (the base URL)"
+            ),
+            "/"
+          ) <> @base_path
         )
   end
 
