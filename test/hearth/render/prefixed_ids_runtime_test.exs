@@ -26,7 +26,7 @@ defmodule Hearth.Render.PrefixedIdsRuntimeTest do
       "https://api.shop.test",
       "/v1",
       :none,
-      @prefixed
+      prefixed: @prefixed
     )
     |> Code.compile_string()
 

@@ -184,6 +184,7 @@ keyed by its snake_case name:
 * `auth` — the spec's security schemes and the one the client wires
   (`scheme:`); see below.
 * `overrides` — your corrections to the source spec; see below.
+* `headers` — headers the client sends on every call; see below.
 
 Commit it alongside `priv/hearth/`. The pruned spec itself is plain
 OpenAPI.
@@ -246,6 +247,22 @@ functions as you like; each maps to an HTTP method. A prefix names its
 resource by an operation on it (after any `operation_ids` renames) or by
 its path. The operations aren't generated unless selected, so a few
 functions cover many resources.
+
+## Headers
+
+To send a header on every call, map it to the config key its value
+comes from, then run `mix hearth.regen <int>`:
+
+    stripe: [
+      headers: ["stripe-account": :account],
+      ...
+    ]
+
+The value resolves like the credential: a per-call `account:`, else
+config, as a string, a 0-arity function or an `{m, f, a}` tuple.
+`config/runtime.exs` reads `<INTEGRATION>_<KEY>` (`STRIPE_ACCOUNT`). A
+header set on the request wins; a missing value raises. `gen` points
+out required headers nothing sends yet.
 
 ## Check for drift with `diff`
 

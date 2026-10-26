@@ -307,7 +307,8 @@ if Code.ensure_loaded?(Igniter) do
            {:ok, overrides} <- overrides(igniter, loaded, config.integrations),
            {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
            {:ok, spec, auth} <- choose_auth(spec, overrides),
-           {:ok, prefixed} <- prefixed_ids(spec, overrides) do
+           {:ok, prefixed} <- prefixed_ids(spec, overrides),
+           {:ok, headers} <- headers(overrides) do
         input = %{
           source: source,
           spec: spec,
@@ -316,7 +317,9 @@ if Code.ensure_loaded?(Igniter) do
           overrides: overrides.raw,
           auth: auth,
           prefixed: prefixed,
-          prefixed_raw: overrides.entry[:prefixed_ids]
+          prefixed_raw: overrides.entry[:prefixed_ids],
+          headers: headers,
+          headers_raw: overrides.entry[:headers]
         }
 
         igniter
@@ -347,6 +350,17 @@ if Code.ensure_loaded?(Igniter) do
 
         {:error, detail} ->
           {:error, IntegrationMessages.bad_prefixed_ids_message(:gen, overrides.key, detail)}
+      end
+    end
+
+    # Like `prefixed_ids:`, kept from an entry written before gen.
+    defp headers(overrides) do
+      case Hearth.Spec.Headers.parse(overrides.entry) do
+        {:ok, headers} ->
+          {:ok, headers}
+
+        {:error, detail} ->
+          {:error, IntegrationMessages.bad_headers_message(:gen, overrides.key, detail)}
       end
     end
 
@@ -541,6 +555,7 @@ if Code.ensure_loaded?(Igniter) do
         [module: names.layer1, source: path, source_sha256: input.sha256] ++
           if(input.overrides, do: [overrides: input.overrides], else: []) ++
           if(input.prefixed_raw, do: [prefixed_ids: input.prefixed_raw], else: []) ++
+          if(input.headers_raw, do: [headers: input.headers_raw], else: []) ++
           [base_path: prefix] ++
           Hearth.Spec.Selection.describe(operations, selected) ++
           if(input.auth == [], do: [], else: [auth: input.auth])
@@ -558,7 +573,8 @@ if Code.ensure_loaded?(Igniter) do
           prefix: prefix,
           operations: selected,
           metadata: Manifest.metadata(path, spec),
-          prefixed: input.prefixed
+          prefixed: input.prefixed,
+          headers: input.headers
         )
         |> Enum.map(fn file ->
           location = Igniter.Project.Module.proper_location(igniter, file.module, file.kind)
@@ -577,7 +593,8 @@ if Code.ensure_loaded?(Igniter) do
         names: names,
         auth: auth,
         servers: servers,
-        prefix: prefix
+        prefix: prefix,
+        headers: input.headers
       })
       |> Igniter.add_notice(
         Messages.generated_notice(
@@ -586,13 +603,19 @@ if Code.ensure_loaded?(Igniter) do
           operations,
           selected,
           Enum.map(files, &{&1.module, &1.location, &1.label}),
-          Patches.wired_files(auth) ++
+          Patches.wired_files(auth, input.headers) ++
             ["#{pruned_spec_path} (pruned spec)", ".hearth.exs (integration entry)"],
-          Messages.credential_hint(auth, names)
+          Messages.credential_hint(auth, names) <> Messages.headers_hint(input.headers, names)
         )
       )
       |> prefixed_notice(names, input.prefixed, covered)
+      |> headers_notice(names, Hearth.Spec.Headers.suggestions(selected, input.headers, auth))
     end
+
+    defp headers_notice(igniter, _names, []), do: igniter
+
+    defp headers_notice(igniter, names, suggestions),
+      do: Igniter.add_notice(igniter, Messages.headers_notice(names, suggestions))
 
     defp prefixed_notice(igniter, _names, nil, _covered), do: igniter
 

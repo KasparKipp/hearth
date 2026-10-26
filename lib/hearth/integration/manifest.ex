@@ -47,8 +47,9 @@ defmodule Hearth.Integration.Manifest do
   # Renders every file. `opts`: `:otp_app`, `:auth` (a
   # `Hearth.Spec.Auth.strategy/1` value), `:servers` (a
   # `Hearth.Spec.Servers.resolve/1` result), `:prefix` (the base path),
-  # `:operations` (already prefix-stripped), and `:metadata` (for the
-  # Layer 2 moduledoc — see `metadata/2`).
+  # `:operations` (already prefix-stripped), `:metadata` (for the
+  # Layer 2 moduledoc — see `metadata/2`), and optionally `:prefixed`
+  # and `:headers`.
   @spec files(map(), keyword()) :: [entry()]
   def files(names, opts) do
     otp_app = Keyword.fetch!(opts, :otp_app)
@@ -67,7 +68,8 @@ defmodule Hearth.Integration.Manifest do
           servers.default,
           prefix,
           auth,
-          prefixed(opts)
+          prefixed: prefixed(opts),
+          headers: headers(opts)
         ),
         "raw Req client"
       ),
@@ -93,7 +95,9 @@ defmodule Hearth.Integration.Manifest do
       ),
       entry(
         names.layer1_test,
-        Render.Tests.layer1(names.layer1_test, names.layer1, otp_app, auth),
+        Render.Tests.layer1(names.layer1_test, names.layer1, otp_app, auth,
+          headers: headers(opts)
+        ),
         "Layer 1 auth test"
       ),
       entry(
@@ -104,7 +108,8 @@ defmodule Hearth.Integration.Manifest do
           names.layer1,
           otp_app,
           auth,
-          operations
+          operations,
+          headers: headers(opts)
         ),
         "external integration test"
       )
@@ -114,6 +119,9 @@ defmodule Hearth.Integration.Manifest do
       Map.merge(entry, %{kind: kind, policy: policy})
     end)
   end
+
+  # `:headers` — `Hearth.Spec.Headers.parse/1`'s pairs.
+  defp headers(opts), do: opts[:headers] || []
 
   # `:prefixed` — `Hearth.Spec.PrefixedIds.prepare/2`'s result, or nil;
   # the renderers also need the base path.

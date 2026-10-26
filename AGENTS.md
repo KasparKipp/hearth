@@ -384,6 +384,7 @@ lib/
       selection.ex             # the tags / operations gen selected, for .hearth.exs
       overrides.ex             # an entry's overrides: applied to the source spec
       prefixed_ids.ex          # prefixed_ids: functions, resolved resources
+      headers.ex               # headers: pairs + required-header suggestions
       drift.ex                 # pruned spec vs re-pruned source → changes
       drift/schema.ex          # JSON schema shape changes (additive / breaking)
     render/                    # pure: data → source strings
@@ -391,6 +392,7 @@ lib/
       layer1.ex  layer2.ex  layer3.ex
       tests.ex                 # Req.Test auth test + :external scaffold
       prefixed_ids.ex          # resource_path/2 + the prefixed-id functions
+      headers.ex               # Layer 1's put_headers step + moduledoc section
       mocks.ex                 # test/support/mocks.ex
     integration/
       manifest.ex              # the files an integration consists of (gen + regen)
@@ -527,7 +529,7 @@ What exists, condensed. The blow-by-blow is in git history.
   `source:` from it (recomputes if absent; halts if a path falls outside the
   recorded base path), and renders the same `Manifest`. Any failure halts the
   whole run. Refreshes code only — never config, `.hearth.exs` or the pruned
-  spec — except under `--sync` (`Hearth.Regen.Sync`: reads `source:` —
+  spec — except the env vars of the entry's `headers:`, and under `--sync` (`Hearth.Regen.Sync`: reads `source:` —
   local files only — via `Integration.Reprune`, rewrites the pruned spec,
   `tags:` and `source_sha256`, notices the `Drift` changes it applied; halts without `tags:`/`source:` or on an empty selection;
   `Sync.extend_external_test/4` offers y/N — `--yes` / test mode accept —
@@ -584,6 +586,17 @@ What exists, condensed. The blow-by-blow is in git history.
   regen renders all pruned operations minus unselected targets, and its
   selection check exempts them. A function name an operation already uses
   halts gen (`clashes/2`); gen keeps `prefixed_ids:` and notices the pairs.
+- **Headers** — the entry's `headers: ["x-tenant-id": :tenant_id]`
+  (`Spec.Headers.parse/1`: names lowercased, keys can't be a Req option).
+  Layer 1 registers each key and appends `put_headers/1`
+  (`Render.Headers`): the value is the request option, else config — a
+  string, 0-arity fun or MFA — skipped when the header is already set,
+  raising when missing. The client test checks each header from config,
+  per call and set explicitly; the external scaffold reads `<INT>_<KEY>`.
+  `Patches.wire_headers/4` writes those env vars into runtime.exs — from gen
+  and from every regen that renders headers (entry-driven, so no `--sync`).
+  Gen keeps `headers:` and notices required header params common to every
+  selected operation that nothing sends (`suggestions/3`).
 - **Call sites on `--sync`** — `Regen.CallSites` reads the old Layer 2's
   `@callback`s before rendering; a callback that's gone because an operation
   was renamed, or is now covered by a prefixed-id function, maps to its

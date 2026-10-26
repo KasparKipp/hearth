@@ -118,11 +118,38 @@ defmodule Hearth.Gen.Messages do
   end
 
   def credential_hint(_auth, names) do
-    env_var = String.upcase(Macro.underscore(names.integration)) <> "_API_KEY"
+    env_var = env_var(names, :api_key)
 
     "\n\nSet the credential: the #{env_var} environment variable (read in\n" <>
       "config/runtime.exs), or `api_key:` in #{inspect(names.layer1)}'s config."
   end
+
+  def headers_hint([], _names), do: ""
+
+  def headers_hint(headers, names) do
+    vars = Enum.map_join(headers, ", ", fn {_name, key} -> env_var(names, key) end)
+
+    "\n\nSet the headers: #{vars} (read in config/runtime.exs), or the\n" <>
+      "matching keys in #{inspect(names.layer1)}'s config."
+  end
+
+  # Required header params every selected operation takes that nothing
+  # sends yet.
+  def headers_notice(names, suggestions) do
+    pairs =
+      Enum.map_join(suggestions, ", ", fn {name, key} -> "#{inspect(name)}: #{inspect(key)}" end)
+
+    """
+    Every operation requires #{Enum.map_join(suggestions, ", ", &elem(&1, 0))}, which nothing sends yet.
+    To send #{if length(suggestions) == 1, do: "it", else: "them"} on every call, add to the #{Hearth.Config.key(names.integration)} entry in .hearth.exs
+    and run `mix hearth.regen #{Hearth.Config.key(names.integration)}`:
+
+        headers: [#{pairs}]
+    """
+  end
+
+  defp env_var(names, key),
+    do: String.upcase(Macro.underscore(names.integration) <> "_" <> Atom.to_string(key))
 
   # Which prefixes each `prefixed_ids:` function works for.
   def prefixed_notice(layer2, pairs, covered) do
