@@ -32,7 +32,9 @@ if Code.ensure_loaded?(Igniter) do
             yaml: String.t(),
             pruned: map(),
             stale_overrides: [Overrides.stale()],
-            auth: keyword()
+            auth: keyword(),
+            splits: [Hearth.Spec.Merge.component()],
+            source_keys: [atom()]
           }
 
     @type reason ::
@@ -43,6 +45,7 @@ if Code.ensure_loaded?(Igniter) do
             | {:bad_prefixed_ids, String.t()}
             | :no_source
             | :empty_selection
+            | :source_for_sources
             | Load.reason()
 
     # Options: `:source` — another source to re-prune instead of the
@@ -56,8 +59,10 @@ if Code.ensure_loaded?(Igniter) do
 
       with {:ok, rule} <- rule(entry),
            {:ok, source} <- present(source),
+           :ok <- single_override(opts[:source], entry),
            {:ok, overrides} <- overrides(entry),
-           {:ok, igniter, loaded} <- Load.load(igniter, source, opts[:registry] || %{}),
+           {:ok, igniter, loaded} <-
+             Load.load(igniter, source, opts[:registry] || %{}, overrides.shared),
            {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
            {:ok, spec, auth} <- Auth.choose(spec, entry),
            {:ok, prefixed} <- prefixed_ids(spec, entry),
@@ -69,24 +74,26 @@ if Code.ensure_loaded?(Igniter) do
 
         {:ok, igniter,
          %{
-           source: source,
-           sha256: sha256(loaded.bytes),
+           source: label(source),
+           sha256: loaded.sha256,
            operations: operations,
            rule: rule,
            selected: selected,
            yaml: yaml,
            pruned: pruned,
            stale_overrides: stale,
-           auth: auth
+           auth: auth,
+           splits: loaded.splits,
+           source_keys: source_keys(source)
          }}
       else
-        [] -> {:error, source, :empty_selection}
-        {:error, reason} -> {:error, source, reason}
+        [] -> {:error, label(source), :empty_selection}
+        {:error, reason} -> {:error, label(source), reason}
       end
     end
 
     @spec sha256(binary()) :: String.t()
-    def sha256(bytes), do: :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
+    defdelegate sha256(bytes), to: Load
 
     defp carry_renames(rule, nil, _operations), do: rule
 
@@ -128,6 +135,35 @@ if Code.ensure_loaded?(Igniter) do
         {:error, detail} -> {:error, {:bad_tags, detail}}
       end
     end
+
+    # `--source` names one spec; it can't stand in for several.
+    defp single_override(nil, _entry), do: :ok
+
+    defp single_override(_source, entry),
+      do: if(is_list(Config.source(entry)), do: {:error, :source_for_sources}, else: :ok)
+
+    defp source_keys(sources) when is_list(sources), do: Keyword.keys(sources)
+    defp source_keys(_source), do: []
+
+    # `sources:` components the pruned spec has under their plain name
+    # that the merge now splits per source, each with the source whose
+    # copy still matches — the one to pin with `overrides: [shared: …]`.
+    @spec splits(result(), map()) :: [{Hearth.Spec.Merge.component(), atom()}]
+    def splits(result, current) do
+      for {section, name} <- result.splits,
+          plain = get_in(current, ["components", section, name]),
+          not is_nil(plain) do
+        keeper =
+          Enum.find(result.source_keys, hd(result.source_keys), fn key ->
+            get_in(result.pruned, ["components", section, "#{key}_#{name}"]) == plain
+          end)
+
+        {{section, name}, keeper}
+      end
+    end
+
+    defp label(nil), do: nil
+    defp label(source), do: Config.source_label(source)
 
     defp present(nil), do: {:error, :no_source}
     defp present(source), do: {:ok, source}

@@ -87,8 +87,20 @@ defmodule Hearth.Config do
     end
   end
 
-  @spec source(entry()) :: String.t() | nil
-  def source(entry), do: string(entry[:source])
+  # The entry's source: `source:` (a string), or `sources:` — several
+  # specs merged into one integration (`Hearth.Spec.Merge`), as a
+  # keyword list of short name → source.
+  @type source :: String.t() | [{atom(), String.t()}]
+
+  @spec source(entry()) :: source() | nil
+  def source(entry), do: entry[:sources] || string(entry[:source])
+
+  # A source as the user reads it: `items: a.json, orders: b.json`.
+  @spec source_label(source()) :: String.t()
+  def source_label(sources) when is_list(sources),
+    do: Enum.map_join(sources, ", ", fn {key, source} -> "#{key}: #{source}" end)
+
+  def source_label(source), do: source
 
   @spec base_path(entry()) :: String.t() | nil
   def base_path(entry), do: string(entry[:base_path])
@@ -140,7 +152,7 @@ defmodule Hearth.Config do
   defp integrations(term) do
     with true <- Keyword.keyword?(term) || :not_keyword,
          integrations = Keyword.get(term, :integrations, []),
-         true <- valid_integrations?(integrations) || :bad_integrations do
+         true <- check_integrations(integrations) || :bad_integrations do
       {:ok, integrations}
     else
       :not_keyword ->
@@ -150,11 +162,33 @@ defmodule Hearth.Config do
         {:error,
          "#{@path}: `integrations:` must be a keyword list of keyword lists, " <>
            "e.g. `[integrations: [stripe: [module: MyApp.Integrations.Stripe]]]`."}
+
+      {:bad_sources, key} ->
+        {:error,
+         "#{@path}: `sources:` for #{key} must map a short name per spec to its source, " <>
+           ~s|e.g. `sources: [items: "priv/specs/items.json", orders: "priv/specs/orders.json"]`.|}
     end
   end
 
-  defp valid_integrations?(integrations) do
+  # true, false, or `{:bad_sources, key}`.
+  defp check_integrations(integrations) do
     Keyword.keyword?(integrations) and
-      Enum.all?(integrations, fn {_key, entry} -> Keyword.keyword?(entry) end)
+      Enum.all?(integrations, fn {_key, entry} -> Keyword.keyword?(entry) end) and
+      check_sources(integrations)
   end
+
+  defp check_sources(integrations) do
+    case Enum.find(integrations, fn {_key, entry} -> not valid_sources?(entry[:sources]) end) do
+      nil -> true
+      {key, _entry} -> {:bad_sources, key}
+    end
+  end
+
+  defp valid_sources?(nil), do: true
+
+  defp valid_sources?([_ | _] = sources),
+    do:
+      Keyword.keyword?(sources) and Enum.all?(sources, fn {_key, source} -> is_binary(source) end)
+
+  defp valid_sources?(_sources), do: false
 end

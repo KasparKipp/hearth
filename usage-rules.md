@@ -189,6 +189,8 @@ keyed by its snake_case name:
   (`scheme:`); see below.
 * `overrides` — your corrections to the source spec; see below.
 * `headers` — headers the client sends on every call; see below.
+* `sources` — several specs merged into one integration, in place of
+  `source`; see below.
 
 Commit it alongside `priv/hearth/`. The pruned spec itself is plain
 OpenAPI.
@@ -257,6 +259,22 @@ functions as you like; each maps to an HTTP method. A prefix names its
 resource by an operation on it (after any `operation_ids` renames) or by
 its path. The operations aren't generated unless selected, so a few
 functions cover many resources.
+
+## Several sources
+
+To build one integration from several specs of one API (modules behind
+one gateway), write the entry before `gen` with `sources:`, then run
+`gen` without a source:
+
+    shop: [sources: [items: "priv/specs/items.json", orders: "orders@1.2"]]
+
+    mix hearth.gen --integration Shop --tag "Items:get_item" --tag "Orders:get_order"
+
+Each source's server path joins its paths (`/items/v1/items/{id}`).
+Components the sources define differently get the source key as a
+prefix (`items_address`). When one that was shared splits, `diff` says
+which source to pin with `overrides: [shared: %{"schemas/address" =>
+:items}]`. `--source` doesn't apply.
 
 ## Headers
 

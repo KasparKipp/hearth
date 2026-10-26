@@ -384,6 +384,7 @@ lib/
       prune.ex                 # spec → pruned spec + YAML encoding
       selection.ex             # the tags / operations gen selected, for .hearth.exs
       swagger.ex               # Swagger 2.0 → OpenAPI 3.0, right after decode
+      merge.ex                 # sources: — several specs merged into one
       overrides.ex             # an entry's overrides: applied to the source spec
       patches.ex               # overrides: [patches:] — JSON pointer → value edits
       prefixed_ids.ex          # prefixed_ids: functions, resolved resources
@@ -566,6 +567,23 @@ What exists, condensed. The blow-by-blow is in git history.
   `x-nullable`, `type: file`, string `discriminator`. Layer 2's footer shows
   the converted version, so regen matches gen. Fixture: the Swagger
   petstore (`test/fixtures/specs/petstore-swagger-2.0.json`).
+- **Several sources** — `sources: [items: "…", orders: "…"]` in place of
+  `source:` (`Config.source/1` returns either; `Config.source_label/1` prints
+  `items: …, orders: …`). `Integration.Load` loads and converts each, then
+  `Spec.Merge.merge/2`: each source's server path moves into its paths; one
+  shared host or none (different hosts halt); paths unioned, a path or
+  operationId clash halts; identical components kept once, differing ones
+  prefixed with the source key in each source (refs rewritten, to a fixpoint,
+  since a component then differs through a renamed ref). `keep` — from
+  `overrides: [shared: %{"schemas/x" => :key}]` — pins a plain name to one
+  source. Splits are returned; `Reprune.splits/2` finds the ones the pruned
+  spec had under a plain name, and diff (in the report — Igniter prints only
+  issues when there are any) and `--sync` (a warning) suggest the `shared:`
+  entry, naming the source whose copy still matches. `source_sha256` is a
+  keyword per source; diff names the changed ones. gen with no source
+  argument reads `source:` / `sources:` from the `--integration` entry and
+  records `sources:`. `diff --source` refuses `sources:`. Layer 2's footer
+  shows the label in gen and regen.
 - **Overrides** — an entry's `overrides:` (`Spec.Overrides`) corrects the
   source spec before selection: `parse/1` validates it (unknown kinds are an
   error naming the supported ones), `apply/2` rewrites the decoded source and
