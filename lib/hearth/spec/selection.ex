@@ -50,20 +50,19 @@ defmodule Hearth.Spec.Selection do
   # entry records no `tags:`.
   @type rule :: %{tags: %{String.t() => state()}, untagged: state() | nil}
 
-  @spec rule(keyword()) :: {:ok, rule()} | :none | {:error, String.t()}
+  # `Hearth.Config.Schema` has checked the shape.
+  @spec rule(keyword()) :: {:ok, rule()} | :none
   def rule(entry) do
-    with {:ok, tags} <- Keyword.fetch(entry, :tags),
-         true <- (Keyword.keyword?(tags) and Enum.all?(tags, &valid_state?(elem(&1, 1)))) || :tags,
-         untagged = Keyword.get(entry, :untagged),
-         true <- (is_nil(untagged) or valid_state?(untagged)) || :untagged do
-      {:ok,
-       %{
-         tags: Map.new(tags, fn {tag, state} -> {Atom.to_string(tag), state} end),
-         untagged: untagged
-       }}
-    else
-      :error -> :none
-      field -> {:error, malformed_message(field)}
+    case Keyword.fetch(entry, :tags) do
+      {:ok, tags} ->
+        {:ok,
+         %{
+           tags: Map.new(tags, fn {tag, state} -> {Atom.to_string(tag), state} end),
+           untagged: Keyword.get(entry, :untagged)
+         }}
+
+      :error ->
+        :none
     end
   end
 
@@ -165,23 +164,6 @@ defmodule Hearth.Spec.Selection do
   defp selects?(:all, _op), do: true
   defp selects?(state, op) when is_list(state), do: name(op) in Keyword.fetch!(state, :include)
   defp selects?(_state, _op), do: false
-
-  defp valid_state?(state) when state in [:all, :none], do: true
-
-  defp valid_state?(state) when is_list(state) do
-    Keyword.keyword?(state) and Enum.sort(Keyword.keys(state)) == [:exclude, :include] and
-      Enum.all?(
-        Keyword.values(state),
-        &(is_list(&1) and Enum.all?(&1, fn id -> is_binary(id) end))
-      )
-  end
-
-  defp valid_state?(_state), do: false
-
-  defp malformed_message(field) do
-    "`#{field}:` must be `:all`, `:none`, or `[include: [...], exclude: [...]]` " <>
-      "lists of operationIds" <> if(field == :tags, do: ", keyed by tag name.", else: ".")
-  end
 
   defp state(operations, selected_keys) do
     {include, exclude} = Enum.split_with(operations, &MapSet.member?(selected_keys, key(&1)))

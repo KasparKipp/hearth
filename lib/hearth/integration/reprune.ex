@@ -39,7 +39,6 @@ if Code.ensure_loaded?(Igniter) do
 
     @type reason ::
             :no_tags
-            | {:bad_tags, String.t()}
             | {:bad_overrides, String.t()}
             | {:bad_auth, term(), [String.t()]}
             | {:bad_prefixed_ids, String.t()}
@@ -60,7 +59,7 @@ if Code.ensure_loaded?(Igniter) do
       with {:ok, rule} <- rule(entry),
            {:ok, source} <- present(source),
            :ok <- single_override(opts[:source], entry),
-           {:ok, overrides} <- overrides(entry),
+           {:ok, overrides} <- Overrides.parse(entry),
            {:ok, igniter, loaded} <-
              Load.load(igniter, source, opts[:registry] || %{}, overrides.shared),
            {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
@@ -121,18 +120,10 @@ if Code.ensure_loaded?(Igniter) do
     defp targets(operations, prefixed),
       do: PrefixedIds.targets(operations, prefixed.resources, prefixed.functions)
 
-    defp overrides(entry) do
-      case Overrides.parse(entry) do
-        {:ok, overrides} -> {:ok, overrides}
-        {:error, detail} -> {:error, {:bad_overrides, detail}}
-      end
-    end
-
     defp rule(entry) do
       case Selection.rule(entry) do
         {:ok, rule} -> {:ok, rule}
         :none -> {:error, :no_tags}
-        {:error, detail} -> {:error, {:bad_tags, detail}}
       end
     end
 

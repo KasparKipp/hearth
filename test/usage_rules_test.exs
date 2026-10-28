@@ -152,6 +152,10 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ "A header the auth scheme sends"
   end
 
+  test "says a malformed .hearth.exs halts, naming the entry and key" do
+    assert @content =~ "an unknown key or\na malformed value halts, naming the entry and the key"
+  end
+
   test "says regen offers to set up values the external test lacks" do
     assert @content =~ "asks to add a `setup` block seeding it"
   end

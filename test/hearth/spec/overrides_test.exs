@@ -34,18 +34,6 @@ defmodule Hearth.Spec.OverridesTest do
       assert Overrides.parse(module: X) ==
                {:ok, %{patches: [], tags: [], operation_ids: %{}, shared: %{}}}
     end
-
-    test "rejects malformed tags and unknown override kinds" do
-      assert {:error, message} = Overrides.parse(overrides: [tags: [Customers: "/v1/customers*"]])
-      assert message =~ "tags:"
-
-      assert {:error, message} = Overrides.parse(overrides: [schemas: []])
-      assert message =~ "schemas"
-      assert message =~ "patches"
-      assert message =~ "operation_ids"
-
-      assert {:error, _} = Overrides.parse(overrides: :nope)
-    end
   end
 
   describe "apply/2 with tags" do
@@ -150,13 +138,6 @@ defmodule Hearth.Spec.OverridesTest do
     test "two renames to the same id halt" do
       assert {:error, _} =
                rename(operation_ids: %{"GetInvoices" => "List", "GetCustomers" => "List"})
-    end
-
-    test "rejects a malformed map" do
-      assert {:error, message} = Overrides.parse(overrides: [operation_ids: [GetCustomers: "X"]])
-      assert message =~ "operation_ids:"
-
-      assert {:error, _} = Overrides.parse(overrides: [operation_ids: %{"GetCustomers" => :x}])
     end
   end
 end

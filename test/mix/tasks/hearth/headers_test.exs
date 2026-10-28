@@ -106,7 +106,7 @@ defmodule Mix.Tasks.Hearth.HeadersTest do
 
     test "halts on a malformed headers: entry" do
       assert gen(headers: ["x-tenant-id": "tenant_id"]) |> issue_text() =~
-               ~s|`headers:` "x-tenant-id" takes a config key|
+               ~s|`headers:` for shop — "x-tenant-id": expected a config key|
     end
 
     test "halts on a config key Req already uses" do
@@ -166,7 +166,7 @@ defmodule Mix.Tasks.Hearth.HeadersTest do
         |> apply_igniter!()
 
       assert igniter |> Igniter.compose_task("hearth.regen", ["shop"]) |> issue_text() =~
-               "`headers:` maps header names"
+               "`headers:` for shop — expected a keyword list"
     end
 
     test "halts on a header the auth scheme already sends" do

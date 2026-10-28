@@ -50,26 +50,6 @@ defmodule Hearth.Spec.ValuesTest do
                )
     end
 
-    test "rejects malformed forms, naming the value" do
-      for {entry, named} <- [
-            {[auth: [credential: "token"]], "`credential:`"},
-            {[auth: [credential: [optoin: :token]]], "`credential:`"},
-            {[auth: [credential: [resolve: Tenancy]]], "`credential:`"},
-            {[auth: [credential: [resolve: {"M", :f}]]], "`credential:`"},
-            {[auth: [credential: [option: :token, resolve: {M, :f}]]], "`credential:`"},
-            {[auth: [credential: nil]], "`credential:`"},
-            {[base_url: "https://x.test"], "`base_url:`"},
-            {[headers: ["x-a": "a"]], ~s|`headers:` "x-a"|},
-            {[headers: ["x-a": [option: "a"]]], ~s|`headers:` "x-a"|},
-            {[headers: ["x-a": :"Not Valid"]], ~s|`headers:` "x-a"|},
-            {[headers: ["bad header!": :key]], "`headers:`"},
-            {[headers: :nope], "`headers:`"}
-          ] do
-        assert {:error, message} = Values.parse(entry), inspect(entry)
-        assert message =~ named, inspect({entry, message})
-      end
-    end
-
     test "rejects two values with the same key" do
       for entry <- [
             [headers: ["x-a": :same, "x-b": [option: :same]]],

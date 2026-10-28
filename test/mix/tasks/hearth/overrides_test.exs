@@ -84,13 +84,13 @@ defmodule Mix.Tasks.Hearth.OverridesTest do
     test "halts on malformed overrides" do
       igniter = gen(tags: [Customers: "/v1/customers*"])
 
-      assert issue_text(igniter) =~ "malformed `overrides:`"
+      assert issue_text(igniter) =~ "`overrides: [tags: [Customers: …]]` for shop"
     end
 
     test "halts on an override kind that doesn't exist yet" do
       igniter = gen(schemas: [])
 
-      assert issue_text(igniter) =~ "unknown override `schemas:`"
+      assert issue_text(igniter) =~ "`overrides:` for shop has unknown `schemas:`"
     end
   end
 

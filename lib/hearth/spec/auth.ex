@@ -134,9 +134,6 @@ defmodule Hearth.Spec.Auth do
 
       {:ok, name} ->
         chosen(spec, name)
-
-      {:error, value} ->
-        {:error, {:bad_auth, value, Enum.map(schemes(spec), &elem(&1, 0))}}
     end
   end
 
@@ -151,26 +148,15 @@ defmodule Hearth.Spec.Auth do
   # the entry's `credential:` kept: it's the user's, not the spec's.
   @spec with_credential(keyword(), keyword()) :: keyword()
   def with_credential(record, entry) do
-    with written when is_list(written) <- Keyword.get(entry, :auth),
-         {:ok, credential} <- Keyword.fetch(written, :credential) do
-      record ++ [credential: credential]
-    else
-      _ -> record
+    case Keyword.fetch(entry[:auth] || [], :credential) do
+      {:ok, credential} -> record ++ [credential: credential]
+      :error -> record
     end
   end
 
   # The entry's `auth: [scheme: …]`, if it names one.
-  @spec auth_scheme(keyword()) :: {:ok, String.t() | nil} | {:error, term()}
-  def auth_scheme(entry) do
-    case Keyword.get(entry, :auth) do
-      nil -> {:ok, nil}
-      auth when is_list(auth) -> scheme_value(Keyword.get(auth, :scheme))
-      other -> {:error, other}
-    end
-  end
-
-  defp scheme_value(scheme) when is_binary(scheme) or is_nil(scheme), do: {:ok, scheme}
-  defp scheme_value(scheme), do: {:error, scheme}
+  @spec auth_scheme(keyword()) :: {:ok, String.t() | nil}
+  def auth_scheme(entry), do: {:ok, entry[:auth][:scheme]}
 
   # Whether the strategy takes a credential (`api_key`, or the entry's
   # `credential:`).

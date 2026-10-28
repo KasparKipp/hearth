@@ -60,14 +60,6 @@ defmodule Hearth.Integration.Messages do
     """
   end
 
-  def bad_tags_message(task, key, detail) do
-    """
-    hearth.#{task}: the .hearth.exs entry for #{key} has a malformed selection.
-
-    #{detail}
-    """
-  end
-
   def bad_auth_message(task, key, name, available) do
     schemes = if available == [], do: "none", else: Enum.join(available, ", ")
 
@@ -165,9 +157,6 @@ defmodule Hearth.Integration.Messages do
       #{key}: [module: …, source: …, tags: [Customers: :all]]
     """
   end
-
-  def reprune_message(task, key, _source, {:bad_tags, detail}, _registry),
-    do: bad_tags_message(task, key, detail)
 
   def reprune_message(task, key, _source, {:bad_overrides, detail}, _registry),
     do: bad_overrides_message(task, key, detail)

@@ -37,7 +37,6 @@ defmodule Hearth.Spec.Overrides do
   # them. Everything downstream sees the result. An entry that matches
   # nothing is returned as stale, for the tasks to report.
 
-  @kinds [:patches, :tags, :operation_ids, :shared]
   @methods ~w(get put post delete options head patch trace)
 
   alias Hearth.Spec.Operation
@@ -51,25 +50,27 @@ defmodule Hearth.Spec.Overrides do
         }
   @type stale :: {:patches | :tags | :operation_ids, String.t()}
 
-  @spec parse(keyword()) :: {:ok, t()} | {:error, String.t()}
+  # `Hearth.Config.Schema` has checked the shape.
+  @spec parse(keyword()) :: {:ok, t()}
   def parse(entry) do
     overrides = Keyword.get(entry, :overrides, [])
 
-    with true <- Keyword.keyword?(overrides) || {:error, shape_message()},
-         :ok <- known_kinds(overrides),
-         {:ok, patches} <- Patches.parse(Keyword.get(overrides, :patches, %{})),
-         {:ok, tags} <- tags(Keyword.get(overrides, :tags, [])),
-         {:ok, ids} <- operation_ids(Keyword.get(overrides, :operation_ids, %{})),
-         {:ok, shared} <- shared(Keyword.get(overrides, :shared, %{})) do
-      {:ok, %{patches: patches, tags: tags, operation_ids: ids, shared: shared}}
-    end
+    {:ok,
+     %{
+       patches: Patches.parse(Keyword.get(overrides, :patches, %{})),
+       tags:
+         for(
+           {tag, entries} <- Keyword.get(overrides, :tags, []),
+           do: {Atom.to_string(tag), entries}
+         ),
+       operation_ids: Keyword.get(overrides, :operation_ids, %{}),
+       shared: Map.new(Keyword.get(overrides, :shared, %{}), &shared/1)
+     }}
   end
 
-  defp known_kinds(overrides) do
-    case Keyword.keys(overrides) -- @kinds do
-      [] -> :ok
-      unknown -> {:error, unknown_message(unknown)}
-    end
+  defp shared({component, key}) do
+    [section, name] = String.split(component, "/", parts: 2)
+    {{section, name}, key}
   end
 
   # Returns the overridden spec and the override entries that matched
@@ -190,59 +191,5 @@ defmodule Hearth.Spec.Overrides do
   defp glob?(glob, path) do
     pattern = glob |> String.split("*") |> Enum.map_join(".*", &Regex.escape/1)
     Regex.match?(~r/\A#{pattern}\z/, path)
-  end
-
-  defp tags(tags) do
-    if Keyword.keyword?(tags) and
-         Enum.all?(tags, fn {_tag, entries} ->
-           is_list(entries) and Enum.all?(entries, &is_binary/1)
-         end) do
-      {:ok, Enum.map(tags, fn {tag, entries} -> {Atom.to_string(tag), entries} end)}
-    else
-      {:error,
-       "`overrides: [tags: …]` must map tag names to lists of path globs, " <>
-         ~s|"method /path" globs or operationIds, e.g. `tags: [Customers: ["/v1/customers*"]]`.|}
-    end
-  end
-
-  defp operation_ids(ids) do
-    if is_map(ids) and Enum.all?(ids, fn {k, v} -> is_binary(k) and is_binary(v) end) do
-      {:ok, ids}
-    else
-      {:error,
-       "`overrides: [operation_ids: …]` must map upstream operationIds (or " <>
-         ~s|"method /path") to new ones, e.g. `operation_ids: %{"GetCustomersCustomer" => "GetCustomer"}`.|}
-    end
-  end
-
-  defp shared(shared) do
-    pairs =
-      is_map(shared) &&
-        Enum.map(shared, fn
-          {component, key} when is_binary(component) and is_atom(key) ->
-            case String.split(component, "/", parts: 2) do
-              [section, name] when section != "" and name != "" -> {{section, name}, key}
-              _ -> nil
-            end
-
-          _ ->
-            nil
-        end)
-
-    if pairs && Enum.all?(pairs),
-      do: {:ok, Map.new(pairs)},
-      else:
-        {:error,
-         ~s|`overrides: [shared: …]` maps a component ("section/name") to the source | <>
-           ~s|that keeps its name, e.g. `shared: %{"schemas/address" => :items}`.|}
-  end
-
-  defp shape_message do
-    "`overrides:` must be a keyword list, e.g. `overrides: [tags: [Customers: [\"/v1/customers*\"]]]`."
-  end
-
-  defp unknown_message(unknown) do
-    "unknown override #{Enum.map_join(unknown, ", ", &"`#{&1}:`")} — " <>
-      "supported: #{Enum.map_join(@kinds, ", ", &"`#{&1}:`")}."
   end
 end

@@ -279,6 +279,8 @@ lib/
     registry.ex                # curated, versioned spec shortcuts (stripe@…), + .hearth.exs ones
     config.ex                  # pure: .hearth.exs — parse, keys, entry fields
     config/
+      schema.ex                # pure: the file's shape, one NimbleOptions schema + its errors
+      types.ex                 # pure: the schema's custom types (names, value forms, JSON)
       project.ex               # read / write .hearth.exs (Igniter-guarded)
     spec/                      # pure: decoded spec → data
       source.ex                # argv → {:file | :url | :registry | :error, _}
@@ -427,8 +429,14 @@ What exists, condensed. The blow-by-blow is in git history.
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
   with conventional top-level key order. Plain OpenAPI — no Hearth block.
 - **`.hearth.exs`** — `[integrations: [<snake_name>: [module:, source:,
-  source_sha256:, overrides:, headers:, base_url:, base_path:, tags:, auth:]]]`, evaluated like `.formatter.exs`
-  (`Hearth.Config.parse/1`). `source_sha256` is the source's checksum at
+  sources:, source_sha256:, overrides:, headers:, base_url:, base_path:,
+  tags:, untagged:, auth:, prefixed_ids:]], registry: %{…}]`, evaluated like
+  `.formatter.exs` (`Hearth.Config.parse/1`) and validated against
+  `Hearth.Config.Schema` — one NimbleOptions schema, custom types in
+  `Config.Types` — so every level's keys are closed and an error names the
+  entry and the key, with an example. Shape only: the modules that read a
+  key take it as valid and keep the checks that need the spec or other
+  values. `source_sha256` is the source's checksum at
   the last gen / `--sync` (`Reprune.sha256/1`).
   `tags:` (`Hearth.Spec.Selection.describe/2`) lists every tag in the source
   spec in first-seen order as `:all`, `:none` or `include:` / `exclude:`

@@ -138,7 +138,8 @@ defmodule Mix.Tasks.Hearth.ValuesTest do
     end
 
     test "a malformed value halts, naming it" do
-      assert gen(base_url: "https://x.test") |> issue_text() =~ "`base_url:` takes a config key"
+      assert gen(base_url: "https://x.test") |> issue_text() =~
+               "`base_url:` for kiosk — expected a config key"
     end
   end
 
