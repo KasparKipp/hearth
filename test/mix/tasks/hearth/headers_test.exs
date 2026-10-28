@@ -113,6 +113,13 @@ defmodule Mix.Tasks.Hearth.HeadersTest do
       assert gen(headers: ["x-tenant-id": :retry]) |> issue_text() =~
                ~s|`headers:` "x-tenant-id" uses :retry, which is already a request option|
     end
+
+    test "halts on a header the auth scheme already sends" do
+      issue = gen(headers: [authorization: :token]) |> issue_text()
+
+      assert issue =~ ~s|`headers:` for shop names "authorization", which the credential (bearer)|
+      assert issue =~ "auth: [credential:"
+    end
   end
 
   describe "regen" do
@@ -144,6 +151,17 @@ defmodule Mix.Tasks.Hearth.HeadersTest do
 
       assert igniter |> Igniter.compose_task("hearth.regen", ["shop"]) |> issue_text() =~
                "`headers:` maps header names"
+    end
+
+    test "halts on a header the auth scheme already sends" do
+      igniter =
+        gen([])
+        |> apply_igniter!()
+        |> Hearth.Config.Project.put_fields(:shop, headers: [authorization: :token])
+        |> apply_igniter!()
+
+      assert igniter |> Igniter.compose_task("hearth.regen", ["shop"]) |> issue_text() =~
+               ~s|`headers:` for shop names "authorization", which the credential (bearer)|
     end
   end
 end

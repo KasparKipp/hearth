@@ -123,6 +123,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Render.ModuleNames
     alias Hearth.Spec.Auth
     alias Hearth.Spec.BasePath
+    alias Hearth.Spec.Headers
     alias Hearth.Spec.Loader
     alias Hearth.Spec.Operation
     alias Hearth.Spec.PrefixedIds
@@ -395,10 +396,12 @@ if Code.ensure_loaded?(Igniter) do
     defp render_prefixed(igniter, names, {spec_path, spec, entry}, operations, prefix) do
       key = Config.key(names.integration)
 
+      auth = Auth.strategy(spec)
+
       with {:prefixed, {:ok, prefixed}} <- {:prefixed, PrefixedIds.prepare(spec, entry)},
-           {:values, {:ok, values}} <- {:values, Values.parse(entry)} do
+           {:values, {:ok, values}} <- {:values, Values.parse(entry)},
+           {:auth_headers, []} <- {:auth_headers, Headers.sent_by_auth(values.headers, auth)} do
         functions = functions(operations, prefixed)
-        auth = Auth.strategy(spec)
 
         igniter
         |> render_layers(names, {spec_path, spec, entry, prefixed, values}, functions, prefix)
@@ -413,6 +416,12 @@ if Code.ensure_loaded?(Igniter) do
 
         {:values, {:error, detail}} ->
           Igniter.add_issue(igniter, IntegrationMessages.bad_values_message(:regen, key, detail))
+
+        {:auth_headers, names} ->
+          Igniter.add_issue(
+            igniter,
+            IntegrationMessages.auth_header_message(:regen, key, names, auth)
+          )
       end
     end
 

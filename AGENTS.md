@@ -637,6 +637,8 @@ What exists, condensed. The blow-by-blow is in git history.
   header, skipped when the header is already set, raising when missing.
   Gen keeps `headers:` and notices required header params common to every
   selected operation that nothing sends (`Spec.Headers.suggestions/3`).
+  A header the wired auth scheme sends (`Spec.Headers.sent_by_auth/2`)
+  halts gen and regen — `put_api_key/1` would set it first.
 - **Values** — where the credential (`auth: [credential:]`), each
   `headers:` value and the base URL (`base_url:`) come from
   (`Spec.Values.parse/1`; keyword forms validated with NimbleOptions,

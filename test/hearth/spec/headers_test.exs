@@ -52,4 +52,21 @@ defmodule Hearth.Spec.HeadersTest do
       assert Headers.suggestions([], [], :none) == []
     end
   end
+
+  describe "sent_by_auth/2" do
+    test "the headers: names the auth scheme already sends" do
+      headers = [{"authorization", {:config, :token}}, {"x-tenant-id", {:config, :tenant_id}}]
+
+      assert Headers.sent_by_auth(headers, :bearer) == ["authorization"]
+      assert Headers.sent_by_auth(headers, :basic) == ["authorization"]
+      assert Headers.sent_by_auth(headers, {:api_key, :header, "X-Tenant-Id"}) == ["x-tenant-id"]
+    end
+
+    test "nothing when the scheme sends no header" do
+      headers = [{"authorization", {:config, :token}}]
+
+      assert Headers.sent_by_auth(headers, :none) == []
+      assert Headers.sent_by_auth(headers, {:api_key, :query, "authorization"}) == []
+    end
+  end
 end
