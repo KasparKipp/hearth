@@ -196,8 +196,11 @@ keyed by its snake_case name:
   `source`; see below.
 
 Commit it alongside `priv/hearth/`. The pruned spec itself is plain
-OpenAPI. Every task checks the file when it reads it: an unknown key or
-a malformed value halts, naming the entry and the key.
+OpenAPI. The file is plain data: lists, keyword lists, maps, strings,
+atoms, numbers, tuples and module names, and nothing in it runs — a
+function call or a variable halts. Every task checks the file when it
+reads it: an unknown key or a malformed value halts, naming the entry
+and the key.
 
 ## Auth
 

@@ -31,15 +31,10 @@ defmodule Hearth.ConfigTest do
       assert Config.parse("[]") == {:ok, []}
     end
 
-    test "a file that doesn't evaluate is an error naming the file" do
-      assert {:error, message} = Config.parse("[integrations: [")
-      assert message =~ ".hearth.exs"
-    end
-
-    test "a file that raises when evaluated is an error naming the file" do
-      assert {:error, message} = Config.parse(~s|raise "boom"|)
-      assert message =~ ".hearth.exs"
-      assert message =~ "boom"
+    test "a file that doesn't parse is an error naming the file and line" do
+      assert {:error, message} = Config.parse("[\n  integrations: [")
+      assert message =~ ".hearth.exs:"
+      assert message =~ "missing terminator"
     end
 
     test "a file that isn't a keyword list is an error" do
@@ -53,6 +48,77 @@ defmodule Hearth.ConfigTest do
       assert message =~ "integrations:"
 
       assert {:error, _} = Config.parse("[integrations: :oops]")
+    end
+  end
+
+  describe "parse/1 reads plain data, running nothing" do
+    test "lists, keyword lists, maps, strings, atoms, numbers, tuples and module names" do
+      content = """
+      [
+        integrations: [
+          kit: [
+            module: MyApp.Integrations.Kit,
+            headers: ["X-Region": [resolve: {MyApp.Tenancy, :region}, options: [:tenant]]],
+            overrides: [
+              patches: %{"/a" => [-1, 2.5, true, false, nil, %{"k" => "v"}]},
+              shared: %{"schemas/address" => :items}
+            ],
+            tags: [Customers: :all, "Customer Accounts": :none]
+          ]
+        ],
+        registry: %{"acme" => %{"1" => "a.json", "latest" => {:alias, "1"}}}
+      ]
+      """
+
+      assert {:ok, %{integrations: [kit: kit], registry: registry}} = Config.load(content)
+      assert kit[:module] == MyApp.Integrations.Kit
+
+      assert kit[:headers] == [
+               "X-Region": [resolve: {MyApp.Tenancy, :region}, options: [:tenant]]
+             ]
+
+      assert kit[:overrides][:patches] == %{"/a" => [-1, 2.5, true, false, nil, %{"k" => "v"}]}
+      assert kit[:tags] == [Customers: :all, "Customer Accounts": :none]
+      assert registry["acme"]["latest"] == {:alias, "1"}
+    end
+
+    test "a tuple of any size is data; the schema decides whether it fits" do
+      assert {:error, message} = Config.parse("[integrations: [kit: [module: {:a, :b, :c}]]]")
+      assert message =~ "`module:` for kit"
+      refute message =~ "plain data"
+    end
+
+    test "anything that would run is an error naming its line" do
+      for {code, shown} <- [
+            {~s|System.get_env("HEARTH")|, ~s|System.get_env("HEARTH")|},
+            {~s|raise "boom"|, ~s|raise "boom"|},
+            {"~w(a b)", "~w(a b)"},
+            {~S|"v#{1}"|, ~S|"v#{1}"|},
+            {"tenant", "tenant"},
+            {"1..2", "1..2"},
+            {"&String.upcase/1", "&String.upcase/1"},
+            {"@base", "@base"}
+          ] do
+        content = "[\n  integrations: [kit: [source: #{code}]]\n]"
+
+        assert {:error, message} = Config.parse(content), code
+        assert message =~ ".hearth.exs:2: `#{shown}` isn't plain data", message
+        assert message =~ "nothing in it runs", message
+      end
+    end
+
+    test "nothing in it runs" do
+      Process.delete(:hearth_ran)
+
+      assert {:error, _} =
+               Config.parse(~s|[integrations: [kit: [source: Process.put(:hearth_ran, true)]]]|)
+
+      refute Process.get(:hearth_ran)
+    end
+
+    test "only one term" do
+      assert {:error, message} = Config.parse("[]\n[integrations: []]")
+      assert message =~ ".hearth.exs holds one keyword list"
     end
   end
 

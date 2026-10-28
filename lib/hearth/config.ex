@@ -24,10 +24,12 @@ defmodule Hearth.Config do
   #     can come out longer and desync from that config.
   #
   # An optional `registry:` declares the project's own source shortcuts
-  # (see `load/1`). The file is evaluated like `.formatter.exs`, then
-  # validated against `Hearth.Config.Schema`. Pure: the Igniter side
-  # (reading through Rewrite, writing entries) is `Hearth.Config.Project`.
+  # (see `load/1`). The file is read as data (`Hearth.Config.Literal` —
+  # parsed, never evaluated), then validated against
+  # `Hearth.Config.Schema`. Pure: the Igniter side (reading through
+  # Rewrite, writing entries) is `Hearth.Config.Project`.
 
+  alias Hearth.Config.Literal
   alias Hearth.Config.Schema
   alias Hearth.Render.ModuleNames
 
@@ -60,7 +62,7 @@ defmodule Hearth.Config do
   @spec load(binary()) ::
           {:ok, %{integrations: integrations(), registry: map()}} | {:error, String.t()}
   def load(content) when is_binary(content) do
-    with {:ok, term} <- evaluate(content),
+    with {:ok, term} <- Literal.read(content, @path),
          {:ok, term} <- keyword(term),
          :ok <- Schema.validate(term) do
       {:ok, %{integrations: Keyword.get(term, :integrations, []), registry: registry(term)}}
@@ -107,13 +109,6 @@ defmodule Hearth.Config do
   @spec base_path(entry()) :: String.t() | nil
   def base_path(entry), do: entry[:base_path]
 
-  defp evaluate(content) do
-    {term, _binding} = Code.eval_string(content, [], file: @path)
-    {:ok, term}
-  rescue
-    error -> {:error, "#{@path} could not be evaluated: #{Exception.message(error)}"}
-  end
-
   # The project's own registry, its names lowercased like registry
   # sources are.
   defp registry(term) do
@@ -127,6 +122,6 @@ defmodule Hearth.Config do
   defp keyword(term) do
     if Keyword.keyword?(term),
       do: {:ok, term},
-      else: {:error, "#{@path} must evaluate to a keyword list, got: #{inspect(term)}"}
+      else: {:error, "#{@path} must hold a keyword list, got: #{inspect(term)}"}
   end
 end

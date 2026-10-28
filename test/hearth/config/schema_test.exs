@@ -12,8 +12,19 @@ defmodule Hearth.Config.SchemaTest do
     message
   end
 
+  describe "keys/0" do
+    test "names every key at every level once, without the `*` wildcard" do
+      keys = Schema.keys()
+
+      assert :integrations in keys and :registry in keys
+      assert :prefixed_ids in keys and :prefixes in keys and :patches in keys
+      refute :* in keys
+      assert keys == Enum.uniq(keys)
+    end
+  end
+
   describe "validate/1 accepts" do
-    test "every .hearth.exs gen writes, and the examples' hand-written ones" do
+    test "every .hearth.exs gen writes, and the examples' hand-written ones, read as data" do
       paths =
         Path.wildcard("test/generated/*/.hearth.exs.golden", match_dot: true) ++
           Path.wildcard("examples/*/.hearth.exs", match_dot: true)
@@ -21,8 +32,7 @@ defmodule Hearth.Config.SchemaTest do
       assert length(paths) >= 6
 
       for path <- paths do
-        {term, _binding} = path |> File.read!() |> Code.eval_string()
-        assert Schema.validate(term) == :ok, path
+        assert {:ok, _config} = path |> File.read!() |> Hearth.Config.load(), path
       end
     end
 

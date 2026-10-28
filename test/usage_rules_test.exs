@@ -153,7 +153,14 @@ defmodule Hearth.UsageRulesTest do
   end
 
   test "says a malformed .hearth.exs halts, naming the entry and key" do
-    assert @content =~ "an unknown key or\na malformed value halts, naming the entry and the key"
+    assert @content =~ "an unknown key or a malformed value halts, naming the entry\nand the key"
+    assert @content =~ "nothing in it runs"
+  end
+
+  test "mentions every .hearth.exs key the schema accepts" do
+    for key <- Hearth.Config.Schema.keys() do
+      assert @content =~ ~r/\b#{key}:/, "usage-rules.md never mentions `#{key}:`"
+    end
   end
 
   test "says regen offers to set up values the external test lacks" do
