@@ -7,6 +7,8 @@ defmodule Hearth.Spec.Headers do
   #
   # Pure. `suggestions/3` finds the header parameters every selected
   # operation requires that nothing sends yet, for gen to point at.
+  # `sent_by_auth/2` finds the ones the credential step already sets,
+  # which `put_headers/1` would always skip.
 
   alias Hearth.Spec.Operation
 
@@ -21,6 +23,12 @@ defmodule Hearth.Spec.Headers do
     |> Enum.reduce(&intersection/2)
     |> Enum.reject(&MapSet.member?(covered, &1))
     |> Enum.map(&{&1, config_key(&1)})
+  end
+
+  @spec sent_by_auth([{String.t(), term()}], term()) :: [String.t()]
+  def sent_by_auth(headers, auth) do
+    sent = auth_headers(auth)
+    for {name, _value} <- headers, name in sent, do: name
   end
 
   defp required_headers(%Operation{header_params: params}) do

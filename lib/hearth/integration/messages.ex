@@ -95,6 +95,15 @@ defmodule Hearth.Integration.Messages do
     """
   end
 
+  def auth_header_message(task, key, names, auth) do
+    """
+    hearth.#{task}: `headers:` for #{key} names #{Enum.map_join(names, ", ", &inspect/1)}, \
+    which the credential (#{Hearth.Spec.Auth.label(auth)}) already sends, so its value would
+    never be used. Drop it from `headers:`; to change where the credential comes
+    from, use `auth: [credential: …]`.
+    """
+  end
+
   def prefixed_clash_message(task, key, names) do
     """
     hearth.#{task}: `prefixed_ids:` for #{key} defines #{Enum.map_join(names, ", ", &"`#{&1}`")}, \

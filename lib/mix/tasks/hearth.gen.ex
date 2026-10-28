@@ -335,7 +335,8 @@ if Code.ensure_loaded?(Igniter) do
            {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
            {:ok, spec, auth} <- choose_auth(spec, overrides),
            {:ok, prefixed} <- prefixed_ids(spec, overrides),
-           {:ok, values} <- values(overrides) do
+           {:ok, values} <- values(overrides),
+           :ok <- auth_headers(spec, values, overrides) do
         input = %{
           source: source,
           spec: spec,
@@ -391,6 +392,18 @@ if Code.ensure_loaded?(Igniter) do
 
         {:error, detail} ->
           {:error, IntegrationMessages.bad_values_message(:gen, overrides.key, detail)}
+      end
+    end
+
+    defp auth_headers(spec, values, overrides) do
+      auth = Hearth.Spec.Auth.strategy(spec)
+
+      case Hearth.Spec.Headers.sent_by_auth(values.headers, auth) do
+        [] ->
+          :ok
+
+        names ->
+          {:error, IntegrationMessages.auth_header_message(:gen, overrides.key, names, auth)}
       end
     end
 

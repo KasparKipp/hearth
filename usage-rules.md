@@ -293,7 +293,9 @@ A bare key resolves like the credential: a per-call `account:`, else
 config, as a string, a 0-arity function or an `{m, f, a}` tuple.
 `config/runtime.exs` reads `<INTEGRATION>_<KEY>` (`STRIPE_ACCOUNT`). A
 header set on the request wins; a missing value raises. `gen` points
-out required headers nothing sends yet.
+out required headers nothing sends yet. A header the auth scheme sends
+(`authorization` for bearer) halts `gen` and `regen`: set the
+credential with `auth: [credential: …]` instead.
 
 ## Check for drift with `diff`
 

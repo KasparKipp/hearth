@@ -148,6 +148,10 @@ defmodule Hearth.UsageRulesTest do
     refute @content =~ "must be a local spec file"
   end
 
+  test "says a header the auth scheme sends halts gen and regen" do
+    assert @content =~ "A header the auth scheme sends"
+  end
+
   test "describes --n-operations as the generate-everything bypass" do
     refute @content =~ "tag-less subset"
     assert @content =~ "--n-operations"
