@@ -974,4 +974,12 @@ defmodule Mix.Tasks.Hearth.RegenTest do
       assert notice_text(igniter) =~ "keeping #{@external}"
     end
   end
+
+  describe "docs" do
+    test "long_doc says --sync re-reads URL and shortcut sources" do
+      doc = Mix.Tasks.Hearth.Regen.Docs.long_doc()
+      refute doc =~ "must be a local spec file"
+      assert doc =~ "A URL or shortcut source is fetched again"
+    end
+  end
 end

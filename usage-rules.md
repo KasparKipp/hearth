@@ -33,7 +33,7 @@ means `stripe@latest`). All three generate code. A shortcut defaults
 
     mix hearth.gen priv/specs/acme.yaml --integration Acme
     mix hearth.gen https://acme.example.com/openapi.json --integration Acme
-    mix hearth.gen stripe@2026-04-22.dahlia --tag "Customers:GetCustomers"
+    mix hearth.gen acme@1.0     # a shortcut names the integration itself
 
 URLs and shortcuts are fetched on every `gen`, `regen --sync` and
 `diff` — nothing is cached — and the `.hearth.exs` `source:` keeps the
@@ -124,7 +124,7 @@ spec holds. To add or drop operations, edit `tags:` and re-prune from
 added and removed, and regenerates. Plain `regen` halts when `tags:`
 no longer matches the pruned spec, pointing at `--sync`. Don't add or
 remove operations in `priv/hearth/<int>.yaml` by hand: `regen` halts,
-and `--sync` would undo it. `source:` must be a local spec file.
+and `--sync` would undo it.
 `--sync --all` asks before re-pruning everything (`--yes` skips the
 question); run `mix hearth.diff --all` first to see what it would change.
 

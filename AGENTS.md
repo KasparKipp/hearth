@@ -540,8 +540,8 @@ What exists, condensed. The blow-by-blow is in git history.
   `source:` from it (recomputes if absent; halts if a path falls outside the
   recorded base path), and renders the same `Manifest`. Any failure halts the
   whole run. Refreshes code only — never config, `.hearth.exs` or the pruned
-  spec — except the env vars of the entry's `headers:`, and under `--sync` (`Hearth.Regen.Sync`: reads `source:` —
-  local files only — via `Integration.Reprune`, rewrites the pruned spec,
+  spec — except the env vars of the entry's `headers:`, and under `--sync` (`Hearth.Regen.Sync`: reads `source:` /
+  `sources:` (a file, a URL or a shortcut) via `Integration.Reprune`, rewrites the pruned spec,
   `tags:` and `source_sha256`, notices the `Drift` changes it applied; halts without `tags:`/`source:` or on an empty selection;
   `Sync.extend_external_test/4` offers y/N — `--yes` / test mode accept —
   to append `Render.Tests.external_tests/2` blocks for added operations the

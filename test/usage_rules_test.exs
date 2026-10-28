@@ -143,6 +143,11 @@ defmodule Hearth.UsageRulesTest do
     refute @content =~ "test/<app>/integrations/<int>*"
   end
 
+  test "no Stripe --tag example (its spec tags nothing), no local-only --sync" do
+    refute @content =~ ~s(--tag "Customers:GetCustomers")
+    refute @content =~ "must be a local spec file"
+  end
+
   test "describes --n-operations as the generate-everything bypass" do
     refute @content =~ "tag-less subset"
     assert @content =~ "--n-operations"
