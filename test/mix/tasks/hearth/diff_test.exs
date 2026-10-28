@@ -154,6 +154,7 @@ defmodule Mix.Tasks.Hearth.DiffTest do
 
       assert issue_text(igniter) =~ "+ post /pets (createPets)"
       assert issue_text(igniter) =~ "unchanged since the last gen or sync"
+      assert issue_text(igniter) =~ "or from a Hearth upgrade"
     end
   end
 

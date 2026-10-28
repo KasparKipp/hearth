@@ -138,7 +138,7 @@ if Code.ensure_loaded?(Igniter) do
 
     # `sources:` components the pruned spec has under their plain name
     # that the merge now splits per source, each with the source whose
-    # copy still matches — the one to pin with `overrides: [shared: …]`.
+    # copy still matches, docs aside — the one to pin with `overrides: [shared: …]`.
     @spec splits(result(), map()) :: [{Hearth.Spec.Merge.component(), atom()}]
     def splits(result, current) do
       for {section, name} <- result.splits,
@@ -146,7 +146,9 @@ if Code.ensure_loaded?(Igniter) do
           not is_nil(plain) do
         keeper =
           Enum.find(result.source_keys, hd(result.source_keys), fn key ->
-            get_in(result.pruned, ["components", section, "#{key}_#{name}"]) == plain
+            result.pruned
+            |> get_in(["components", section, "#{key}_#{name}"])
+            |> Hearth.Spec.Merge.alike?(plain)
           end)
 
         {{section, name}, keeper}

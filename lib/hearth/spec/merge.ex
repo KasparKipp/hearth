@@ -10,14 +10,16 @@ defmodule Hearth.Spec.Merge do
   #     the one host they share, or no servers when none has a host.
   #     Different hosts halt — one client has one base URL;
   #   * paths are unioned; a path or operationId two sources share halts;
-  #   * components the sources define identically are kept once. A name
-  #     two sources define differently gets the source key as a prefix
-  #     in each (`items_address`, `orders_address`), with that source's refs
+  #   * components the sources define alike — docs (`description`,
+  #     `summary`, `title`, examples, `externalDocs`) aside — are kept
+  #     once, as the first source has them (`alike?/2`). A name two
+  #     sources shape differently gets the source key as a prefix in each
+  #     (`items_address`, `orders_address`), with that source's refs
   #     rewritten — repeated until stable, since a component that only
   #     differs through a renamed ref then differs too. `keep` pins a
   #     plain name to one source (`%{{"schemas", "address"} => :items}`,
   #     from `overrides: [shared: …]`): that source keeps it, only the
-  #     others are prefixed. The split components without a keeper are
+  #     others are prefixed; when the copies are alike, its copy is kept. The split components without a keeper are
   #     returned, so diff can warn when a shared name splits;
   #   * tags and security are unioned, info names every source (and
   #     keeps a description only when they share it), and the first
@@ -26,6 +28,15 @@ defmodule Hearth.Spec.Merge do
   # Pure. Sources are OpenAPI 3 (Swagger is converted before).
 
   @type component :: {String.t(), String.t()}
+
+  @docs ~w(description summary title example examples externalDocs)
+  # Keys whose maps are keyed by names (property, header, media type,
+  # discriminator value …), where a name like `title` is shape, not docs.
+  @named ~w(properties patternProperties $defs definitions dependentSchemas dependentRequired
+            dependencies headers content encoding links callbacks responses parameters
+            variables mapping)
+  # Keys whose values are data, compared as they are.
+  @data ~w(default enum const value)
 
   @spec merge([{atom(), map()}], %{component() => atom()}) ::
           {:ok, map(), [component()]} | {:error, String.t()}
@@ -38,7 +49,7 @@ defmodule Hearth.Spec.Merge do
 
       with {:ok, paths} <- paths(sources),
            :ok <- unique_operation_ids(sources) do
-        {:ok, document(sources, paths, origin), splits -- Map.keys(keep)}
+        {:ok, document(sources, paths, origin, keep), splits -- Map.keys(keep)}
       end
     end
   end
@@ -95,19 +106,36 @@ defmodule Hearth.Spec.Merge do
     end
   end
 
-  # `{section, name}` pairs that two sources define differently.
+  # `{section, name}` pairs that two sources shape differently.
   defp conflicts(sources) do
     sources
     |> Enum.flat_map(fn {_key, spec} ->
       for {section, entries} <- spec["components"] || %{},
           is_map(entries),
           {name, value} <- entries,
-          do: {{section, name}, value}
+          do: {{section, name}, shape(value)}
     end)
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
     |> Enum.filter(fn {_component, values} -> values |> Enum.uniq() |> length() > 1 end)
     |> Enum.map(&elem(&1, 0))
   end
+
+  # Whether two copies of a component differ only in docs.
+  @spec alike?(term(), term()) :: boolean()
+  def alike?(a, b), do: shape(a) == shape(b)
+
+  defp shape(%{} = map) do
+    for {key, value} <- map, key not in @docs, into: %{} do
+      cond do
+        key in @data or String.starts_with?(key, "x-") -> {key, value}
+        key in @named and is_map(value) -> {key, Map.new(value, fn {k, v} -> {k, shape(v)} end)}
+        true -> {key, shape(value)}
+      end
+    end
+  end
+
+  defp shape(list) when is_list(list), do: Enum.map(list, &shape/1)
+  defp shape(value), do: value
 
   defp rename(spec, key, conflicts) do
     renames =
@@ -174,14 +202,16 @@ defmodule Hearth.Spec.Merge do
     end
   end
 
-  defp document(sources, paths, origin) do
+  defp document(sources, paths, origin, keep) do
     specs = Enum.map(sources, &elem(&1, 1))
     [first | _] = specs
 
     components =
-      Enum.reduce(specs, %{}, fn spec, acc ->
-        Map.merge(acc, spec["components"] || %{}, fn _section, a, b -> Map.merge(a, b) end)
+      specs
+      |> Enum.reduce(%{}, fn spec, acc ->
+        Map.merge(acc, spec["components"] || %{}, fn _section, a, b -> Map.merge(b, a) end)
       end)
+      |> keep_pinned(sources, keep)
 
     first
     |> Map.put("paths", paths)
@@ -193,6 +223,16 @@ defmodule Hearth.Spec.Merge do
     )
     |> put_present("security", specs |> Enum.flat_map(&List.wrap(&1["security"])) |> Enum.uniq())
     |> put_present("components", components)
+  end
+
+  # A pinned source's copy wins over the first source's alike one.
+  defp keep_pinned(components, sources, keep) do
+    Enum.reduce(keep, components, fn {{section, name}, key}, acc ->
+      case get_in(sources, [key, "components", section, name]) do
+        nil -> acc
+        value -> put_in(acc, [section, name], value)
+      end
+    end)
   end
 
   defp info([first | _] = specs) do

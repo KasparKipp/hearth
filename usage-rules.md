@@ -278,8 +278,10 @@ one gateway), write the entry before `gen` with `sources:`, then run
     mix hearth.gen --integration Shop --tag "Items:get_item" --tag "Orders:get_order"
 
 Each source's server path joins its paths (`/items/v1/items/{id}`).
-Components the sources define differently get the source key as a
-prefix (`items_address`). When one that was shared splits, `diff` says
+Components the sources shape differently get the source key as a
+prefix (`items_address`); ones that differ only in docs (descriptions,
+summaries, titles, examples) are kept once, as the first source has
+them. When one that was shared splits, `diff` says
 which source to pin with `overrides: [shared: %{"schemas/address" =>
 :items}]`. `--source` doesn't apply.
 

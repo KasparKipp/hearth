@@ -209,6 +209,30 @@ defmodule Mix.Tasks.Hearth.SourcesTest do
       assert Enum.join(synced.warnings, "\n") =~ ~s|"schemas/deadline" => :items|
     end
 
+    test "the suggested keeper is the source whose copy still matches, docs aside" do
+      described = &Map.put(deadline(%{"at" => %{"type" => "string"}}), "description", &1)
+
+      igniter =
+        test_project(
+          files: %{
+            "priv/specs/items.json" => with_deadline(items(), described.("Item deadline.")),
+            "priv/specs/orders.json" => with_deadline(orders(), described.("Order deadline.")),
+            ".hearth.exs" => "[integrations: [kit: #{inspect(sources: @sources)}]]"
+          }
+        )
+        |> Igniter.compose_task("hearth.gen", ["--integration", "Kit"])
+        |> apply_igniter!()
+        |> Igniter.create_new_file(
+          "priv/specs/items.json",
+          with_deadline(items(), deadline(%{"at" => %{"type" => "integer"}})),
+          on_exists: :overwrite
+        )
+        |> apply_igniter!()
+
+      report = igniter |> Igniter.compose_task("hearth.diff", ["kit"]) |> issue_text()
+      assert report =~ ~s|overrides: [shared: %{"schemas/deadline" => :orders}]|
+    end
+
     test "with shared:, the plain name stays with that source; no warning" do
       entry = [sources: @sources, overrides: [shared: %{"schemas/deadline" => :items}]]
       diff = entry |> gen_shared() |> Igniter.compose_task("hearth.diff", ["kit"])

@@ -48,7 +48,8 @@ defmodule Hearth.Diff.Messages do
 
   defp source_line(:unchanged, _changes, true) do
     "The source is unchanged since the last gen or sync, so the drift comes " <>
-      "from local edits — to `tags:`, `overrides:` or the pruned spec."
+      "from local edits — to `tags:`, `overrides:` or the pruned spec — or from " <>
+      "a Hearth upgrade that prunes or merges differently."
   end
 
   defp section(_title, []), do: nil
