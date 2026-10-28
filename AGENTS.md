@@ -322,6 +322,7 @@ lib/
     gen/
       messages.ex              # gen's user-facing text, tag discovery
       patches.ex               # deps, mock, test_helper, config (Igniter-guarded)
+      list.ex                  # --list: shortcuts, versions, tag discovery (Igniter-guarded)
     regen/
       messages.ex              # regen's user-facing text
       move.ex                  # --module / --remove-old (Igniter-guarded)
@@ -378,9 +379,10 @@ What exists, condensed. The blow-by-blow is in git history.
   `--domain` must camelize to a single alias segment. If **any** generated file
   already exists, gen halts. Otherwise it writes the `Manifest` files, the
   pruned spec, and applies `Patches`.
-- **`--list`** — no source: registry shortcuts (project ones marked); a
-  shortcut: its versions; a file or URL: the tag-discovery listing. Output goes through `Mix.shell().info/1`
-  with `quiet_on_no_changes?` set.
+- **`--list`** (`Hearth.Gen.List`) — no source: registry shortcuts (project
+  ones marked); a shortcut: its versions; a file or URL: the tag-discovery
+  listing. Output goes through `Mix.shell().info/1` with
+  `quiet_on_no_changes?` set.
 - **Registry** — Stripe only: 14 dated versions (basil / clover / dahlia) plus
   a floating `latest`; codename and date aliases resolve at lookup and are
   hidden from listings.
