@@ -152,6 +152,10 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ "A header the auth scheme sends"
   end
 
+  test "says regen offers to set up values the external test lacks" do
+    assert @content =~ "asks to add a `setup` block seeding it"
+  end
+
   test "describes --n-operations as the generate-everything bypass" do
     refute @content =~ "tag-less subset"
     assert @content =~ "--n-operations"

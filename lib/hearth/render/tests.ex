@@ -500,11 +500,7 @@ defmodule Hearth.Render.Tests do
   defp external_setup([:api_key], otp_app, layer1), do: external_credential_setup(otp_app, layer1)
 
   defp external_setup(keys, otp_app, layer1) do
-    values =
-      Enum.map_join(keys, ",\n", fn key ->
-        env_var = env_var(layer1, key)
-        ~s|#{key}: System.get_env(#{inspect(env_var)}) \|\| #{inspect("DEV_NO_" <> env_var)}|
-      end)
+    values = seed_values(keys, layer1)
 
     """
     @client #{inspect(layer1)}
@@ -522,6 +518,38 @@ defmodule Hearth.Render.Tests do
 
       Application.put_env(#{inspect(otp_app)}, @client, config)
       on_exit(fn -> Application.put_env(#{inspect(otp_app)}, @client, previous) end)
+      :ok
+    end
+    """
+  end
+
+  defp seed_values(keys, layer1) do
+    Enum.map_join(keys, ",\n", fn key ->
+      env_var = env_var(layer1, key)
+      ~s|#{key}: System.get_env(#{inspect(env_var)}) \|\| #{inspect("DEV_NO_" <> env_var)}|
+    end)
+  end
+
+  @doc """
+  A `setup` block seeding `keys` into app config from their env vars —
+  what `regen` adds to an existing external test that doesn't seed them
+  (a credential after an auth switch, a `headers:` key added after gen).
+  """
+  @spec external_seed_setup(module(), atom(), [atom()]) :: String.t()
+  def external_seed_setup(layer1, otp_app, keys) do
+    """
+    # Added by `mix hearth.regen`: config values the live calls need,
+    # each from its env var.
+    setup do
+      previous = Application.get_env(#{inspect(otp_app)}, #{inspect(layer1)}, [])
+
+      config =
+        Keyword.merge(previous,
+          #{seed_values(keys, layer1)}
+        )
+
+      Application.put_env(#{inspect(otp_app)}, #{inspect(layer1)}, config)
+      on_exit(fn -> Application.put_env(#{inspect(otp_app)}, #{inspect(layer1)}, previous) end)
       :ok
     end
     """

@@ -114,6 +114,35 @@ defmodule Mix.Tasks.Hearth.AuthTest do
       assert entry(synced)[:auth][:scheme] == "bearerAuth"
     end
 
+    test "--sync from no auth to bearer seeds the credential in the external test" do
+      unsecured = JSON.decode!(@spec_json) |> Map.delete("security") |> Map.delete("components")
+      external = "test/test/integrations/pay_external_test.exs"
+
+      generated =
+        test_project(files: %{"priv/specs/pay.json" => JSON.encode!(unsecured)})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/pay.json", "--integration", "Pay"])
+        |> apply_igniter!()
+
+      refute created_file(generated, external) =~ "PAY_API_KEY"
+
+      synced =
+        generated
+        |> Igniter.create_new_file("priv/specs/pay.json", @spec_json, on_exists: :overwrite)
+        |> Hearth.Config.Project.put_fields(:pay, auth: [scheme: "bearerAuth"])
+        |> apply_igniter!()
+        |> Igniter.compose_task("hearth.regen", ["pay", "--sync"])
+
+      content = created_file(synced, external)
+      assert content =~ ~s|api_key: System.get_env("PAY_API_KEY") \|\| "DEV_NO_PAY_API_KEY"|
+      assert content =~ "async: false"
+      assert notice_text(synced) =~ "Added a setup block seeding PAY_API_KEY to #{external}"
+
+      synced
+      |> apply_igniter!()
+      |> Igniter.compose_task("hearth.regen", ["pay"])
+      |> assert_unchanged()
+    end
+
     test "regen and diff are clean right after gen" do
       igniter = gen() |> apply_igniter!()
 

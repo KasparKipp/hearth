@@ -273,6 +273,32 @@ defmodule Hearth.Regen.Messages do
     """
   end
 
+  def external_seed_prompt(location, env_vars) do
+    "hearth.regen: #{location} doesn't seed #{Enum.join(env_vars, ", ")}. Add a setup block for it?"
+  end
+
+  def external_seeded_notice(location, env_vars) do
+    """
+    Added a setup block seeding #{Enum.join(env_vars, ", ")} to #{location}.
+    """
+  end
+
+  def external_unseeded_notice(location, env_vars) do
+    """
+    Left #{location} alone. It doesn't seed #{Enum.join(env_vars, ", ")}, so its live
+    calls go without #{if length(env_vars) == 1, do: "that value", else: "those values"}.
+    """
+  end
+
+  def external_unpassed_notice(location, unpassed) do
+    keys = Enum.map_join(unpassed, ", ", fn {key, env_var} -> "#{key} (#{env_var})" end)
+
+    """
+    #{location} doesn't pass #{keys} on its calls.
+    Layer 1 takes #{if length(unpassed) == 1, do: "it", else: "them"} per call only: add #{if length(unpassed) == 1, do: "it", else: "them"} to the options each test passes.
+    """
+  end
+
   def external_renamed_notice(location, renamed) do
     calls = Enum.map_join(renamed, ", ", fn {old, new} -> "#{old}, renamed to #{new}" end)
 

@@ -424,6 +424,11 @@ default. Run live calls with:
 
     mix test --include external
 
+`regen` never overwrites it. When the entry gains a value the test
+doesn't set up (a credential after switching auth, a `headers:` key),
+`regen` asks to add a `setup` block seeding it from its env var, and
+names any per-call value its calls don't pass.
+
 ## Common pitfalls
 
 * **Don't re-run `gen` to update** — it halts. Use `regen`.

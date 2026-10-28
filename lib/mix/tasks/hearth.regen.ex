@@ -117,6 +117,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Integration.Messages, as: IntegrationMessages
     alias Hearth.Integration.Names
     alias Hearth.Regen.CallSites
+    alias Hearth.Regen.ExternalSetup
     alias Hearth.Regen.Messages
     alias Hearth.Regen.Move
     alias Hearth.Regen.Sync
@@ -407,6 +408,7 @@ if Code.ensure_loaded?(Igniter) do
         |> render_layers(names, {spec_path, spec, entry, prefixed, values}, functions, prefix)
         |> wire_values(names, entry, values, auth)
         |> stale_config_notice(names, values, auth)
+        |> ExternalSetup.run(names, values, auth)
       else
         {:prefixed, {:error, detail}} ->
           Igniter.add_issue(

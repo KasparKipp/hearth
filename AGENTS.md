@@ -1,25 +1,29 @@
 # Hearth
 
-> **Hearth** — Strike sparks from OpenAPI specs into Req HTTP clients.
->
-> _Phoenix burns to Ash; from the Hearth, new code is reignited._
+**Generate small, Req-based API clients from API specs.**
 
-Hearth is a set of Mix tasks that turn an OpenAPI 3.x specification into a
-complete, three-layer Req HTTP integration: a raw client, a behaviour, and a
-behaviour implementation — plus Mox plumbing, `Req.Test` plumbing, and
-idempotent config patches. Integrations live in the hearth of every
-application.
+Hearth is a set of [Igniter](https://hexdocs.pm/igniter) Mix tasks that turn
+an OpenAPI 3 or Swagger 2.0 spec into a **small development kit**: plain
+Elixir files the user owns, built on [Req](https://hexdocs.pm/req), covering
+only the operations they pick.
 
-This document is the master context for the Hearth library repo: what we are
-building, why, what works today, and what comes later. Consumer-facing usage
-lives in `usage-rules.md`; history lives in git.
+Three documents, three readers:
+
+- **`README.md`**: the front door. What Hearth is, what it generates, how
+  to install and run it, and the examples. Start there; this file doesn't
+  repeat it.
+- **`usage-rules.md`**: the full consumer guide, for people and for coding
+  agents working in a project that uses Hearth.
+- **This file**: the contributor's context. How Hearth is built, what works
+  today in detail, the contracts every change keeps, and what comes later.
+  History lives in git.
 
 ---
 
 ## The mental model
 
-Hearth materializes the **three-layer HTTP client pattern** — from an
-OpenAPI spec.
+Every integration is the **three-layer HTTP client pattern** (the README's
+"What gets generated" has the module table):
 
 ```
 Layer 1  Raw Req client            (base URL, auth, request steps)
@@ -36,35 +40,6 @@ The pattern's value: business logic depends on Layer 2 only. Tests stub the
 behaviour with Mox without thinking about HTTP. Client tests exercise the real
 Layer 1 against `Req.Test`. Layer 3 is pure plumbing — and plumbing is exactly
 what generators are good at.
-
----
-
-## The user experience
-
-```bash
-$ mix hearth.gen priv/specs/stripe.yaml --integration Stripe --domain Billing
-```
-
-`gen` creates the three layers, the auth test, the external-test scaffold and
-the pruned spec, wires the Mox mock and config, and prints every file it
-touched. It is **create-only**: re-running it on an existing integration halts.
-
-```bash
-$ mix hearth.regen stripe          # or stripe,send_grid — or --all
-```
-
-`regen` re-renders integrations from their pruned specs, honouring ownership
-tokens. It takes integration names (the `--integration` value), never modules:
-`gen` records each integration's Layer 1 module, source and base path in
-`.hearth.exs`, and `regen` reads them back. The pruned spec stays plain
-OpenAPI. Running `regen` straight after `gen` is a no-op. The entry's
-`tags:` records the selection: to add or drop operations, or to pull in a
-newer spec, edit `tags:` / `source:` and run `mix hearth.regen stripe --sync`.
-
-A source is a local spec file, an http(s) URL, or a registry shortcut —
-Hearth's built-in one (`stripe@2026-04-22.dahlia`) or the project's own
-`registry:` in `.hearth.exs`. URLs are fetched on every gen / sync / diff
-(OTP `:httpc`, no cache); plain `regen` never fetches.
 
 ---
 
@@ -116,7 +91,7 @@ with it) is wrapped in the same `if Code.ensure_loaded?(Igniter)` guard —
 | Task                 | Purpose                                                                     |
 | -------------------- | --------------------------------------------------------------------------- |
 | `mix hearth.install` | One-time per-project setup (formatter import).                              |
-| `mix hearth.gen`     | Generate the three-layer integration from an OpenAPI spec. Create-only.     |
+| `mix hearth.gen`     | Generate the three-layer integration from an API spec. Create-only.         |
 | `mix hearth.regen`   | Regenerate integrations from their pruned specs, ownership-aware.           |
 | `mix hearth.diff`    | Report drift between integrations and their sources. Read-only, CI-friendly. |
 
@@ -124,31 +99,19 @@ with it) is wrapped in the same `if Code.ensure_loaded?(Igniter)` guard —
 
 ## Module layout
 
-Default style is **Verbose**: the behaviour module repeats the integration
-name. This is grep-friendly — you can search `StripeApi` and hit every callsite
-without false positives from other `.Api` modules.
-
-The layout is `<App>.<Domain>.<Integration>` plus per-layer suffixes.
-The **domain** is the single namespace segment between the app and the
-integration. It **defaults to `Integrations`**, is overridden wholesale
-by `--domain`, and is dropped entirely by `--no-domain`.
+`<App>.<Domain>.<Integration>` plus per-layer suffixes, in the **verbose**
+style: Layer 2 repeats the integration name (`StripeApi`), so a grep for it
+hits every call site without false positives from other `.Api` modules. The
+domain defaults to `Integrations`; `--domain` replaces it and `--no-domain`
+drops it (usage-rules.md has the flags).
 
 ```
-# Default — domain is `Integrations`
 App.Integrations.Stripe                  # Layer 1
 App.Integrations.Stripe.StripeApi        # Layer 2
 App.Integrations.Stripe.StripeApi.Req    # Layer 3
 App.Integrations.Stripe.StripeApi.Mock   # Mox mock
 App.Integrations.StripeTest              # Layer 1 auth test (test/)
 App.Integrations.StripeExternalTest      # live-API scaffold (test/)
-
-# --domain Billing — `Billing` replaces `Integrations`
-App.Billing.Stripe
-App.Billing.Stripe.StripeApi
-
-# --no-domain — no namespace segment at all
-App.Stripe
-App.Stripe.StripeApi
 ```
 
 Every layer derives from the Layer 1 module alone
@@ -159,89 +122,49 @@ the Layer 1 name. The OTP app name is auto-detected from `mix.exs`.
 
 ## Ownership model
 
-`gen` only creates. `regen` updates, and generated files belong to Hearth by
-default: `regen` overwrites them. This is intentional — OpenAPI specs change in
-ways we cannot reasonably three-way merge, and most generated files are pure
-plumbing that nobody wants to hand-edit.
+`gen` only creates; `regen` overwrites generated files by default. That's
+intentional: specs change in ways we can't three-way merge, and most
+generated files are plumbing. The opt-outs are moduledoc tokens,
+`hearth:owned` (skipped) and `hearth:collaborating` (y/N per file; `--yes` /
+test mode accept), documented for users in usage-rules.md. What the code
+keeps:
 
-Two opt-outs, both expressed as moduledoc tokens — visible at the top of the
-file, survive reformatting, no sidecar config to forget about:
-
-```elixir
-defmodule App.Integrations.Stripe do
-  @moduledoc """
-  Raw Req client for Stripe.
-
-  hearth:owned
-  """
-  # … your hand-edits …
-end
-```
-
-| Token                  | Behavior on regen                                         |
-| ---------------------- | --------------------------------------------------------- |
-| _(none)_               | Overwrite silently. Default.                              |
-| `hearth:owned`         | Skip entirely: `* skipping <path> (hearth:owned)`.        |
-| `hearth:collaborating` | Prompt `y/N` per file (`--yes` / test mode accept).       |
-
-Only `@moduledoc` text is scanned (`Ownership.classify/1` parses the file), so
-a token copied into a Layer 2 `@doc` from a spec description, or mentioned in a
-comment, doesn't count. A file that doesn't parse falls back to a whole-file
-scan, erring toward owned.
-
-The external test is a user-owned **scaffold**: created once, never
-overwritten. A file whose token can't be read is skipped, never overwritten
-(fail closed).
-
-Layer 1 (the raw client) is the most common place to add `hearth:owned` — auth
-flows, custom request steps, retry policies, and connection pool configuration
-all live there and rarely round-trip back into the spec.
+- Only `@moduledoc` text is scanned (`Ownership.classify/1` parses the file),
+  so a token copied into a Layer 2 `@doc` from a spec description, or
+  mentioned in a comment, doesn't count. A file that doesn't parse falls
+  back to a whole-file scan, erring toward owned.
+- The external test is a user-owned **scaffold**: created once, never
+  overwritten. `regen` only offers to add to it: tests for new operations,
+  setup for new values.
+- A file whose token can't be read is skipped, never overwritten (fail
+  closed).
 
 ---
 
-## v1 — first release scope
+## Status
 
-- [x] **OpenAPI 3.0 / 3.1 parsing**, local YAML or JSON file path; Swagger
-      2.0 converted to OpenAPI 3.0.
-- [x] **Operation → function** mapping. `operationId` → safe `snake_case`;
-      missing operationId falls back to `<verb>_<path slug>`. Collisions get
-      numeric suffixes.
-- [x] **Path params** become positional function args (local `$ref`s
-      resolved, undeclared template segments covered). **Query / body
-      params** go through a final `opts` keyword (`params:`, `json:`, `form:`).
-- [x] **Bearer, API-key and HTTP basic auth** auto-wired from
-      `securitySchemes`. OAuth2 and OpenID Connect leave a TODO in Layer 1.
-- [x] **Verbose module style**, `--domain <Name>` / `--no-domain`.
-- [x] **Ownership tokens** honoured by `regen`.
-- [x] **Idempotent config patches** to `config/config.exs`, `config/test.exs`,
-      `config/runtime.exs`, `test/support/mocks.ex`, `test/test_helper.exs`,
-      and `mix.exs` (`test/support` in `elixirc_paths(:test)`, so the mock
-      compiles in a plain `mix new` project).
-- [x] **Generated tests**: a `Req.Test` auth test and an `:external`-tagged
-      live-API scaffold.
-- [x] **Generic response typing.** `{:ok, Req.Response.t()} | {:error, Exception.t()}`
-      for every callback.
-- [x] **URL and registry sources** — fetched with OTP `:httpc`, no cache; a
-      project registry in `.hearth.exs` shadows the built-in one.
-- [ ] **`--style {verbose|tight|split}`** — designed, not wired:
-      `tight` → `…Stripe.Api` / `.Api.Req`; `split` → `…Stripe.Client` / `.Api`.
+The README's Status section is the public summary; **Current state** below
+has the detail. v1's scope is done except `--style`, now on the v2 list.
 
 ---
 
 ## v2 — close-to-shore roadmap
 
-- [ ] **Custom function naming.** A `hearth.exs` file at project root lets the
-      user override generated function names: `%{rename: %{"getEntitiesId" => :get_entity}}`.
+- [x] **Custom function naming.** Shipped as `.hearth.exs`
+      `overrides: [operation_ids:]` (see **Overrides**).
 - [ ] **Response typespecs from schemas.** Generate `@type list_entities_response :: %{…}`
       from `responses.<code>.content.application/json.schema`. Bumps Hearth from
       "generator" toward "client framework."
 - [ ] **OAuth2 client credentials.** Auto-generate a token-refresh request step
-      when `securitySchemes` declares `oauth2 + clientCredentials`.
-- [ ] **Multiple auth schemes.** v1 auto-picks the primary. Planned: `gen`
-      prompts; `--auth-scheme <name>` selects non-interactively; under `--yes`
-      with several schemes and no flag, halt rather than guess.
+      when `securitySchemes` declares `oauth2 + clientCredentials`. Today a
+      resolver fetches the token (`auth: [credential: [resolve: …]]`), as the
+      OHIP example does.
+- [x] **Multiple auth schemes.** Shipped as `.hearth.exs` `auth: [scheme:]`;
+      without it gen wires `Auth.default/1` (see **Auth choice**).
 - [x] **Swagger 2.0 conversion.** `Spec.Swagger` converts in memory before
       anything else sees the spec.
+- [ ] **`--style {verbose|tight|split}`** — designed, not wired:
+      `tight` → `…Stripe.Api` / `.Api.Req`; `split` → `…Stripe.Client` / `.Api`.
 - [ ] **Pagination opinion.** Recognize common pagination markers (`cursor`,
       `page_token`, `Link` header) and offer an opt-in `Hearth.Pagination.stream/2`
       helper.
@@ -292,24 +215,9 @@ all live there and rarely round-trip back into the spec.
       Candidates to seed it with: retry policy, custom headers, logging and
       telemetry, pagination cursors. (Not "promote a GET with a body to a
       POST" — Req 0.7 does that itself.)
-- [ ] **Prefixed-ID URL shorthand.** Many APIs use type-prefixed resource IDs
-      (Stripe: `cus_…` customers, `sub_…` subscriptions, `pi_…` payment
-      intents). When a spec's IDs carry such prefixes, Hearth could generate a
-      `parse_url/1` helper (or request step) in Layer 1 that expands a bare
-      prefixed ID into its full resource path — keeping call sites short:
-
-      ```elixir
-      defp parse_url("sub_" <> _ = id), do: "/subscriptions/#{id}"
-      defp parse_url("cus_" <> _ = id), do: "/customers/#{id}"
-      defp parse_url(url), do: url
-
-      def request(url, opts \\ []), do: Req.request(new(url: parse_url(url)), opts)
-      def request!(url, opts \\ []), do: Req.request!(new(url: parse_url(url)), opts)
-      ```
-
-      So `Stripe.request!("cus_123")` resolves to `/customers/cus_123`. Open
-      question: where the prefix → path mapping comes from — inferred from the
-      spec's path patterns, or a curated registry entry per API.
+- [x] **Prefixed-ID URL shorthand.** Shipped as `.hearth.exs`
+      `prefixed_ids:`, with the prefix → resource mapping named per entry
+      (see **Prefixed ids**).
 - [ ] **AsyncAPI input.** Generate websocket / pub-sub clients with the same
       three-layer shape. Sister project, not Hearth itself.
 - [ ] **GraphQL SDL input.** Different enough that it probably wants its own
@@ -416,6 +324,7 @@ lib/
       move.ex                  # --module / --remove-old (Igniter-guarded)
       sync.ex                  # --sync: re-prune from source by tags: (Igniter-guarded)
       call_sites.ex            # --sync: rename calls to removed functions (Igniter-guarded)
+      external_setup.ex        # seed values the external scaffold lacks (Igniter-guarded)
     diff/
       messages.ex              # diff's report and halts
     fs/
@@ -546,7 +455,11 @@ What exists, condensed. The blow-by-blow is in git history.
   `Sync.extend_external_test/4` offers y/N — `--yes` / test mode accept —
   to append `Render.Tests.external_tests/2` blocks for added operations the
   scaffold doesn't already call, via Igniter's `add_code`, and notices tests
-  still calling removed ones)
+  still calling removed ones). Every regen, `Hearth.Regen.ExternalSetup`
+  reads the scaffold's text: a config value whose `<INT>_<KEY>` it never
+  mentions gets a seeding `setup` block (`Render.Tests.external_seed_setup/3`,
+  `async: true` flipped to false), y/N; an option value it never passes
+  (`key:`) gets a notice
   and `--module <Layer1>`: exactly one name, module must end
   in it. It creates the new modules (halts if any exist; the old ones are
   untouched), points the entry's `module:` at them
@@ -736,10 +649,13 @@ Learned the hard way; every change must keep them:
 - **Tiny well-named modules.** The renderer-per-layer split is deliberate. If
   `render/layer3.ex` grows past 300 lines, split by concern before adding
   another feature.
-- **Public API discipline.** Only `Hearth` and the three Mix tasks are public.
+- **Public API discipline.** Only `Hearth` and the Mix tasks are public.
   Everything under `lib/hearth/` is `@moduledoc false`.
 - **Hex docs are the front door.** The README's first 30 lines must be enough
   to decide whether to install Hearth.
+- **`examples/`** — `stripe_demo` and `ohip_demo`, apps that use Hearth as a
+  path dependency (`../..`), so they run against the working tree. The
+  README's Examples section links them; their READMEs are walkthroughs.
 
 ### Pending
 
