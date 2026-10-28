@@ -603,10 +603,10 @@ paths:
             type: array
         - $ref: '#/components/parameters/authKey'
         - $ref: '#/components/parameters/externalData'
-        - $ref: '#/components/parameters/blk_x-app-key'
+        - $ref: '#/components/parameters/x-app-key'
         - $ref: '#/components/parameters/x-request-id'
         - $ref: '#/components/parameters/x-originating-application'
-        - $ref: '#/components/parameters/blk_x-hotelid'
+        - $ref: '#/components/parameters/x-hotelid'
         - $ref: '#/components/parameters/x-externalsystem'
         - $ref: '#/components/parameters/Accept-Language'
       responses:
@@ -789,10 +789,10 @@ paths:
             type: boolean
         - $ref: '#/components/parameters/authKey'
         - $ref: '#/components/parameters/externalData'
-        - $ref: '#/components/parameters/blk_x-app-key'
+        - $ref: '#/components/parameters/x-app-key'
         - $ref: '#/components/parameters/x-request-id'
         - $ref: '#/components/parameters/x-originating-application'
-        - $ref: '#/components/parameters/blk_x-hotelid'
+        - $ref: '#/components/parameters/x-hotelid'
         - $ref: '#/components/parameters/x-externalsystem'
         - $ref: '#/components/parameters/Accept-Language'
       responses:
@@ -866,10 +866,10 @@ paths:
             type: boolean
         - $ref: '#/components/parameters/authKey'
         - $ref: '#/components/parameters/externalData'
-        - $ref: '#/components/parameters/blk_x-app-key'
+        - $ref: '#/components/parameters/x-app-key'
         - $ref: '#/components/parameters/x-request-id'
         - $ref: '#/components/parameters/x-originating-application'
-        - $ref: '#/components/parameters/blk_x-hotelid'
+        - $ref: '#/components/parameters/x-hotelid'
         - $ref: '#/components/parameters/x-externalsystem'
         - $ref: '#/components/parameters/Accept-Language'
       responses:
@@ -1010,10 +1010,10 @@ paths:
             type: integer
         - $ref: '#/components/parameters/authKey'
         - $ref: '#/components/parameters/externalData'
-        - $ref: '#/components/parameters/blk_x-app-key'
+        - $ref: '#/components/parameters/x-app-key'
         - $ref: '#/components/parameters/x-request-id'
         - $ref: '#/components/parameters/x-originating-application'
-        - $ref: '#/components/parameters/blk_x-hotelid'
+        - $ref: '#/components/parameters/x-hotelid'
         - $ref: '#/components/parameters/x-externalsystem'
         - $ref: '#/components/parameters/Accept-Language'
       responses:
@@ -1297,10 +1297,10 @@ paths:
             type: boolean
         - $ref: '#/components/parameters/authKey'
         - $ref: '#/components/parameters/externalData'
-        - $ref: '#/components/parameters/evm_x-app-key'
+        - $ref: '#/components/parameters/x-app-key'
         - $ref: '#/components/parameters/x-request-id'
         - $ref: '#/components/parameters/x-originating-application'
-        - $ref: '#/components/parameters/evm_x-hotelid'
+        - $ref: '#/components/parameters/x-hotelid'
         - $ref: '#/components/parameters/x-externalsystem'
         - $ref: '#/components/parameters/Accept-Language'
       responses:
@@ -1529,10 +1529,10 @@ paths:
             type: integer
         - $ref: '#/components/parameters/authKey'
         - $ref: '#/components/parameters/externalData'
-        - $ref: '#/components/parameters/evm_x-app-key'
+        - $ref: '#/components/parameters/x-app-key'
         - $ref: '#/components/parameters/x-request-id'
         - $ref: '#/components/parameters/x-originating-application'
-        - $ref: '#/components/parameters/evm_x-hotelid'
+        - $ref: '#/components/parameters/x-hotelid'
         - $ref: '#/components/parameters/x-externalsystem'
         - $ref: '#/components/parameters/Accept-Language'
       responses:
@@ -1628,10 +1628,10 @@ paths:
             uniqueItems: true
         - $ref: '#/components/parameters/authKey'
         - $ref: '#/components/parameters/externalData'
-        - $ref: '#/components/parameters/evm_x-app-key'
+        - $ref: '#/components/parameters/x-app-key'
         - $ref: '#/components/parameters/x-request-id'
         - $ref: '#/components/parameters/x-originating-application'
-        - $ref: '#/components/parameters/evm_x-hotelid'
+        - $ref: '#/components/parameters/x-hotelid'
         - $ref: '#/components/parameters/x-externalsystem'
         - $ref: '#/components/parameters/Accept-Language'
       responses:
@@ -1691,41 +1691,19 @@ components:
       required: true
       schema:
         type: string
-    blk_x-app-key:
+    externalData:
+      description: Pass this header as true, if payload needs DVM
+      in: header
+      name: externalData
+      schema:
+        type: string
+    x-app-key:
       description: Client or Partner's Application Key
       in: header
       name: x-app-key
       required: true
       schema:
         pattern: ^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}$
-        type: string
-    blk_x-hotelid:
-      description: Mandatory parameter to identify the hotel code where the end user is logged in
-      in: header
-      name: x-hotelid
-      required: true
-      schema:
-        type: string
-    evm_x-app-key:
-      description: Client or PartnerAC/a,!a,,C/s Application Key
-      in: header
-      name: x-app-key
-      required: true
-      schema:
-        pattern: ^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89aAbB][a-f0-9]{3}-[a-f0-9]{12}$
-        type: string
-    evm_x-hotelid:
-      description: Mandatory parameter to identify the hotel code where the eventEndDate user is logged in
-      in: header
-      name: x-hotelid
-      required: true
-      schema:
-        type: string
-    externalData:
-      description: Pass this header as true, if payload needs DVM
-      in: header
-      name: externalData
-      schema:
         type: string
     x-externalsystem:
       description: External system code.
@@ -1734,6 +1712,13 @@ components:
       name: x-externalsystem
       schema:
         maxLength: 40
+        type: string
+    x-hotelid:
+      description: Mandatory parameter to identify the hotel code where the end user is logged in
+      in: header
+      name: x-hotelid
+      required: true
+      schema:
         type: string
     x-originating-application:
       description: Customer's Integration Application Id
@@ -1810,6 +1795,12 @@ components:
         $ref: '#/components/schemas/mealPlanCodeType'
       maxItems: 4000
       type: array
+    resSharedGuestListType:
+      description: Collection of shared guest reservations.
+      items:
+        $ref: '#/components/schemas/resSharedGuestInfoType'
+      maxItems: 4000
+      type: array
     evm_sellMessageConfigType:
       description: 'Only one of the following can hold a value: HotelCode, CROCode or ChainCode'
       properties:
@@ -1819,7 +1810,7 @@ components:
           minLength: 0
           type: string
         blockId:
-          $ref: '#/components/schemas/evm_blockId'
+          $ref: '#/components/schemas/blockId'
           description: Unique OPERA Block ID which is used to find a Block from OPERA. This ID is a primary identification of a Block in OPERA.
         chainCode:
           description: Chain Code for which the sell message is defined.
@@ -1881,7 +1872,7 @@ components:
           description: Sticky flag is used to define if the sell message should display on the block screen by default.
           type: boolean
         timespan:
-          $ref: '#/components/schemas/evm_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: Begin and End date for the sell message.
         type:
           description: A reference to the type of object defined by the UniqueID elementSpace. Refer to OpenTravel Code List Unique ID Type (UIT).
@@ -2053,7 +2044,7 @@ components:
         thursday:
           type: boolean
         timeSpan:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
         tuesday:
           type: boolean
         wednesday:
@@ -2083,7 +2074,7 @@ components:
         links:
           $ref: '#/components/schemas/evm_links'
         warnings:
-          $ref: '#/components/schemas/evm_warningsType'
+          $ref: '#/components/schemas/warningsType'
       type: object
     membershipEarningPreferenceType:
       description: The earning preference of a membership, it depends on the type of property. eg. when the property is a airline it should be Miles, other than Points.
@@ -2290,7 +2281,7 @@ components:
           description: Indicates whether the events has postings.
           type: boolean
         eventTimeSpan:
-          $ref: '#/components/schemas/evm_dateTimeSpanType'
+          $ref: '#/components/schemas/dateTimeSpanType'
           description: Pertain event duration from eventStartDate and eventEndDate date and time.
         waitlistReturnStatus:
           $ref: '#/components/schemas/evm_bookingStatusType'
@@ -2314,25 +2305,6 @@ components:
           type: string
         hotelId:
           description: This is the HotelCode of the Block.
-          maxLength: 20
-          minLength: 0
-          type: string
-      type: object
-    blk_promotionType:
-      description: Type to specify a rate promotion. Usually attached to a reservation to indicate a specific promotion is applied to the reservation.
-      properties:
-        couponCode:
-          description: Promotion Coupon Code when promotion is setup to have a valid coupon code.
-          maxLength: 40
-          minLength: 0
-          type: string
-        promotionCode:
-          description: Promotion code associated with the rate plan.
-          maxLength: 20
-          minLength: 0
-          type: string
-        promotionName:
-          description: Promotion code Name associated with the rate plan.
           maxLength: 20
           minLength: 0
           type: string
@@ -2405,18 +2377,6 @@ components:
               type: string
           type: object
       type: object
-    evm_roomStatisticsType:
-      properties:
-        averageRate:
-          description: The average rate per functionSpaceDetails.
-          type: number
-        roomCount:
-          description: The total number of rooms.
-          type: number
-        roomRevenue:
-          description: The total revenue for the rooms.
-          type: number
-      type: object
     evm_blockOwnerType:
       description: Generic type for information about an owner.
       properties:
@@ -2447,7 +2407,7 @@ components:
           description: When true, this is a primary owner.
           type: boolean
         profileId:
-          $ref: '#/components/schemas/evm_profileId'
+          $ref: '#/components/schemas/profileId'
           description: Unique owner profile information.
         relationship:
           $ref: '#/components/schemas/codeDescriptionType'
@@ -2461,31 +2421,6 @@ components:
           minLength: 0
           type: string
       type: object
-    blk_blockStatisticsType:
-      properties:
-        actualCateringRevenue:
-          description: Indicates actualized catering revenue.
-          type: number
-        actualRoomStatistics:
-          $ref: '#/components/schemas/blk_roomStatisticsType'
-          description: Indicates the room statistics for actualized rooms.
-        allocatedRoomStatistics:
-          $ref: '#/components/schemas/blk_roomStatisticsType'
-          description: Indicates the room statistics for allocated rooms.
-        cateringRevenueOnBooks:
-          description: Indicates the catering revenue on the books.
-          type: number
-      type: object
-    blk_housekeepingRoomStatusType:
-      description: Simple type for room status instructions to be used in requests for fetching housekeeping rooms. Valid status values are Clean, Dirty, Pickup, Inspected, OutOfOrder, OutOfService.
-      enum:
-        - Clean
-        - Dirty
-        - Pickup
-        - Inspected
-        - OutOfOrder
-        - OutOfService
-      type: string
     blk_cateringType:
       description: Contains catering related information for the block.
       properties:
@@ -2618,6 +2553,71 @@ components:
           $ref: '#/components/schemas/evm_stayHistoryListType'
           description: Refer to History list type document.
       type: object
+    configPostingAttributesType:
+      description: A config Package posting attributes type.
+      properties:
+        addToRate:
+          description: The package price is added to the room rate.
+          type: boolean
+        calculatedPrice:
+          description: Calculated Package Price based from Number of Adults, Children and Calculation Rule.
+          type: number
+        catering:
+          description: Is package used for catering?
+          type: boolean
+        deliveryTimeRequired:
+          description: Indicates whether a delivery time is required for the package.
+          type: boolean
+        endTime:
+          description: End time the package is valid.
+          type: string
+        forecastNextDay:
+          description: Package will be forecasted for consumption the next business day.
+          type: boolean
+        formula:
+          description: The custom formula used for this package, if any.
+          maxLength: 2000
+          minLength: 0
+          type: string
+        formulaFunctionArguments:
+          $ref: '#/components/schemas/functionArgumentsType'
+          description: The function argument name-value combination accepted by the custom formula used for this package.
+        formulaFunctionName:
+          description: The custom formula function name used for this package, if any.
+          maxLength: 2000
+          minLength: 0
+          type: string
+        inventoryItems:
+          description: Package Code Inventory Items type.
+          items:
+            $ref: '#/components/schemas/pkgInventoryItemType'
+          maxItems: 4000
+          type: array
+        postNextDay:
+          description: package charges will be posted next business day.
+          type: boolean
+        postingRhythm:
+          $ref: '#/components/schemas/packagePostingRhythmType'
+          description: The posting rhythm for this package.
+        priceCalculationRule:
+          $ref: '#/components/schemas/packageCalculationRuleType'
+          description: The price calculation rule for this package.
+        printSeparateLine:
+          description: The package price is printed on separate line of the folio.
+          type: boolean
+        sellSeparate:
+          description: Can the package be sold separate from rate plan code?
+          type: boolean
+        startTime:
+          description: Start time the package is valid.
+          type: string
+        ticket:
+          description: Indicates whether a package is configured as a ticket or not.
+          type: boolean
+        webBookable:
+          description: Can package be sold via Web channel.
+          type: boolean
+      type: object
     aRAccountStatusType:
       description: Type for the Account Status. Status can be restricted and a message/description added to the Account.
       properties:
@@ -2748,16 +2748,6 @@ components:
           description: Indicates whether the catering change logging for the booking is active or not. Any change made to catering events and resources will be logged when this is true.
           type: boolean
       type: object
-    blk_pointsType:
-      description: The Redeem Points contains the number of points required to book a room type.
-      properties:
-        awardsType:
-          description: Awards type for the award type rate code.
-          type: string
-        points:
-          description: No of points required to book this Room Stay.
-          type: integer
-      type: object
     blk_bookingStatusType:
       description: Booking status code, description and configured color of the status. This will be used for block and event statuses.
       properties:
@@ -2803,52 +2793,6 @@ components:
         - type
         - title
       title: Error Detail
-      type: object
-    evm_warningType:
-      description: Used when a message has been successfully processed to report any warnings or business errors that occurred.
-      properties:
-        code:
-          description: If present, this refers to a table of coded values exchanged between applications to identify errors or warnings.
-          maxLength: 20
-          minLength: 0
-          type: string
-        docURL:
-          description: If present, this URL refers to an online description of the error that occurred.
-          maxLength: 2000
-          type: string
-        language:
-          description: Language identification.
-          pattern: '[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*'
-          type: string
-        recordId:
-          description: If present, this attribute allows for batch processing and the identification of the record that failed amongst a group of records. This value may contain a concatenation of a unique failed transaction ID with specific record(s) associated with that transaction.
-          maxLength: 2000
-          type: string
-        rph:
-          description: Reference Place Holder used as an index for this warning.
-          maxLength: 8
-          minLength: 1
-          type: string
-        shortText:
-          description: An abbreviated version of the error in textual format.
-          maxLength: 2000
-          type: string
-        status:
-          description: If present, recommended values are those enumerated in the ErrorRS, (NotProcessed Incomplete Complete Unknown) however, the data type is designated as string data, recognizing that trading partners may identify additional status conditions not included in the enumeration.
-          maxLength: 2000
-          type: string
-        tag:
-          description: If present, this attribute may identify an unknown or misspelled tag that caused an error in processing. It is recommended that the Tag attribute use XPath notation to identify the location of a tag in the event that more than one tag of the same name is present in the document. Alternatively, the tag name alone can be used to identify missing data [Type=ReqFieldMissing].
-          maxLength: 2000
-          type: string
-        type:
-          description: The Warning elementSpace MUST contain the Type attribute that uses a recommended set of values to indicate the warning type. The validating XSD can expect to accept values that it has NOT been explicitly coded for and process them by using Type ="Unknown".
-          maxLength: 20
-          minLength: 0
-          type: string
-        value:
-          description: Property Value
-          type: string
       type: object
     customDateUDFsType:
       description: Used to hold collection of custom user defined fields of Date Type.
@@ -2986,7 +2930,7 @@ components:
           format: date-time
           type: string
         blockStatistics:
-          $ref: '#/components/schemas/blk_blockStatisticsType'
+          $ref: '#/components/schemas/blockStatisticsType'
           description: Indicates the room and revenue statistics of the block.
         externalReferences:
           $ref: '#/components/schemas/externalReferencesType'
@@ -2999,12 +2943,12 @@ components:
           $ref: '#/components/schemas/blk_blockRestrictionsType'
           description: List of restrictions for the Block.
         washSchedules:
-          $ref: '#/components/schemas/blk_blockWashSchedulesType'
+          $ref: '#/components/schemas/blockWashSchedulesType'
           description: List of wash schedules for the Block.
         statistics:
           description: Statistics summary information including Rooms Sold, Room Revenue, Food and Beverage Revenue, Average Room Rate,etc.
           items:
-            $ref: '#/components/schemas/blk_blockStatisticsSummaryType'
+            $ref: '#/components/schemas/blockStatisticsSummaryType'
           maxItems: 3
           type: array
         blockProfiles:
@@ -3154,7 +3098,7 @@ components:
           minimum: 0
           type: integer
         timeSpan:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: The Time Span of the block.
       type: object
     blk_resGuestInfoType:
@@ -3276,7 +3220,7 @@ components:
           $ref: '#/components/schemas/vIPType'
           description: The supplier's ranking of the customer (e.g., VIP, numerical ranking).
         warnings:
-          $ref: '#/components/schemas/blk_warningsType'
+          $ref: '#/components/schemas/warningsType'
       type: object
     eventSummariesInfoType:
       description: Collection of events.
@@ -3374,13 +3318,13 @@ components:
           maxLength: 8
           type: string
         reservationId:
-          $ref: '#/components/schemas/evm_reservationId'
+          $ref: '#/components/schemas/reservationId'
           description: Reservation ID of the reservation for which the traces are to be retrieved.
         resolveInfo:
           $ref: '#/components/schemas/traceResolveType'
           description: Information regarding the status of the trace
         timeInfo:
-          $ref: '#/components/schemas/evm_traceTimeInfoType'
+          $ref: '#/components/schemas/traceTimeInfoType'
           description: Date of the trace.
         traceText:
           description: The information this trace contains.
@@ -3508,133 +3452,6 @@ components:
           description: Exact copy of the "summary" field on the linked operation.
           type: string
       type: object
-    blk_packagePostingRhythmType:
-      description: Package Posting rhythm type.
-      properties:
-        certainNightsOfTheWeek:
-          description: Post the package on certain nights of the week.
-          properties:
-            friday:
-              type: boolean
-            monday:
-              type: boolean
-            saturday:
-              type: boolean
-            sunday:
-              type: boolean
-            thursday:
-              type: boolean
-            tuesday:
-              type: boolean
-            wednesday:
-              type: boolean
-          type: object
-        customNightSchedule:
-          description: 'The start and end of the posting period is determined as follows: If the package is attached to a rate code: The period starts with the date when the rate code to which the package is attached becomes effective for the stay. The period ends with the date of the last night for that rate code (or the last night of the stay if the rate code remains in effect until the departure date). If the package is attached separately to the reservation: The Begin Date specified on the reservation when the package was attached is the start date for the period. The End Date specified on the reservation when the package was attached is the end date for the period. If no Begin Date and/or End Date are specified when the package is attached to the reservation, the Begin Date is assumed to be the arrival date and the End Date is assumed to be the departure date of the reservation, irrespective of when the package is attached to the reservation.'
-          properties:
-            night1:
-              description: Night 1 indicator.
-              type: boolean
-            night10:
-              description: Night 10 indicator.
-              type: boolean
-            night11:
-              description: Night 11 indicator.
-              type: boolean
-            night12:
-              description: Night 12 indicator.
-              type: boolean
-            night13:
-              description: Night 13 indicator.
-              type: boolean
-            night14:
-              description: Night 14 indicator.
-              type: boolean
-            night2:
-              description: Night 2 indicator.
-              type: boolean
-            night3:
-              description: Night 3 indicator.
-              type: boolean
-            night4:
-              description: Night 4 indicator.
-              type: boolean
-            night5:
-              description: Night 5 indicator.
-              type: boolean
-            night6:
-              description: Night 6 indicator.
-              type: boolean
-            night7:
-              description: Night 7 indicator.
-              type: boolean
-            night8:
-              description: Night 8 indicator.
-              type: boolean
-            night9:
-              description: Night 9 indicator.
-              type: boolean
-          type: object
-        customStaySchedule:
-          description: This user defined schedule lets you enter a posting rhythm over a 14-day period, starting with the arrival date, by assigning the day (number) within a guest stay for posting this package price.
-          properties:
-            night1:
-              description: Night 1 indicator.
-              type: boolean
-            night10:
-              description: Night 10 indicator.
-              type: boolean
-            night11:
-              description: Night 11 indicator.
-              type: boolean
-            night12:
-              description: Night 12 indicator.
-              type: boolean
-            night13:
-              description: Night 13 indicator.
-              type: boolean
-            night14:
-              description: Night 14 indicator.
-              type: boolean
-            night2:
-              description: Night 2 indicator.
-              type: boolean
-            night3:
-              description: Night 3 indicator.
-              type: boolean
-            night4:
-              description: Night 4 indicator.
-              type: boolean
-            night5:
-              description: Night 5 indicator.
-              type: boolean
-            night6:
-              description: Night 6 indicator.
-              type: boolean
-            night7:
-              description: Night 7 indicator.
-              type: boolean
-            night8:
-              description: Night 8 indicator.
-              type: boolean
-            night9:
-              description: Night 9 indicator.
-              type: boolean
-          type: object
-        everyXNightsStartingNightY:
-          description: Post the package every X nights Staring from Night Y.
-          properties:
-            postEveryXNights:
-              description: Occurance of nights when the package needs to be posted and consumed.
-              type: integer
-            startOnNightY:
-              description: Starting night for consumption and posting prices.
-              type: integer
-          type: object
-        type:
-          $ref: '#/components/schemas/postingRhythmType'
-          description: Posting Rhythm for the package.
-      type: object
     blk_reservationIdList:
       description: Unique Id that references an object uniquely in the system.
       items:
@@ -3679,7 +3496,7 @@ components:
       description: Restriction details for a block.
       properties:
         actualTimeSpan:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: Actual time span of the restriction.
         blockRestrictionStatus:
           $ref: '#/components/schemas/restrictionStatusType'
@@ -3805,10 +3622,10 @@ components:
       description: Basic information regarding an Item.
       properties:
         availabilityPeriod:
-          $ref: '#/components/schemas/evm_timeWindowType'
+          $ref: '#/components/schemas/timeWindowType'
           description: Defines a Time period when the item is available.
         blockDates:
-          $ref: '#/components/schemas/evm_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: Date Range to get the inventories of the items.
         code:
           description: Item Code.
@@ -3925,55 +3742,6 @@ components:
         $ref: '#/components/schemas/blk_resCancellationPolicyType'
       maxItems: 4000
       type: array
-    blk_billingPrivilegesType:
-      description: This stores the information for Bed Tax Reporting. Mainly used in Maldives.
-      properties:
-        allowAutoCheckin:
-          description: Indicated if a new reservation should be created and automatically checked in whenever the room is checked out. Available for pseudo room types only.
-          type: boolean
-        autoSettlement:
-          description: Indicates if the is a candidate for auto folio settlement.
-          type: boolean
-        autoSettlementFreq:
-          description: The interval of days between each auto folio settlement.
-          type: integer
-        autoSettlementType:
-          description: The folio settlement type for auto folio settlement.
-          maxLength: 40
-          minLength: 0
-          type: string
-        creditLimitAutoPay:
-          description: Indicates if the reservation will be included in the Automatic Credit Limit Overages process and also be listed in the Credit Limit Overages screen results.
-          type: boolean
-        directBillAuthorized:
-          description: If Direct bill is authorized this will hold User ID who authorized it.
-          type: boolean
-        folioCloseDate:
-          description: Date when folio was closed. This works with PostStayCharging flag.
-          format: date
-          maxLength: 8
-          type: string
-        postStayCharging:
-          description: Indicates if the reservation has charging privileges after checkout.
-          type: boolean
-        postingRestriction:
-          description: Flag used by interface program during check in.
-          type: boolean
-        preStayCharging:
-          description: Indicates if the reservation has charging privileges before arrival.
-          type: boolean
-        scheduledCheckout:
-          description: Indicates if the guest is scheduled for automatic check out.
-          type: boolean
-        scheduledCheckoutTime:
-          description: Time of automatic check out if guest is schedule for automatic check out.
-          format: date
-          maxLength: 8
-          type: string
-        videoCheckout:
-          description: Indicates if the guest can do video checkout
-          type: boolean
-      type: object
     blk_blockTracesType:
       description: List of Block traces.
       items:
@@ -4020,6 +3788,16 @@ components:
           minLength: 0
           type: string
       type: object
+    housekeepingRoomStatusType:
+      description: Simple type for room status instructions to be used in requests for fetching housekeeping rooms. Valid status values are Clean, Dirty, Pickup, Inspected, OutOfOrder, OutOfService.
+      enum:
+        - Clean
+        - Dirty
+        - Pickup
+        - Inspected
+        - OutOfOrder
+        - OutOfService
+      type: string
     blk_cancellationDetailsType:
       description: This type holds information regarding booking status change to Cancel/ Lost.
       properties:
@@ -4049,19 +3827,6 @@ components:
           maxLength: 100
           minLength: 0
           type: string
-      type: object
-    blk_blockStatisticsSummaryType:
-      description: Type to store summary detail like rooms sold, average room rate and revenue for a statistic type.
-      properties:
-        avgRoomRate:
-          type: number
-        revenueSummary:
-          $ref: '#/components/schemas/revenueSummaryType'
-        roomsSold:
-          description: Total Number of Rooms Picked Up.
-          type: integer
-        statisticType:
-          $ref: '#/components/schemas/statisticsSummaryType'
       type: object
     masterInfoType:
       properties:
@@ -4132,6 +3897,12 @@ components:
           $ref: '#/components/schemas/numericUDFsType'
           description: Collection of user defined fields of Numeric Type.
       type: object
+    blockWashSchedulesType:
+      description: Wash Schedule attached to the block, which allows to release inventory based on selected wash schedule type.
+      items:
+        $ref: '#/components/schemas/blockWashScheduleType'
+      maxItems: 4000
+      type: array
     evm_cancellationDetailsType:
       description: This type holds information regarding booking status change to Cancel/ Lost.
       properties:
@@ -4194,7 +3965,7 @@ components:
             $ref: '#/components/schemas/masterInfoType'
           type: array
         warnings:
-          $ref: '#/components/schemas/blk_warningsType'
+          $ref: '#/components/schemas/warningsType'
       type: object
     blk_attachmentType:
       description: Attached files.
@@ -4388,6 +4159,33 @@ components:
           $ref: '#/components/schemas/currencyAmountType'
           description: The additional charges per person for porterage service, if porterage is not included in the rate.
       type: object
+    resHousekeepingType:
+      description: Holds housekeeping turndown service information for the room.
+      properties:
+        expectedServiceTime:
+          description: Expected Start Time for housekeeping task(s).
+          type: string
+        facilityTaskInfo:
+          $ref: '#/components/schemas/facilityTaskType'
+          description: The facility task applicable for the current day. This will be information only and not used for any updates.
+        instructions:
+          description: Turndown instructions for the room.
+          type: string
+        linenChange:
+          description: Indicates if a linen change is necessary.
+          type: boolean
+        roomStatus:
+          $ref: '#/components/schemas/housekeepingRoomStatusType'
+          description: Current room status. Current room status is populated only if room is assigned to the reservation and reservation is due in or in house.
+        serviceTime:
+          description: This is the Turndown room service time.
+          format: date
+          maxLength: 8
+          type: string
+        turndownRequested:
+          description: Indicates whether guest wants turndown facility or not.
+          type: boolean
+      type: object
     blockProfileTypeType:
       description: Simple type for block profile types.
       enum:
@@ -4424,7 +4222,7 @@ components:
             $ref: '#/components/schemas/masterInfoType'
           type: array
         warnings:
-          $ref: '#/components/schemas/evm_warningsType'
+          $ref: '#/components/schemas/warningsType'
       type: object
     blockAccessExclusionType:
       description: Access Exclusion information indicating the actions allowed under a HUB or Hotel for which the access exclusion is set.
@@ -4474,7 +4272,7 @@ components:
       description: Container for Time span with days of week.
       properties:
         blockDates:
-          $ref: '#/components/schemas/evm_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
         friday:
           type: boolean
         monday:
@@ -4520,7 +4318,7 @@ components:
           description: When true, this is a primary owner.
           type: boolean
         profileId:
-          $ref: '#/components/schemas/blk_profileId'
+          $ref: '#/components/schemas/profileId'
           description: Unique owner profile information.
         relationship:
           $ref: '#/components/schemas/codeDescriptionType'
@@ -4533,18 +4331,6 @@ components:
           maxLength: 40
           minLength: 0
           type: string
-      type: object
-    blk_roomStatisticsType:
-      properties:
-        averageRate:
-          description: The average rate per room.
-          type: number
-        roomCount:
-          description: The total number of rooms.
-          type: number
-        roomRevenue:
-          description: The total revenue for the rooms.
-          type: number
       type: object
     cancelPenaltyType:
       description: The CancelPenalty class defines the cancellation policy of the hotel facility.
@@ -4599,7 +4385,7 @@ components:
           minimum: 0
           type: number
         policy:
-          $ref: '#/components/schemas/blk_resCancelPenaltyType'
+          $ref: '#/components/schemas/resCancelPenaltyType'
           description: Cancellation policy details.
         policyId:
           $ref: '#/components/schemas/blk_uniqueID_Type'
@@ -4665,71 +4451,6 @@ components:
           $ref: '#/components/schemas/commissionPaymentMethods'
           description: Type of payment associated with the bank account.
       type: object
-    blk_configPostingAttributesType:
-      description: A config Package posting attributes type.
-      properties:
-        addToRate:
-          description: The package price is added to the room rate.
-          type: boolean
-        calculatedPrice:
-          description: Calculated Package Price based from Number of Adults, Children and Calculation Rule.
-          type: number
-        catering:
-          description: Is package used for catering?
-          type: boolean
-        deliveryTimeRequired:
-          description: Indicates whether a delivery time is required for the package.
-          type: boolean
-        endTime:
-          description: End time the package is valid.
-          type: string
-        forecastNextDay:
-          description: Package will be forecasted for consumption the next business day.
-          type: boolean
-        formula:
-          description: The custom formula used for this package, if any.
-          maxLength: 2000
-          minLength: 0
-          type: string
-        formulaFunctionArguments:
-          $ref: '#/components/schemas/functionArgumentsType'
-          description: The function argument name-value combination accepted by the custom formula used for this package.
-        formulaFunctionName:
-          description: The custom formula function name used for this package, if any.
-          maxLength: 2000
-          minLength: 0
-          type: string
-        inventoryItems:
-          description: Package Code Inventory Items type.
-          items:
-            $ref: '#/components/schemas/pkgInventoryItemType'
-          maxItems: 4000
-          type: array
-        postNextDay:
-          description: package charges will be posted next business day.
-          type: boolean
-        postingRhythm:
-          $ref: '#/components/schemas/blk_packagePostingRhythmType'
-          description: The posting rhythm for this package.
-        priceCalculationRule:
-          $ref: '#/components/schemas/packageCalculationRuleType'
-          description: The price calculation rule for this package.
-        printSeparateLine:
-          description: The package price is printed on separate line of the folio.
-          type: boolean
-        sellSeparate:
-          description: Can the package be sold separate from rate plan code?
-          type: boolean
-        startTime:
-          description: Start time the package is valid.
-          type: string
-        ticket:
-          description: Indicates whether a package is configured as a ticket or not.
-          type: boolean
-        webBookable:
-          description: Can package be sold via Web channel.
-          type: boolean
-      type: object
     blk_sellMessageConfigType:
       description: 'Only one of the following can hold a value: HotelCode, CROCode or ChainCode'
       properties:
@@ -4739,7 +4460,7 @@ components:
           minLength: 0
           type: string
         blockId:
-          $ref: '#/components/schemas/blk_blockId'
+          $ref: '#/components/schemas/blockId'
           description: Unique OPERA Block ID which is used to find a Block from OPERA. This ID is a primary identification of a Block in OPERA.
         chainCode:
           description: Chain Code for which the sell message is defined.
@@ -4798,7 +4519,7 @@ components:
           description: Sticky flag is used to define if the sell message should display on the block screen by default.
           type: boolean
         timespan:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: Begin and End date for the sell message.
         type:
           description: A reference to the type of object defined by the UniqueID element.
@@ -4982,6 +4703,36 @@ components:
         - Catering
         - All
       type: string
+    blockId:
+      description: An identifier used to uniquely reference an object in a system (e.g. an airline reservation reference, customer profile reference, booking confirmation number, or a reference to a previous availability quote).
+      properties:
+        id:
+          description: A unique identifying value assigned by the creating system. The ID attribute may be used to reference a primary-key value within a database or in a particular implementation.
+          maxLength: 80
+          minLength: 0
+          type: string
+        idContext:
+          description: Used to identify the source of the identifier (e.g., IATA, ABTA).
+          maxLength: 80
+          minLength: 0
+          type: string
+        idExtension:
+          description: Additional identifying value assigned by the creating system.
+          type: integer
+        instance:
+          description: The identification of a record as it exists at a point in time. An instance is used in update messages where the sender must assure the server that the update sent refers to the most recent modification level of the object being updated.
+          maxLength: 80
+          minLength: 0
+          type: string
+        type:
+          description: A reference to the type of object defined by the UniqueID element.
+          maxLength: 20
+          minLength: 0
+          type: string
+        url:
+          description: URL that identifies the location associated with the record identified by the UniqueID.
+          type: string
+      type: object
     evm_telephoneInfoType:
       description: Information on a telephone number for the customer.
       properties:
@@ -5101,7 +4852,7 @@ components:
           description: When true, indicates a functionSpaceDetails number cannot be changed. When false, indicates a functionSpaceDetails number may be changed.
           type: boolean
         originalTimeSpan:
-          $ref: '#/components/schemas/evm_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: The Original Time Span covers the Room Stay dates of the original reservation.
         expectedTimes:
           $ref: '#/components/schemas/resExpectedTimesType'
@@ -5123,7 +4874,7 @@ components:
           description: True indicates as pseudo functionSpaceDetails type. This is usually used for a posting master reservation.
           type: boolean
         promotion:
-          $ref: '#/components/schemas/evm_promotionType'
+          $ref: '#/components/schemas/promotionType'
           description: Promotion Codes
         roomId:
           description: Room Id
@@ -5217,7 +4968,7 @@ components:
           description: A collection of Child Counts associated with Room Stay.
           type: integer
         points:
-          $ref: '#/components/schemas/evm_pointsType'
+          $ref: '#/components/schemas/pointsType'
           description: The Points contains the number of points used to book a particular functionSpaceDetails type.
         roomClass:
           description: Room class code
@@ -5318,6 +5069,18 @@ components:
           maxLength: 2000
           minLength: 0
           type: string
+      type: object
+    roomStatisticsType:
+      properties:
+        averageRate:
+          description: The average rate per room.
+          type: number
+        roomCount:
+          description: The total number of rooms.
+          type: number
+        roomRevenue:
+          description: The total revenue for the rooms.
+          type: number
       type: object
     advanceCheckInType:
       description: Information relating to Reservation's Advance Checked In state and Expected Time of Return
@@ -5550,32 +5313,7 @@ components:
         links:
           $ref: '#/components/schemas/blk_links'
         warnings:
-          $ref: '#/components/schemas/blk_warningsType'
-      type: object
-    evm_blockWashScheduleType:
-      description: 'Allows to select type of wash schedule: by number of rooms or by percentage.'
-      properties:
-        roomTypes:
-          description: A single functionSpaceDetails type on which wash operation should be performed.
-          items:
-            maxLength: 20
-            minLength: 0
-            type: string
-          maxItems: 4000
-          type: array
-        washByPercent:
-          description: When using the Wash by % option, indicate a wash percentage that will be applied it to the whole block.
-          maximum: 100
-          minimum: 0
-          type: number
-        washByRooms:
-          $ref: '#/components/schemas/blockGridInvType'
-          description: Wash by rooms contains the occupany details and sell values for a specific block wash schedule.
-        washDate:
-          description: Date on which the block wash operation will be performed.
-          format: date
-          maxLength: 8
-          type: string
+          $ref: '#/components/schemas/warningsType'
       type: object
     communicationStatusType:
       description: Enum to denote the Status of Readiness messages sent to Guest Devices.
@@ -5629,6 +5367,42 @@ components:
           type: string
         vipStatus:
           description: VIP status of the company.
+          maxLength: 20
+          minLength: 0
+          type: string
+      type: object
+    resCancelPenaltyType:
+      description: The CancelPenalty class defines the cancellation policy of the hotel facility.
+      properties:
+        amountPercent:
+          $ref: '#/components/schemas/policyAmountPercentType'
+          description: Cancellation fee expressed as a fixed amount, or percentage of/or room nights.
+        deadline:
+          $ref: '#/components/schemas/policyDeadlineType'
+          description: Cancellation deadline, absolute or relative.
+        effective:
+          description: Indicator if Cancellation Penalty is currently applicable or not.
+          type: boolean
+        formattedRule:
+          description: Formatted Text Rule of the Cancellation Penalty.
+          maxLength: 2000
+          minLength: 0
+          type: string
+        manual:
+          description: Flag to indicate if the cancellation policy is manual.
+          type: boolean
+        nonRefundable:
+          description: Indicates if the amount is refundable if booking is canceled.
+          type: boolean
+        offsetUnit:
+          $ref: '#/components/schemas/offsetUnitType'
+        penaltyDescription:
+          description: Text description of the Penalty in a given language.
+          maxLength: 2000
+          minLength: 0
+          type: string
+        policyCode:
+          description: Policy Code.
           maxLength: 20
           minLength: 0
           type: string
@@ -5732,12 +5506,6 @@ components:
           description: URL that identifies the location associated with the record identified by the UniqueID.
           type: string
       type: object
-    evm_blockWashSchedulesType:
-      description: Wash Schedule attached to the block, which allows to release inventory based on selected wash schedule type.
-      items:
-        $ref: '#/components/schemas/evm_blockWashScheduleType'
-      maxItems: 4000
-      type: array
     bookingChannelMappingType:
       properties:
         bookingChannelCode:
@@ -6077,36 +5845,6 @@ components:
           $ref: '#/components/schemas/communicationStatusType'
           description: Denotes the status of Room Ready message. It can have one of the values:PENDING, COMPLETED or FAILED
       type: object
-    blk_reservationId:
-      description: An identifier used to uniquely reference an object in a system (e.g. an airline reservation reference, customer profile reference, booking confirmation number, or a reference to a previous availability quote).
-      properties:
-        id:
-          description: A unique identifying value assigned by the creating system. The ID attribute may be used to reference a primary-key value within a database or in a particular implementation.
-          maxLength: 80
-          minLength: 0
-          type: string
-        idContext:
-          description: Used to identify the source of the identifier (e.g., IATA, ABTA).
-          maxLength: 80
-          minLength: 0
-          type: string
-        idExtension:
-          description: Additional identifying value assigned by the creating system.
-          type: integer
-        instance:
-          description: The identification of a record as it exists at a point in time. An instance is used in update messages where the sender must assure the server that the update sent refers to the most recent modification level of the object being updated.
-          maxLength: 80
-          minLength: 0
-          type: string
-        type:
-          description: A reference to the type of object defined by the UniqueID element.
-          maxLength: 20
-          minLength: 0
-          type: string
-        url:
-          description: URL that identifies the location associated with the record identified by the UniqueID.
-          type: string
-      type: object
     eventFunctionSpaceType:
       description: Pertain Information about the Function Space for events.
       properties:
@@ -6211,7 +5949,37 @@ components:
           minLength: 0
           type: string
         warnings:
-          $ref: '#/components/schemas/blk_warningsType'
+          $ref: '#/components/schemas/warningsType'
+      type: object
+    reservationId:
+      description: An identifier used to uniquely reference an object in a system (e.g. an airline reservation reference, customer profile reference, booking confirmation number, or a reference to a previous availability quote).
+      properties:
+        id:
+          description: A unique identifying value assigned by the creating system. The ID attribute may be used to reference a primary-key value within a database or in a particular implementation.
+          maxLength: 80
+          minLength: 0
+          type: string
+        idContext:
+          description: Used to identify the source of the identifier (e.g., IATA, ABTA).
+          maxLength: 80
+          minLength: 0
+          type: string
+        idExtension:
+          description: Additional identifying value assigned by the creating system.
+          type: integer
+        instance:
+          description: The identification of a record as it exists at a point in time. An instance is used in update messages where the sender must assure the server that the update sent refers to the most recent modification level of the object being updated.
+          maxLength: 80
+          minLength: 0
+          type: string
+        type:
+          description: A reference to the type of object defined by the UniqueID element.
+          maxLength: 20
+          minLength: 0
+          type: string
+        url:
+          description: URL that identifies the location associated with the record identified by the UniqueID.
+          type: string
       type: object
     blk_blockOwnersType:
       description: Contains a list of block owners.
@@ -6236,7 +6004,7 @@ components:
         id:
           $ref: '#/components/schemas/evm_uniqueID_Type'
         masterEventDates:
-          $ref: '#/components/schemas/evm_dateTimeSpanType'
+          $ref: '#/components/schemas/dateTimeSpanType'
         type:
           $ref: '#/components/schemas/cateringEventLinkTypeType'
       type: object
@@ -6275,36 +6043,6 @@ components:
           maximum: 100
           minimum: 0
           type: number
-      type: object
-    evm_profileId:
-      description: An identifier used to uniquely reference an object in a system (e.g. an airline reservation reference, customer profile reference, booking confirmation number, or a reference to a previous availability quote).
-      properties:
-        id:
-          description: A unique identifying value assigned by the creating system. The ID attribute may be used to reference a primary-key value within a database or in a particular implementation.
-          maxLength: 80
-          minLength: 0
-          type: string
-        idContext:
-          description: Used to identify the source of the identifier (e.g., IATA, ABTA).
-          maxLength: 80
-          minLength: 0
-          type: string
-        idExtension:
-          description: Additional identifying value assigned by the creating system.
-          type: integer
-        instance:
-          description: The identification of a record as it exists at a point in time. An instance is used in update messages where the sender must assure the server that the update sent refers to the most recent modification level of the object being updated.
-          maxLength: 80
-          minLength: 0
-          type: string
-        type:
-          description: A reference to the type of object defined by the UniqueID elementSpace. Refer to OpenTravel Code List Unique ID Type (UIT).
-          maxLength: 20
-          minLength: 0
-          type: string
-        url:
-          description: URL that identifies the location associated with the record identified by the UniqueID.
-          type: string
       type: object
     blk_relationshipProfileType:
       properties:
@@ -6447,7 +6185,7 @@ components:
           description: Indicates if packages to be in Sync.
           type: boolean
         timeSpan:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: The Time Span(Arrival, Departure) which covers the Block Span.
       type: object
     numericUDFType:
@@ -6515,13 +6253,13 @@ components:
           format: date-time
           type: string
         reservationId:
-          $ref: '#/components/schemas/blk_reservationId'
+          $ref: '#/components/schemas/reservationId'
           description: Reservation ID of the reservation for which the traces are to be retrieved.
         resolveInfo:
           $ref: '#/components/schemas/traceResolveType'
           description: Information regarding the status of the trace
         timeInfo:
-          $ref: '#/components/schemas/blk_traceTimeInfoType'
+          $ref: '#/components/schemas/traceTimeInfoType'
           description: Date of the trace.
         traceText:
           description: The information this trace contains.
@@ -6541,7 +6279,7 @@ components:
         links:
           $ref: '#/components/schemas/blk_links'
         warnings:
-          $ref: '#/components/schemas/blk_warningsType'
+          $ref: '#/components/schemas/warningsType'
       type: object
     dateTimeStampGroupType:
       properties:
@@ -6768,36 +6506,6 @@ components:
         type: object
       maxItems: 4000
       type: array
-    evm_blockId:
-      description: An identifier used to uniquely reference an object in a system (e.g. an airline reservation reference, customer profile reference, booking confirmation number, or a reference to a previous availability quote).
-      properties:
-        id:
-          description: A unique identifying value assigned by the creating system. The ID attribute may be used to reference a primary-key value within a database or in a particular implementation.
-          maxLength: 80
-          minLength: 0
-          type: string
-        idContext:
-          description: Used to identify the source of the identifier (e.g., IATA, ABTA).
-          maxLength: 80
-          minLength: 0
-          type: string
-        idExtension:
-          description: Additional identifying value assigned by the creating system.
-          type: integer
-        instance:
-          description: The identification of a record as it exists at a point in time. An instance is used in update messages where the sender must assure the server that the update sent refers to the most recent modification level of the object being updated.
-          maxLength: 80
-          minLength: 0
-          type: string
-        type:
-          description: A reference to the type of object defined by the UniqueID elementSpace. Refer to OpenTravel Code List Unique ID Type (UIT).
-          maxLength: 20
-          minLength: 0
-          type: string
-        url:
-          description: URL that identifies the location associated with the record identified by the UniqueID.
-          type: string
-      type: object
     reservationInfoType:
       description: The Reservation class contains the current reservation being created or altered.
       properties:
@@ -6829,7 +6537,7 @@ components:
           $ref: '#/components/schemas/blk_resCommunicationType'
           description: Collection of reservation communication details.
         sharedGuests:
-          $ref: '#/components/schemas/blk_resSharedGuestListType'
+          $ref: '#/components/schemas/resSharedGuestListType'
           description: Collection of guests who share this reservation.
         openFolio:
           description: Returns true when reservation has an open folio.
@@ -6898,7 +6606,7 @@ components:
           $ref: '#/components/schemas/blk_reservationAllowedActionsType'
           description: Collection of reservation allowed actions.
         housekeeping:
-          $ref: '#/components/schemas/blk_resHousekeepingType'
+          $ref: '#/components/schemas/resHousekeepingType'
           description: Information regarding housekeeping for this reservation.
         deposit:
           $ref: '#/components/schemas/reservationDepositType'
@@ -6973,7 +6681,7 @@ components:
           $ref: '#/components/schemas/reservationTurndownInfoType'
           description: Currency code preferred by guest.
         roomStatus:
-          $ref: '#/components/schemas/blk_housekeepingRoomStatusType'
+          $ref: '#/components/schemas/housekeepingRoomStatusType'
           description: Current room status
         displayColor:
           description: Color setting of the reservation.
@@ -7188,11 +6896,85 @@ components:
               type: array
           type: object
       type: object
+    warningType:
+      description: Used when a message has been successfully processed to report any warnings or business errors that occurred.
+      properties:
+        code:
+          description: If present, this refers to a table of coded values exchanged between applications to identify errors or warnings.
+          maxLength: 20
+          minLength: 0
+          type: string
+        docURL:
+          description: If present, this URL refers to an online description of the error that occurred.
+          maxLength: 2000
+          type: string
+        language:
+          description: Language identification.
+          pattern: '[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*'
+          type: string
+        recordId:
+          description: If present, this attribute allows for batch processing and the identification of the record that failed amongst a group of records. This value may contain a concatenation of a unique failed transaction ID with specific record(s) associated with that transaction.
+          maxLength: 2000
+          type: string
+        rph:
+          description: Reference Place Holder used as an index for this warning.
+          maxLength: 8
+          minLength: 1
+          type: string
+        shortText:
+          description: An abbreviated version of the error in textual format.
+          maxLength: 2000
+          type: string
+        status:
+          description: If present, recommended values are those enumerated in the ErrorRS, (NotProcessed Incomplete Complete Unknown) however, the data type is designated as string data, recognizing that trading partners may identify additional status conditions not included in the enumeration.
+          maxLength: 2000
+          type: string
+        tag:
+          description: If present, this attribute may identify an unknown or misspelled tag that caused an error in processing. It is recommended that the Tag attribute use XPath notation to identify the location of a tag in the event that more than one tag of the same name is present in the document. Alternatively, the tag name alone can be used to identify missing data [Type=ReqFieldMissing].
+          maxLength: 2000
+          type: string
+        type:
+          description: The Warning element MUST contain the Type attribute that uses a recommended set of values to indicate the warning type. The validating XSD can expect to accept values that it has NOT been explicitly coded for and process them by using Type ="Unknown".
+          maxLength: 20
+          minLength: 0
+          type: string
+        value:
+          description: Property Value
+          type: string
+      type: object
     cardProcessingType:
       enum:
         - Eft
         - Manual
       type: string
+    blockStatisticsSummaryType:
+      description: Type to store summary detail like rooms sold, average room rate and revenue for a statistic type.
+      properties:
+        avgRoomRate:
+          type: number
+        revenueSummary:
+          $ref: '#/components/schemas/revenueSummaryType'
+        roomsSold:
+          description: Total Number of Rooms Picked Up.
+          type: integer
+        statisticType:
+          $ref: '#/components/schemas/statisticsSummaryType'
+      type: object
+    packageCodeHeaderType:
+      properties:
+        postingAttributes:
+          $ref: '#/components/schemas/configPostingAttributesType'
+          description: Package code posting attributes.
+        primaryDetails:
+          $ref: '#/components/schemas/configPackagePrimaryDetailsType'
+          description: Package code header primary details.
+        transactionDetails:
+          $ref: '#/components/schemas/configPackageTransactionType'
+          description: Package code header transaction information.
+        usageDetails:
+          $ref: '#/components/schemas/configPackageUsageDetailType'
+          description: Package code usage information.
+      type: object
     cateringEventResourceType:
       description: Event resource information.
       properties:
@@ -7342,40 +7124,6 @@ components:
       items:
         $ref: '#/components/schemas/evm_instanceLink'
       type: array
-    blk_configPackagePrimaryDetailsType:
-      description: A Config Package Info type.
-      properties:
-        arrangementCode:
-          description: Arrangement Code.
-          maxLength: 20
-          minLength: 0
-          type: string
-        beginSellDate:
-          description: Indicates the begin sell date of the package.
-          format: date
-          maxLength: 8
-          type: string
-        description:
-          description: The description of the package.
-          maxLength: 2000
-          minLength: 0
-          type: string
-        endSellDate:
-          description: Indicates the end sell date of the package.
-          format: date
-          maxLength: 8
-          type: string
-        forecastGroup:
-          description: The Forecast group package belongs to.
-          maxLength: 20
-          minLength: 0
-          type: string
-        shortDescription:
-          description: The short description of the package.
-          maxLength: 2000
-          minLength: 0
-          type: string
-      type: object
     rateProgramRateType:
       description: Room Pool Rate Program.
       properties:
@@ -7467,22 +7215,34 @@ components:
           $ref: '#/components/schemas/packageTransactionCodeType'
           description: The Transaction code used to post the package price.
       type: object
-    evm_traceTimeInfoType:
+    profileId:
+      description: An identifier used to uniquely reference an object in a system (e.g. an airline reservation reference, customer profile reference, booking confirmation number, or a reference to a previous availability quote).
       properties:
-        dateTimeSpan:
-          $ref: '#/components/schemas/evm_dateTimeSpanType'
-          description: Time span for the trace.
-        enteredBy:
-          description: User that entered this trace.
+        id:
+          description: A unique identifying value assigned by the creating system. The ID attribute may be used to reference a primary-key value within a database or in a particular implementation.
+          maxLength: 80
+          minLength: 0
           type: string
-        traceOn:
-          description: Date of the trace.
-          format: date-time
+        idContext:
+          description: Used to identify the source of the identifier (e.g., IATA, ABTA).
+          maxLength: 80
+          minLength: 0
           type: string
-        traceTime:
-          description: Time of the trace
+        idExtension:
+          description: Additional identifying value assigned by the creating system.
+          type: integer
+        instance:
+          description: The identification of a record as it exists at a point in time. An instance is used in update messages where the sender must assure the server that the update sent refers to the most recent modification level of the object being updated.
+          maxLength: 80
+          minLength: 0
+          type: string
+        type:
+          description: A reference to the type of object defined by the UniqueID element.
           maxLength: 20
           minLength: 0
+          type: string
+        url:
+          description: URL that identifies the location associated with the record identified by the UniqueID.
           type: string
       type: object
     blk_stayInfoType:
@@ -7492,7 +7252,7 @@ components:
           description: When true, indicates a room number cannot be changed. When false, indicates a room number may be changed.
           type: boolean
         originalTimeSpan:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: The Original Time Span covers the Room Stay dates of the original reservation.
         expectedTimes:
           $ref: '#/components/schemas/resExpectedTimesType'
@@ -7514,7 +7274,7 @@ components:
           description: True indicates as pseudo room type. This is usually used for a posting master reservation.
           type: boolean
         promotion:
-          $ref: '#/components/schemas/blk_promotionType'
+          $ref: '#/components/schemas/promotionType'
           description: Promotion Codes
         roomId:
           description: Room Id
@@ -7608,7 +7368,7 @@ components:
           description: A collection of Child Counts associated with Room Stay.
           type: integer
         points:
-          $ref: '#/components/schemas/blk_pointsType'
+          $ref: '#/components/schemas/pointsType'
           description: The Points contains the number of points used to book a particular room type.
         roomClass:
           description: Room class code
@@ -7697,12 +7457,6 @@ components:
         - Rooms
         - Catering
       type: string
-    blk_warningsType:
-      description: Used in conjunction with the Success element to define a business error.
-      items:
-        $ref: '#/components/schemas/blk_warningType'
-      maxItems: 4000
-      type: array
     historyListType:
       description: A collection of reservation history details attached to Profiles.
       properties:
@@ -7744,7 +7498,7 @@ components:
           minLength: 0
           type: string
         eventTimeSpan:
-          $ref: '#/components/schemas/evm_dateTimeSpanType'
+          $ref: '#/components/schemas/dateTimeSpanType'
         eventType:
           description: Type of event.
           maxLength: 20
@@ -7797,7 +7551,7 @@ components:
           $ref: '#/components/schemas/codeDescriptionType'
           description: The space to which the event belongs to.
         spaceTimeSpan:
-          $ref: '#/components/schemas/evm_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
         type:
           description: A reference to the type of object defined by the UniqueID elementSpace. Refer to OpenTravel Code List Unique ID Type (UIT).
           maxLength: 20
@@ -7874,7 +7628,7 @@ components:
               minLength: 0
               type: string
             blockId:
-              $ref: '#/components/schemas/blk_blockId'
+              $ref: '#/components/schemas/blockId'
               description: Specifies the Block ID which is the unique identifier for the Block for both internal and external systems.
             blockStatus:
               description: Block Status.
@@ -7932,6 +7686,31 @@ components:
           description: Name of the Master account.
           maxLength: 40
           minLength: 0
+          type: string
+      type: object
+    blockWashScheduleType:
+      description: 'Allows to select type of wash schedule: by number of rooms or by percentage.'
+      properties:
+        roomTypes:
+          description: A single room type on which wash operation should be performed.
+          items:
+            maxLength: 20
+            minLength: 0
+            type: string
+          maxItems: 4000
+          type: array
+        washByPercent:
+          description: When using the Wash by % option, indicate a wash percentage that will be applied it to the whole block.
+          maximum: 100
+          minimum: 0
+          type: number
+        washByRooms:
+          $ref: '#/components/schemas/blockGridInvType'
+          description: Wash by rooms contains the occupany details and sell values for a specific block wash schedule.
+        washDate:
+          description: Date on which the block wash operation will be performed.
+          format: date
+          maxLength: 8
           type: string
       type: object
     blk_resPaymentCardType:
@@ -8036,23 +7815,6 @@ components:
         $ref: '#/components/schemas/dateUDFType'
       maxItems: 4000
       type: array
-    evm_blockInventoryItemSourceType:
-      description: Defines whether the item is setupCode due to a Rate Plan, Package or a Block.
-      properties:
-        blockId:
-          $ref: '#/components/schemas/evm_blockId'
-          description: Block Unique ID, If populated specifies that the item is setupCode due to a Block.
-        packageCode:
-          description: Package Code, If populated specifies that the item is setupCode due to a Package.
-          maxLength: 20
-          minLength: 0
-          type: string
-        ratePlanCode:
-          description: Rate Plan Code, If populated specifies that the item is setupCode due to a Rate Plan.
-          maxLength: 20
-          minLength: 0
-          type: string
-      type: object
     blockGridInvType:
       description: Indicates the inventory values ( occupancy or availability ) per person occupancy.
       properties:
@@ -8089,7 +7851,7 @@ components:
           minLength: 0
           type: string
         blockDates:
-          $ref: '#/components/schemas/evm_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: The Time Span(Arrival, Departure) which covers the Block Span.
         blockName:
           description: Name of the block.
@@ -8194,7 +7956,7 @@ components:
           $ref: '#/components/schemas/reservationTypeInfoType'
           description: Reservation Type info of the block.
         shoulderDates:
-          $ref: '#/components/schemas/evm_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: The Shoulder Dates (Arrival, Departure) which covers the Block Shoulder Span.
         sourceOfSale:
           $ref: '#/components/schemas/evm_blockSourceOfSaleType'
@@ -8227,7 +7989,7 @@ components:
           minLength: 0
           type: string
         warnings:
-          $ref: '#/components/schemas/blk_warningsType'
+          $ref: '#/components/schemas/warningsType'
       type: object
     vIPStatusType:
       description: VIP status of the customer.
@@ -8473,52 +8235,6 @@ components:
         - Actual
         - Variance
       type: string
-    blk_warningType:
-      description: Used when a message has been successfully processed to report any warnings or business errors that occurred.
-      properties:
-        code:
-          description: If present, this refers to a table of coded values exchanged between applications to identify errors or warnings.
-          maxLength: 20
-          minLength: 0
-          type: string
-        docURL:
-          description: If present, this URL refers to an online description of the error that occurred.
-          maxLength: 2000
-          type: string
-        language:
-          description: Language identification.
-          pattern: '[a-zA-Z]{1,8}(-[a-zA-Z0-9]{1,8})*'
-          type: string
-        recordId:
-          description: If present, this attribute allows for batch processing and the identification of the record that failed amongst a group of records. This value may contain a concatenation of a unique failed transaction ID with specific record(s) associated with that transaction.
-          maxLength: 2000
-          type: string
-        rph:
-          description: Reference Place Holder used as an index for this warning.
-          maxLength: 8
-          minLength: 1
-          type: string
-        shortText:
-          description: An abbreviated version of the error in textual format.
-          maxLength: 2000
-          type: string
-        status:
-          description: If present, recommended values are those enumerated in the ErrorRS, (NotProcessed Incomplete Complete Unknown) however, the data type is designated as string data, recognizing that trading partners may identify additional status conditions not included in the enumeration.
-          maxLength: 2000
-          type: string
-        tag:
-          description: If present, this attribute may identify an unknown or misspelled tag that caused an error in processing. It is recommended that the Tag attribute use XPath notation to identify the location of a tag in the event that more than one tag of the same name is present in the document. Alternatively, the tag name alone can be used to identify missing data [Type=ReqFieldMissing].
-          maxLength: 2000
-          type: string
-        type:
-          description: The Warning element MUST contain the Type attribute that uses a recommended set of values to indicate the warning type. The validating XSD can expect to accept values that it has NOT been explicitly coded for and process them by using Type ="Unknown".
-          maxLength: 20
-          minLength: 0
-          type: string
-        value:
-          description: Property Value
-          type: string
-      type: object
     roomAllocationInfoType:
       description: A collection of Allocation objects for a block that indicate room inventory or rate amounts.
       properties:
@@ -8652,37 +8368,7 @@ components:
         links:
           $ref: '#/components/schemas/evm_links'
         warnings:
-          $ref: '#/components/schemas/evm_warningsType'
-      type: object
-    evm_reservationId:
-      description: An identifier used to uniquely reference an object in a system (e.g. an airline reservation reference, customer profile reference, booking confirmation number, or a reference to a previous availability quote).
-      properties:
-        id:
-          description: A unique identifying value assigned by the creating system. The ID attribute may be used to reference a primary-key value within a database or in a particular implementation.
-          maxLength: 80
-          minLength: 0
-          type: string
-        idContext:
-          description: Used to identify the source of the identifier (e.g., IATA, ABTA).
-          maxLength: 80
-          minLength: 0
-          type: string
-        idExtension:
-          description: Additional identifying value assigned by the creating system.
-          type: integer
-        instance:
-          description: The identification of a record as it exists at a point in time. An instance is used in update messages where the sender must assure the server that the update sent refers to the most recent modification level of the object being updated.
-          maxLength: 80
-          minLength: 0
-          type: string
-        type:
-          description: A reference to the type of object defined by the UniqueID elementSpace. Refer to OpenTravel Code List Unique ID Type (UIT).
-          maxLength: 20
-          minLength: 0
-          type: string
-        url:
-          description: URL that identifies the location associated with the record identified by the UniqueID.
-          type: string
+          $ref: '#/components/schemas/warningsType'
       type: object
     blockRateProtectionType:
       description: Block Rate Protection code information.
@@ -8787,19 +8473,6 @@ components:
           minLength: 0
           type: string
       type: object
-    evm_blockStatisticsSummaryType:
-      description: Type to store summary detail like rooms sold, average functionSpaceDetails rate and revenue for a statistic type.
-      properties:
-        avgRoomRate:
-          type: number
-        revenueSummary:
-          $ref: '#/components/schemas/revenueSummaryType'
-        roomsSold:
-          description: Total Number of Rooms Picked Up.
-          type: integer
-        statisticType:
-          $ref: '#/components/schemas/statisticsSummaryType'
-      type: object
     subBlockIdList:
       description: Unique Id that references an object uniquely in the system.
       items:
@@ -8860,6 +8533,21 @@ components:
           description: Total number of rows queried
           type: integer
       type: object
+    resSharedGuestInfoType:
+      description: Contains information regarding the share reservation.
+      properties:
+        firstName:
+          description: Given name, first name or names
+          type: string
+        fullName:
+          description: String representation of the full name
+          type: string
+        lastName:
+          description: Family name, last name.
+          type: string
+        profileId:
+          $ref: '#/components/schemas/profileId'
+      type: object
     roomFeaturesType:
       description: A recurring element that identifies the room features.
       items:
@@ -8911,7 +8599,7 @@ components:
           description: Number of items booked.
           type: integer
         source:
-          $ref: '#/components/schemas/blk_blockInventoryItemSourceType'
+          $ref: '#/components/schemas/blockInventoryItemSourceType'
           description: If exists specifies whether the item is setup due to a Rate Plan, Package or a Block.
         timeSpan:
           $ref: '#/components/schemas/blk_dateRangeType'
@@ -8958,16 +8646,6 @@ components:
           $ref: '#/components/schemas/evm_stayInfoType'
           description: Collection of functionSpaceDetails stays.
       type: object
-    blk_timeWindowType:
-      description: Defines a Time period with start time and an end time.
-      properties:
-        endTime:
-          description: End Time of the Time window.
-          type: string
-        startTime:
-          description: Start Time of the Time window.
-          type: string
-      type: object
     evm_blockOwnersType:
       description: Contains a list of block owners.
       properties:
@@ -8993,7 +8671,7 @@ components:
           $ref: '#/components/schemas/bedTaxReportingType'
           description: This stores the information for Bed Tax Reporting. Mainly used in Maldives.
         billingPrivileges:
-          $ref: '#/components/schemas/blk_billingPrivilegesType'
+          $ref: '#/components/schemas/billingPrivilegesType'
           description: Billing privileges set on the reservation.
         compAccounting:
           $ref: '#/components/schemas/resCompAccountingType'
@@ -9033,21 +8711,6 @@ components:
         transactionsPosted:
           description: Specifies whether reservation has a financial transaction associated with it.
           type: boolean
-      type: object
-    blk_resSharedGuestInfoType:
-      description: Contains information regarding the share reservation.
-      properties:
-        firstName:
-          description: Given name, first name or names
-          type: string
-        fullName:
-          description: String representation of the full name
-          type: string
-        lastName:
-          description: Family name, last name.
-          type: string
-        profileId:
-          $ref: '#/components/schemas/blk_profileId'
       type: object
     formattedTextTextType:
       description: Provides text and indicates whether it is formatted or not.
@@ -9243,7 +8906,7 @@ components:
           minLength: 0
           type: string
         warnings:
-          $ref: '#/components/schemas/blk_warningsType'
+          $ref: '#/components/schemas/warningsType'
       type: object
     characterUDFType:
       description: Used to hold user defined field of Character/String Type.
@@ -9319,7 +8982,7 @@ components:
           minLength: 0
           type: string
         warnings:
-          $ref: '#/components/schemas/blk_warningsType'
+          $ref: '#/components/schemas/warningsType'
       type: object
     blockGridType:
       properties:
@@ -9480,11 +9143,26 @@ components:
           minLength: 0
           type: string
       type: object
+    blockStatisticsType:
+      properties:
+        actualCateringRevenue:
+          description: Indicates actualized catering revenue.
+          type: number
+        actualRoomStatistics:
+          $ref: '#/components/schemas/roomStatisticsType'
+          description: Indicates the room statistics for actualized rooms.
+        allocatedRoomStatistics:
+          $ref: '#/components/schemas/roomStatisticsType'
+          description: Indicates the room statistics for allocated rooms.
+        cateringRevenueOnBooks:
+          description: Indicates the catering revenue on the books.
+          type: number
+      type: object
     blk_blockRestrictionsType:
       description: List of restrictions belonging to a block.
       properties:
         blockId:
-          $ref: '#/components/schemas/blk_blockId'
+          $ref: '#/components/schemas/blockId'
           description: Unique OPERA Block ID which is used to find a Block from OPERA. This ID is a primary identification of a Block in OPERA.
         blockRestriction:
           description: Block restriction details.
@@ -9553,36 +9231,6 @@ components:
           maxLength: 8
           type: string
       type: object
-    blk_profileId:
-      description: An identifier used to uniquely reference an object in a system (e.g. an airline reservation reference, customer profile reference, booking confirmation number, or a reference to a previous availability quote).
-      properties:
-        id:
-          description: A unique identifying value assigned by the creating system. The ID attribute may be used to reference a primary-key value within a database or in a particular implementation.
-          maxLength: 80
-          minLength: 0
-          type: string
-        idContext:
-          description: Used to identify the source of the identifier (e.g., IATA, ABTA).
-          maxLength: 80
-          minLength: 0
-          type: string
-        idExtension:
-          description: Additional identifying value assigned by the creating system.
-          type: integer
-        instance:
-          description: The identification of a record as it exists at a point in time. An instance is used in update messages where the sender must assure the server that the update sent refers to the most recent modification level of the object being updated.
-          maxLength: 80
-          minLength: 0
-          type: string
-        type:
-          description: A reference to the type of object defined by the UniqueID element.
-          maxLength: 20
-          minLength: 0
-          type: string
-        url:
-          description: URL that identifies the location associated with the record identified by the UniqueID.
-          type: string
-      type: object
     spaceAreaType:
       description: Collection of the Events Booked/Scheduled for the function spaces in the Hotel for the particular time period.
       properties:
@@ -9616,7 +9264,7 @@ components:
       description: List of restrictions belonging to a block.
       properties:
         blockId:
-          $ref: '#/components/schemas/evm_blockId'
+          $ref: '#/components/schemas/blockId'
           description: Unique OPERA Block ID which is used to find a Block from OPERA. This ID is a primary identification of a Block in OPERA.
         blockRestriction:
           description: Block restriction details.
@@ -9634,7 +9282,7 @@ components:
       description: Information about the Block Details
       properties:
         shoulderDates:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: The Shoulder Dates (Arrival, Departure) which covers the Block Shoulder Span.
         conversionCode:
           description: Indicates the likelihood description of the block moving to the next active block status.
@@ -9696,7 +9344,7 @@ components:
               description: The primary profile image. If primary contact exists, Contact Image, otherwise primary Account Image
           type: object
         originalTimeSpan:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: The Original Time Span(Arrival, Departure) which covers the Block Span.
         flexibleDates:
           description: Indicates if alternate dates are allowed for the booking.
@@ -9850,7 +9498,7 @@ components:
           $ref: '#/components/schemas/blockRateProtectionType'
           description: Indicates the Rate Protection details for the block.
         timeSpan:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: The Time Span(Arrival, Departure) which covers the Block Span.
         marketCode:
           $ref: '#/components/schemas/marketCodeInfoType'
@@ -9896,42 +9544,6 @@ components:
         reservationType:
           $ref: '#/components/schemas/reservationTypeInfoType'
           description: Reservation Type info of the block.
-      type: object
-    blk_resCancelPenaltyType:
-      description: The CancelPenalty class defines the cancellation policy of the hotel facility.
-      properties:
-        amountPercent:
-          $ref: '#/components/schemas/policyAmountPercentType'
-          description: Cancellation fee expressed as a fixed amount, or percentage of/or room nights.
-        deadline:
-          $ref: '#/components/schemas/policyDeadlineType'
-          description: Cancellation deadline, absolute or relative.
-        effective:
-          description: Indicator if Cancellation Penalty is currently applicable or not.
-          type: boolean
-        formattedRule:
-          description: Formatted Text Rule of the Cancellation Penalty.
-          maxLength: 2000
-          minLength: 0
-          type: string
-        manual:
-          description: Flag to indicate if the cancellation policy is manual.
-          type: boolean
-        nonRefundable:
-          description: Indicates if the amount is refundable if booking is canceled.
-          type: boolean
-        offsetUnit:
-          $ref: '#/components/schemas/offsetUnitType'
-        penaltyDescription:
-          description: Text description of the Penalty in a given language.
-          maxLength: 2000
-          minLength: 0
-          type: string
-        policyCode:
-          description: Policy Code.
-          maxLength: 20
-          minLength: 0
-          type: string
       type: object
     blk_blockProfilesType:
       description: A collection of Profile objects or Unique IDs of Profiles.
@@ -10472,12 +10084,6 @@ components:
         - Eft
         - Chk
       type: string
-    evm_warningsType:
-      description: Used in conjunction with the Success elementSpace to define a business error.
-      items:
-        $ref: '#/components/schemas/evm_warningType'
-      maxItems: 4000
-      type: array
     blk_customerType:
       description: Contains basic data on the customer's identity, location, relationships, finances, memberships, etc.
       properties:
@@ -10648,31 +10254,6 @@ components:
         - Package
         - Date
       type: string
-    blk_blockWashScheduleType:
-      description: 'Allows to select type of wash schedule: by number of rooms or by percentage.'
-      properties:
-        roomTypes:
-          description: A single room type on which wash operation should be performed.
-          items:
-            maxLength: 20
-            minLength: 0
-            type: string
-          maxItems: 4000
-          type: array
-        washByPercent:
-          description: When using the Wash by % option, indicate a wash percentage that will be applied it to the whole block.
-          maximum: 100
-          minimum: 0
-          type: number
-        washByRooms:
-          $ref: '#/components/schemas/blockGridInvType'
-          description: Wash by rooms contains the occupany details and sell values for a specific block wash schedule.
-        washDate:
-          description: Date on which the block wash operation will be performed.
-          format: date
-          maxLength: 8
-          type: string
-      type: object
     relationshipAddressType:
       description: Provides address information for a Relationship.
       properties:
@@ -10733,6 +10314,40 @@ components:
         $ref: '#/components/schemas/functionArgumentType'
       maxItems: 4000
       type: array
+    configPackagePrimaryDetailsType:
+      description: A Config Package Info type.
+      properties:
+        arrangementCode:
+          description: Arrangement Code.
+          maxLength: 20
+          minLength: 0
+          type: string
+        beginSellDate:
+          description: Indicates the begin sell date of the package.
+          format: date
+          maxLength: 8
+          type: string
+        description:
+          description: The description of the package.
+          maxLength: 2000
+          minLength: 0
+          type: string
+        endSellDate:
+          description: Indicates the end sell date of the package.
+          format: date
+          maxLength: 8
+          type: string
+        forecastGroup:
+          description: The Forecast group package belongs to.
+          maxLength: 20
+          minLength: 0
+          type: string
+        shortDescription:
+          description: The short description of the package.
+          maxLength: 2000
+          minLength: 0
+          type: string
+      type: object
     eCertificateConsumptionType:
       description: E-Certificates details.
       properties:
@@ -10878,7 +10493,7 @@ components:
           minLength: 0
           type: string
         warnings:
-          $ref: '#/components/schemas/blk_warningsType'
+          $ref: '#/components/schemas/warningsType'
       type: object
     blk_authorizerInfoType:
       description: Authorizer Information
@@ -10970,7 +10585,7 @@ components:
       description: Restriction details for a block.
       properties:
         actualTimeSpan:
-          $ref: '#/components/schemas/evm_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: Actual time span of the restriction.
         blockRestrictionStatus:
           $ref: '#/components/schemas/restrictionStatusType'
@@ -10982,51 +10597,6 @@ components:
           description: Room Type selected for the block restriction.
           maxLength: 20
           minLength: 0
-          type: string
-      type: object
-    blk_packageCodeHeaderType:
-      properties:
-        postingAttributes:
-          $ref: '#/components/schemas/blk_configPostingAttributesType'
-          description: Package code posting attributes.
-        primaryDetails:
-          $ref: '#/components/schemas/blk_configPackagePrimaryDetailsType'
-          description: Package code header primary details.
-        transactionDetails:
-          $ref: '#/components/schemas/configPackageTransactionType'
-          description: Package code header transaction information.
-        usageDetails:
-          $ref: '#/components/schemas/configPackageUsageDetailType'
-          description: Package code usage information.
-      type: object
-    blk_blockId:
-      description: An identifier used to uniquely reference an object in a system (e.g. an airline reservation reference, customer profile reference, booking confirmation number, or a reference to a previous availability quote).
-      properties:
-        id:
-          description: A unique identifying value assigned by the creating system. The ID attribute may be used to reference a primary-key value within a database or in a particular implementation.
-          maxLength: 80
-          minLength: 0
-          type: string
-        idContext:
-          description: Used to identify the source of the identifier (e.g., IATA, ABTA).
-          maxLength: 80
-          minLength: 0
-          type: string
-        idExtension:
-          description: Additional identifying value assigned by the creating system.
-          type: integer
-        instance:
-          description: The identification of a record as it exists at a point in time. An instance is used in update messages where the sender must assure the server that the update sent refers to the most recent modification level of the object being updated.
-          maxLength: 80
-          minLength: 0
-          type: string
-        type:
-          description: A reference to the type of object defined by the UniqueID element.
-          maxLength: 20
-          minLength: 0
-          type: string
-        url:
-          description: URL that identifies the location associated with the record identified by the UniqueID.
           type: string
       type: object
     downgradeType:
@@ -11402,7 +10972,7 @@ components:
           description: When true, this is a primary owner.
           type: boolean
         profileId:
-          $ref: '#/components/schemas/evm_profileId'
+          $ref: '#/components/schemas/profileId'
           description: Unique owner profile information.
         relationship:
           $ref: '#/components/schemas/codeDescriptionType'
@@ -11692,6 +11262,24 @@ components:
           description: A URL for this paragraph.
           type: string
       type: object
+    traceTimeInfoType:
+      properties:
+        dateTimeSpan:
+          $ref: '#/components/schemas/dateTimeSpanType'
+          description: Time span for the trace.
+        enteredBy:
+          description: User that entered this trace.
+          type: string
+        traceOn:
+          description: Date of the trace.
+          format: date-time
+          type: string
+        traceTime:
+          description: Time of the trace
+          maxLength: 20
+          minLength: 0
+          type: string
+      type: object
     blk_reservationPaymentMethodType:
       properties:
         authorizationRule:
@@ -11726,7 +11314,7 @@ components:
               minLength: 0
               type: string
             warnings:
-              $ref: '#/components/schemas/blk_warningsType'
+              $ref: '#/components/schemas/warningsType'
           type: object
         folioView:
           type: integer
@@ -11975,22 +11563,8 @@ components:
           description: Indicates if packages to be in Sync.
           type: boolean
         timeSpan:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: The Time Span(Arrival, Departure) which covers the Block Span.
-      type: object
-    evm_timeSpanType:
-      description: Allows for a choice in description of the amount of time spanned by this type. EndDate specifies a specific date, while Duration provides a measure of time to add to the StartDate to yield eventEndDate date.
-      properties:
-        duration:
-          type: string
-        endDate:
-          format: date
-          maxLength: 8
-          type: string
-        startDate:
-          format: date
-          maxLength: 8
-          type: string
       type: object
     guestLastStayInfoType:
       description: Contains last stay related details of the guest.
@@ -12011,6 +11585,25 @@ components:
         totalStay:
           description: The total number of previous stay of the guest.
           type: integer
+      type: object
+    promotionType:
+      description: Type to specify a rate promotion. Usually attached to a reservation to indicate a specific promotion is applied to the reservation.
+      properties:
+        couponCode:
+          description: Promotion Coupon Code when promotion is setup to have a valid coupon code.
+          maxLength: 40
+          minLength: 0
+          type: string
+        promotionCode:
+          description: Promotion code associated with the rate plan.
+          maxLength: 20
+          minLength: 0
+          type: string
+        promotionName:
+          description: Promotion code Name associated with the rate plan.
+          maxLength: 20
+          minLength: 0
+          type: string
       type: object
     facilityCodeType:
       description: Facility Housekeeping Code, its description and quantity.
@@ -12289,16 +11882,6 @@ components:
           description: Describes the type code
           type: string
       type: object
-    blk_dateTimeSpanType:
-      description: Allows for a choice in description of the amount of time spanned by this type. EndDate specifies a specific date, while Duration provides a measure of time to add to the StartDate to yield end date.
-      properties:
-        endDateTime:
-          format: date-time
-          type: string
-        startDateTime:
-          format: date-time
-          type: string
-      type: object
     evm_blockType:
       properties:
         attachments:
@@ -12361,7 +11944,7 @@ components:
               type: boolean
           type: object
         blockStatistics:
-          $ref: '#/components/schemas/evm_blockStatisticsType'
+          $ref: '#/components/schemas/blockStatisticsType'
           description: Indicates the functionSpaceDetails and revenue statistics of the block.
         catering:
           $ref: '#/components/schemas/evm_cateringType'
@@ -12424,25 +12007,15 @@ components:
         statistics:
           description: Statistics summary information including Rooms Sold, Room Revenue, Food and Beverage Revenue, Average Room Rate,etc.
           items:
-            $ref: '#/components/schemas/evm_blockStatisticsSummaryType'
+            $ref: '#/components/schemas/blockStatisticsSummaryType'
           maxItems: 3
           type: array
         traces:
           $ref: '#/components/schemas/evm_blockTracesType'
           description: List of block traces.
         washSchedules:
-          $ref: '#/components/schemas/evm_blockWashSchedulesType'
+          $ref: '#/components/schemas/blockWashSchedulesType'
           description: List of wash schedules for the Block.
-      type: object
-    evm_pointsType:
-      description: The Redeem Points contains the number of points required to book a functionSpaceDetails type.
-      properties:
-        awardsType:
-          description: Awards type for the award type rate code.
-          type: string
-        points:
-          description: No of points required to book this Room Stay.
-          type: integer
       type: object
     eCertificateInfoType:
       description: E-Certificates details.
@@ -12655,20 +12228,6 @@ components:
           $ref: '#/components/schemas/depositCancelRevenueType'
           description: Type of reservation.
       type: object
-    blk_timeSpanType:
-      description: Allows for a choice in description of the amount of time spanned by this type. EndDate specifies a specific date, while Duration provides a measure of time to add to the StartDate to yield end date.
-      properties:
-        duration:
-          type: string
-        endDate:
-          format: date
-          maxLength: 8
-          type: string
-        startDate:
-          format: date
-          maxLength: 8
-          type: string
-      type: object
     allocationRoomTypeInfoType:
       description: The information about the room types contained in the block room allocation.
       properties:
@@ -12768,12 +12327,6 @@ components:
         - Issued
         - Reserved
       type: string
-    blk_resSharedGuestListType:
-      description: Collection of shared guest reservations.
-      items:
-        $ref: '#/components/schemas/blk_resSharedGuestInfoType'
-      maxItems: 4000
-      type: array
     resAccessRestrictionType:
       description: Indicates any Updates/Changes on the reservation as well as Reservation Cancellation are not allowed.
       enum:
@@ -12781,21 +12334,6 @@ components:
         - Cancel
         - ChangeOrCancel
       type: string
-    evm_blockStatisticsType:
-      properties:
-        actualCateringRevenue:
-          description: Indicates actualized catering revenue.
-          type: number
-        actualRoomStatistics:
-          $ref: '#/components/schemas/evm_roomStatisticsType'
-          description: Indicates the functionSpaceDetails statistics for actualized rooms.
-        allocatedRoomStatistics:
-          $ref: '#/components/schemas/evm_roomStatisticsType'
-          description: Indicates the functionSpaceDetails statistics for allocated rooms.
-        cateringRevenueOnBooks:
-          description: Indicates the catering revenue on the books.
-          type: number
-      type: object
     profileTaxInfoType:
       description: Profile information related to tax.
       properties:
@@ -12904,41 +12442,53 @@ components:
           $ref: '#/components/schemas/housekeepingTaskCodeType'
           description: The Task Code.
       type: object
-    evm_dateTimeSpanType:
-      description: Allows for a choice in description of the amount of time spanned by this type. EndDate specifies a specific date, while Duration provides a measure of time to add to the StartDate to yield eventEndDate date.
+    billingPrivilegesType:
+      description: This stores the information for Bed Tax Reporting. Mainly used in Maldives.
       properties:
-        endDateTime:
-          format: date-time
-          type: string
-        startDateTime:
-          format: date-time
-          type: string
-      type: object
-    blk_resHousekeepingType:
-      description: Holds housekeeping turndown service information for the room.
-      properties:
-        expectedServiceTime:
-          description: Expected Start Time for housekeeping task(s).
-          type: string
-        facilityTaskInfo:
-          $ref: '#/components/schemas/facilityTaskType'
-          description: The facility task applicable for the current day. This will be information only and not used for any updates.
-        instructions:
-          description: Turndown instructions for the room.
-          type: string
-        linenChange:
-          description: Indicates if a linen change is necessary.
+        allowAutoCheckin:
+          description: Indicated if a new reservation should be created and automatically checked in whenever the room is checked out. Available for pseudo room types only.
           type: boolean
-        roomStatus:
-          $ref: '#/components/schemas/blk_housekeepingRoomStatusType'
-          description: Current room status. Current room status is populated only if room is assigned to the reservation and reservation is due in or in house.
-        serviceTime:
-          description: This is the Turndown room service time.
+        autoSettlement:
+          description: Indicates if the is a candidate for auto folio settlement.
+          type: boolean
+        autoSettlementFreq:
+          description: The interval of days between each auto folio settlement.
+          type: integer
+        autoSettlementType:
+          description: The folio settlement type for auto folio settlement.
+          maxLength: 40
+          minLength: 0
+          type: string
+        creditLimitAutoPay:
+          description: Indicates if the reservation will be included in the Automatic Credit Limit Overages process and also be listed in the Credit Limit Overages screen results.
+          type: boolean
+        directBillAuthorized:
+          description: If Direct bill is authorized this will hold User ID who authorized it.
+          type: boolean
+        folioCloseDate:
+          description: Date when folio was closed. This works with PostStayCharging flag.
           format: date
           maxLength: 8
           type: string
-        turndownRequested:
-          description: Indicates whether guest wants turndown facility or not.
+        postStayCharging:
+          description: Indicates if the reservation has charging privileges after checkout.
+          type: boolean
+        postingRestriction:
+          description: Flag used by interface program during check in.
+          type: boolean
+        preStayCharging:
+          description: Indicates if the reservation has charging privileges before arrival.
+          type: boolean
+        scheduledCheckout:
+          description: Indicates if the guest is scheduled for automatic check out.
+          type: boolean
+        scheduledCheckoutTime:
+          description: Time of automatic check out if guest is schedule for automatic check out.
+          format: date
+          maxLength: 8
+          type: string
+        videoCheckout:
+          description: Indicates if the guest can do video checkout
           type: boolean
       type: object
     masterInfoCodeDetailType:
@@ -13032,42 +12582,6 @@ components:
           description: Number of physical rooms of property room type.
           type: integer
       type: object
-    blk_blockInventoryItemSourceType:
-      description: Defines whether the item is setup due to a Rate Plan, Package or a Block.
-      properties:
-        blockId:
-          $ref: '#/components/schemas/blk_blockId'
-          description: Block Unique ID, If populated specifies that the item is setup due to a Block.
-        packageCode:
-          description: Package Code, If populated specifies that the item is setup due to a Package.
-          maxLength: 20
-          minLength: 0
-          type: string
-        ratePlanCode:
-          description: Rate Plan Code, If populated specifies that the item is setup due to a Rate Plan.
-          maxLength: 20
-          minLength: 0
-          type: string
-      type: object
-    evm_promotionType:
-      description: Type to specify a rate promotion. Usually attached to a reservation to indicate a specific promotion is applied to the reservation.
-      properties:
-        couponCode:
-          description: Promotion Coupon Code when promotion is setupCode to have a valid coupon code.
-          maxLength: 40
-          minLength: 0
-          type: string
-        promotionCode:
-          description: Promotion code associated with the rate plan.
-          maxLength: 20
-          minLength: 0
-          type: string
-        promotionName:
-          description: Promotion code Name associated with the rate plan.
-          maxLength: 20
-          minLength: 0
-          type: string
-      type: object
     blk_preferenceTypeType:
       description: Preference details for the profile.
       properties:
@@ -13124,6 +12638,133 @@ components:
           description: Preference Sequence.
           type: string
       type: object
+    packagePostingRhythmType:
+      description: Package Posting rhythm type.
+      properties:
+        certainNightsOfTheWeek:
+          description: Post the package on certain nights of the week.
+          properties:
+            friday:
+              type: boolean
+            monday:
+              type: boolean
+            saturday:
+              type: boolean
+            sunday:
+              type: boolean
+            thursday:
+              type: boolean
+            tuesday:
+              type: boolean
+            wednesday:
+              type: boolean
+          type: object
+        customNightSchedule:
+          description: 'The start and end of the posting period is determined as follows: If the package is attached to a rate code: The period starts with the date when the rate code to which the package is attached becomes effective for the stay. The period ends with the date of the last night for that rate code (or the last night of the stay if the rate code remains in effect until the departure date). If the package is attached separately to the reservation: The Begin Date specified on the reservation when the package was attached is the start date for the period. The End Date specified on the reservation when the package was attached is the end date for the period. If no Begin Date and/or End Date are specified when the package is attached to the reservation, the Begin Date is assumed to be the arrival date and the End Date is assumed to be the departure date of the reservation, irrespective of when the package is attached to the reservation.'
+          properties:
+            night1:
+              description: Night 1 indicator.
+              type: boolean
+            night10:
+              description: Night 10 indicator.
+              type: boolean
+            night11:
+              description: Night 11 indicator.
+              type: boolean
+            night12:
+              description: Night 12 indicator.
+              type: boolean
+            night13:
+              description: Night 13 indicator.
+              type: boolean
+            night14:
+              description: Night 14 indicator.
+              type: boolean
+            night2:
+              description: Night 2 indicator.
+              type: boolean
+            night3:
+              description: Night 3 indicator.
+              type: boolean
+            night4:
+              description: Night 4 indicator.
+              type: boolean
+            night5:
+              description: Night 5 indicator.
+              type: boolean
+            night6:
+              description: Night 6 indicator.
+              type: boolean
+            night7:
+              description: Night 7 indicator.
+              type: boolean
+            night8:
+              description: Night 8 indicator.
+              type: boolean
+            night9:
+              description: Night 9 indicator.
+              type: boolean
+          type: object
+        customStaySchedule:
+          description: This user defined schedule lets you enter a posting rhythm over a 14-day period, starting with the arrival date, by assigning the day (number) within a guest stay for posting this package price.
+          properties:
+            night1:
+              description: Night 1 indicator.
+              type: boolean
+            night10:
+              description: Night 10 indicator.
+              type: boolean
+            night11:
+              description: Night 11 indicator.
+              type: boolean
+            night12:
+              description: Night 12 indicator.
+              type: boolean
+            night13:
+              description: Night 13 indicator.
+              type: boolean
+            night14:
+              description: Night 14 indicator.
+              type: boolean
+            night2:
+              description: Night 2 indicator.
+              type: boolean
+            night3:
+              description: Night 3 indicator.
+              type: boolean
+            night4:
+              description: Night 4 indicator.
+              type: boolean
+            night5:
+              description: Night 5 indicator.
+              type: boolean
+            night6:
+              description: Night 6 indicator.
+              type: boolean
+            night7:
+              description: Night 7 indicator.
+              type: boolean
+            night8:
+              description: Night 8 indicator.
+              type: boolean
+            night9:
+              description: Night 9 indicator.
+              type: boolean
+          type: object
+        everyXNightsStartingNightY:
+          description: Post the package every X nights Staring from Night Y.
+          properties:
+            postEveryXNights:
+              description: Occurance of nights when the package needs to be posted and consumed.
+              type: integer
+            startOnNightY:
+              description: Starting night for consumption and posting prices.
+              type: integer
+          type: object
+        type:
+          $ref: '#/components/schemas/postingRhythmType'
+          description: Posting Rhythm for the package.
+      type: object
     blockPackageType:
       description: This contains the full information and schedule of the block package.
       properties:
@@ -13136,7 +12777,7 @@ components:
           maxLength: 8
           type: string
         newTimeSpan:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: The changed dates(Start and End dates) for this product.
         packageCode:
           description: Package code. This is the unique code used for the package and is a required element.
@@ -13149,7 +12790,7 @@ components:
           minLength: 0
           type: string
         packageHeaderType:
-          $ref: '#/components/schemas/blk_packageCodeHeaderType'
+          $ref: '#/components/schemas/packageCodeHeaderType'
           description: Package information from configuration.
         ratePlanCode:
           description: The rate code which contains this package. If the package is not part of a rate code, this will be empty. Required element and part of the key to fetch the correct package record.
@@ -13236,6 +12877,16 @@ components:
         $ref: '#/components/schemas/blk_uniqueID_Type'
       maxItems: 4000
       type: array
+    pointsType:
+      description: The Redeem Points contains the number of points required to book a room type.
+      properties:
+        awardsType:
+          description: Awards type for the award type rate code.
+          type: string
+        points:
+          description: No of points required to book this Room Stay.
+          type: integer
+      type: object
     namePrefixType:
       description: Salutation of honorific. (e.g., Mr. Mrs., Ms., Miss, Dr.)
       maxLength: 40
@@ -13481,7 +13132,7 @@ components:
       description: Basic information regarding an Item.
       properties:
         availabilityPeriod:
-          $ref: '#/components/schemas/blk_timeWindowType'
+          $ref: '#/components/schemas/timeWindowType'
           description: Defines a Time period when the item is available.
         code:
           description: Item Code.
@@ -13529,7 +13180,7 @@ components:
           description: If true indicates that item is allowed to sell separately.
           type: boolean
         timeSpan:
-          $ref: '#/components/schemas/blk_timeSpanType'
+          $ref: '#/components/schemas/timeSpanType'
           description: Date Range to get the inventories of the items.
       type: object
     evm_resAttachedProfileType:
@@ -13566,6 +13217,20 @@ components:
           description: Describes the Type code
           maxLength: 2000
           minLength: 0
+          type: string
+      type: object
+    timeSpanType:
+      description: Allows for a choice in description of the amount of time spanned by this type. EndDate specifies a specific date, while Duration provides a measure of time to add to the StartDate to yield end date.
+      properties:
+        duration:
+          type: string
+        endDate:
+          format: date
+          maxLength: 8
+          type: string
+        startDate:
+          format: date
+          maxLength: 8
           type: string
       type: object
     profileTypeType:
@@ -13614,7 +13279,7 @@ components:
           description: When true, this is a primary owner.
           type: boolean
         profileId:
-          $ref: '#/components/schemas/blk_profileId'
+          $ref: '#/components/schemas/profileId'
           description: Unique owner profile information.
         relationship:
           $ref: '#/components/schemas/codeDescriptionType'
@@ -13783,7 +13448,7 @@ components:
           description: Print status of the certificate.
           type: boolean
         profileId:
-          $ref: '#/components/schemas/blk_profileId'
+          $ref: '#/components/schemas/profileId'
           description: NameId.
         source:
           $ref: '#/components/schemas/eCertificateIssueSourceType'
@@ -13815,7 +13480,7 @@ components:
         blockDates:
           description: The Time Span(Arrival, Departure) which covers the Block Span.
           items:
-            $ref: '#/components/schemas/evm_timeSpanType'
+            $ref: '#/components/schemas/timeSpanType'
           maxItems: 4000
           type: array
         blockName:
@@ -14038,6 +13703,29 @@ components:
         - LookToBookSales
         - GroupRoomsControl
       type: string
+    blockInventoryItemSourceType:
+      description: Defines whether the item is setup due to a Rate Plan, Package or a Block.
+      properties:
+        blockId:
+          $ref: '#/components/schemas/blockId'
+          description: Block Unique ID, If populated specifies that the item is setup due to a Block.
+        packageCode:
+          description: Package Code, If populated specifies that the item is setup due to a Package.
+          maxLength: 20
+          minLength: 0
+          type: string
+        ratePlanCode:
+          description: Rate Plan Code, If populated specifies that the item is setup due to a Rate Plan.
+          maxLength: 20
+          minLength: 0
+          type: string
+      type: object
+    warningsType:
+      description: Used in conjunction with the Success element to define a business error.
+      items:
+        $ref: '#/components/schemas/warningType'
+      maxItems: 4000
+      type: array
     roomFeatureType:
       description: Room Feature Information.
       properties:
@@ -14077,36 +13765,12 @@ components:
           minLength: 0
           type: string
       type: object
-    blk_blockWashSchedulesType:
-      description: Wash Schedule attached to the block, which allows to release inventory based on selected wash schedule type.
-      items:
-        $ref: '#/components/schemas/blk_blockWashScheduleType'
-      maxItems: 4000
-      type: array
     evm_blockTracesType:
       description: List of Block traces.
       items:
         $ref: '#/components/schemas/evm_blockTraceType'
       maxItems: 4000
       type: array
-    blk_traceTimeInfoType:
-      properties:
-        dateTimeSpan:
-          $ref: '#/components/schemas/blk_dateTimeSpanType'
-          description: Time span for the trace.
-        enteredBy:
-          description: User that entered this trace.
-          type: string
-        traceOn:
-          description: Date of the trace.
-          format: date-time
-          type: string
-        traceTime:
-          description: Time of the trace
-          maxLength: 20
-          minLength: 0
-          type: string
-      type: object
     evm_relationshipInfoSummaryType:
       description: RelationshipInfoSummaryType contains information about the associations between and among individuals, companies, travel agents, groups, sources, and contact profiles.
       properties:
@@ -14172,7 +13836,7 @@ components:
           $ref: '#/components/schemas/uRLType'
           description: Provides URL information.
         warnings:
-          $ref: '#/components/schemas/blk_warningsType'
+          $ref: '#/components/schemas/warningsType'
       type: object
     masterType:
       enum:
@@ -14245,6 +13909,16 @@ components:
           type: string
         sentTime:
           description: Time the text was last sent to the user.
+          format: date-time
+          type: string
+      type: object
+    dateTimeSpanType:
+      description: Allows for a choice in description of the amount of time spanned by this type. EndDate specifies a specific date, while Duration provides a measure of time to add to the StartDate to yield end date.
+      properties:
+        endDateTime:
+          format: date-time
+          type: string
+        startDateTime:
           format: date-time
           type: string
       type: object
@@ -14434,7 +14108,7 @@ components:
           minLength: 0
           type: string
         warnings:
-          $ref: '#/components/schemas/blk_warningsType'
+          $ref: '#/components/schemas/warningsType'
       type: object
     lightEventDetailType:
       description: Light Event Details.
@@ -14449,8 +14123,8 @@ components:
           $ref: '#/components/schemas/eventFunctionSpaceType'
           description: Pertain event's function space information.
       type: object
-    evm_timeWindowType:
-      description: Defines a Time period with eventStartDate time and an eventEndDate time.
+    timeWindowType:
+      description: Defines a Time period with start time and an end time.
       properties:
         endTime:
           description: End Time of the Time window.
@@ -14505,7 +14179,7 @@ components:
           description: Number of items booked.
           type: integer
         source:
-          $ref: '#/components/schemas/evm_blockInventoryItemSourceType'
+          $ref: '#/components/schemas/blockInventoryItemSourceType'
           description: If exists specifies whether the item is setupCode due to a Rate Plan, Package or a Block.
         type:
           description: A reference to the type of object defined by the UniqueID elementSpace. Refer to OpenTravel Code List Unique ID Type (UIT).

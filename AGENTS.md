@@ -507,9 +507,13 @@ What exists, condensed. The blow-by-blow is in git history.
   `items: …, orders: …`). `Integration.Load` loads and converts each, then
   `Spec.Merge.merge/2`: each source's server path moves into its paths; one
   shared host or none (different hosts halt); paths unioned, a path or
-  operationId clash halts; identical components kept once, differing ones
-  prefixed with the source key in each source (refs rewritten, to a fixpoint,
-  since a component then differs through a renamed ref). `keep` — from
+  operationId clash halts; components alike apart from docs
+  (`Merge.alike?/2`: `description`, `summary`, `title`, examples,
+  `externalDocs`; names under `properties`, `headers`, `mapping` … and
+  data in `default`, `enum` … are shape) kept once, the first source's
+  copy (or the `keep` source's), differing ones prefixed with the source
+  key in each source (refs rewritten, to a fixpoint, since a component
+  then differs through a renamed ref). `keep` — from
   `overrides: [shared: %{"schemas/x" => :key}]` — pins a plain name to one
   source. Splits are returned; `Reprune.splits/2` finds the ones the pruned
   spec had under a plain name, and diff (in the report — Igniter prints only

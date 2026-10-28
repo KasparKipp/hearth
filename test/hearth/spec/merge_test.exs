@@ -184,6 +184,121 @@ defmodule Hearth.Spec.MergeTest do
              }
     end
 
+    test "components that differ only in docs are kept once, as the first source has it" do
+      documented = fn spec, text ->
+        spec
+        |> put_in(["components", "schemas", "money", "description"], text)
+        |> put_in(["components", "schemas", "money", "example"], 1)
+        |> put_in(["components", "parameters", "tenant", "description"], text)
+      end
+
+      assert {:ok, merged, [{"schemas", "address"}]} =
+               Merge.merge(
+                 items: documented.(items(), "Item price."),
+                 orders: documented.(orders(), "Order total.")
+               )
+
+      components = merged["components"]
+      assert components["schemas"]["money"]["description"] == "Item price."
+      assert components["parameters"]["tenant"]["description"] == "Item price."
+      refute Map.has_key?(components["schemas"], "items_money")
+    end
+
+    test "docs nested in a component don't split it either" do
+      line = fn spec, text ->
+        put_in(spec, ["components", "schemas", "line"], %{
+          "type" => "object",
+          "title" => text,
+          "properties" => %{"qty" => %{"type" => "integer", "description" => text}}
+        })
+      end
+
+      assert {:ok, merged, [{"schemas", "address"}]} =
+               Merge.merge(
+                 items: line.(items(), "Item line"),
+                 orders: line.(orders(), "Order line")
+               )
+
+      assert merged["components"]["schemas"]["line"]["title"] == "Item line"
+    end
+
+    test "a property named like a doc key still counts as shape" do
+      note = fn spec, properties ->
+        put_in(spec, ["components", "schemas", "note"], %{
+          "type" => "object",
+          "properties" => properties
+        })
+      end
+
+      assert {:ok, merged, splits} =
+               Merge.merge(
+                 items: note.(items(), %{"description" => %{"type" => "string"}}),
+                 orders: note.(orders(), %{})
+               )
+
+      assert {"schemas", "note"} in splits
+      assert merged["components"]["schemas"]["items_note"]["properties"]["description"]
+    end
+
+    test "names and data that look like doc keys still count as shape" do
+      differ = fn component ->
+        {:ok, _merged, splits} =
+          Merge.merge(
+            items: put_in(items(), ["components", "schemas", "x"], component.(:items)),
+            orders: put_in(orders(), ["components", "schemas", "x"], component.(:orders))
+          )
+
+        {"schemas", "x"} in splits
+      end
+
+      ref = &"#/components/schemas/#{&1}"
+
+      assert differ.(&%{"discriminator" => %{"mapping" => %{"title" => ref.(&1)}}})
+      assert differ.(&%{"$defs" => %{"summary" => %{"type" => to_string(&1)}}})
+      assert differ.(&%{"default" => %{"title" => to_string(&1)}})
+      assert differ.(&%{"enum" => [%{"description" => to_string(&1)}]})
+      assert differ.(&%{"x-kind" => %{"title" => to_string(&1)}})
+
+      header = fn spec, type ->
+        put_in(spec, ["components", "responses"], %{
+          "ok" => %{"headers" => %{"title" => %{"schema" => %{"type" => type}}}}
+        })
+      end
+
+      assert {:ok, _merged, splits} =
+               Merge.merge(
+                 items: header.(items(), "string"),
+                 orders: header.(orders(), "integer")
+               )
+
+      assert {"responses", "ok"} in splits
+    end
+
+    test "summary and externalDocs are docs too" do
+      documented = fn spec, text ->
+        put_in(spec, ["components", "schemas", "money"], %{
+          "type" => "number",
+          "summary" => text,
+          "externalDocs" => %{"url" => "https://example.com/#{text}"}
+        })
+      end
+
+      assert {:ok, _merged, [{"schemas", "address"}]} =
+               Merge.merge(items: documented.(items(), "a"), orders: documented.(orders(), "b"))
+    end
+
+    test "keep: the pinned source's copy wins when the copies differ only in docs" do
+      described = &put_in(&1, ["components", "schemas", "money", "description"], &2)
+
+      assert {:ok, merged, []} =
+               Merge.merge(
+                 [items: described.(items(), "Item."), orders: described.(orders(), "Order.")],
+                 %{{"schemas", "address"} => :items, {"schemas", "money"} => :orders}
+               )
+
+      assert merged["components"]["schemas"]["money"]["description"] == "Order."
+    end
+
     test "a component that only differs through a renamed ref is split too" do
       shared = %{
         "type" => "object",
