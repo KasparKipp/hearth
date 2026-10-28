@@ -546,8 +546,10 @@ What exists, condensed. The blow-by-blow is in git history.
   needs nothing. Stale entries become a notice in gen, `--sync` and diff.
 - **Prefixed ids** — the entry's `prefixed_ids: [functions:, prefixes:]`
   (`Spec.PrefixedIds`): functions named by the user, each mapped to an HTTP
-  method (default `[retrieve: :get]`); a prefix names its resource by an
-  operationId or a path with exactly one path parameter (`resolve/2`). Layer 1
+  method (default `[retrieve: :get]`); a prefix names its resource by the
+  operationId of an operation a function calls (the pruned spec keeps only
+  those, so regen can resolve it too) or by a path, with exactly one path
+  parameter (`resolve/2`). Layer 1
   gets `parse_url/1` (`Render.PrefixedIds`) — `"cus_123…"` → its resource's
   path, anything else unchanged — and `request/2` / `request!/2` call
   `new(url: parse_url(url))`; Layer 2 gets a callback and dispatcher per

@@ -165,6 +165,20 @@ defmodule Mix.Tasks.Hearth.PrefixedIdsTest do
                ~s|prefix cus names the operation "NoSuchOperation"|
     end
 
+    # Gen would keep only GetCustomer in the pruned spec, so regen
+    # couldn't find UpdateCustomer: gen halts instead.
+    test "halts on a prefix naming an operation no function calls" do
+      prefixed = [functions: [retrieve: :get], prefixes: [cus: "UpdateCustomer"]]
+      igniter = gen(prefixed_ids: prefixed)
+
+      assert issue_text(igniter) =~
+               "prefix cus names UpdateCustomer (post /v1/customers/{customer}), " <>
+                 "but no function uses :post"
+
+      assert issue_text(igniter) =~ "(GetCustomer)"
+      refute Igniter.exists?(igniter, @layer1)
+    end
+
     # Resolved once, before the pruned spec is checked against `tags:` —
     # here `:none` no longer selects ListCustomers either.
     test "regen halts on a prefix target the pruned spec doesn't have, before the selection" do

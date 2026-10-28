@@ -66,6 +66,7 @@ defmodule Hearth.UsageRulesTest do
   test "documents prefixed ids" do
     assert @content =~ "## Prefixed ids"
     assert @content =~ ~s|StripeApi.retrieve("cus_123")|
+    assert @content =~ "an operation on it that one of the functions calls"
   end
 
   test "documents Swagger 2.0 input" do
