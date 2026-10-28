@@ -135,6 +135,18 @@ defmodule Hearth.Config.Schema do
 
   @path ".hearth.exs"
 
+  # Every key the schema names, at every level, once — what the docs
+  # must cover.
+  @spec keys() :: [atom()]
+  def keys, do: @schema |> named_keys() |> Enum.uniq()
+
+  defp named_keys(schema) do
+    Enum.flat_map(schema, fn {key, spec} ->
+      nested = if spec[:keys], do: named_keys(spec[:keys]), else: []
+      if key == :*, do: nested, else: [key | nested]
+    end)
+  end
+
   @spec validate(keyword()) :: :ok | {:error, String.t()}
   def validate(term) do
     case NimbleOptions.validate(term, @schema) do

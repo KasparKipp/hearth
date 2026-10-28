@@ -279,6 +279,7 @@ lib/
     registry.ex                # curated, versioned spec shortcuts (stripe@…), + .hearth.exs ones
     config.ex                  # pure: .hearth.exs — parse, keys, entry fields
     config/
+      literal.ex               # pure: the file as data — parsed, never evaluated, literals only
       schema.ex                # pure: the file's shape, one NimbleOptions schema + its errors
       types.ex                 # pure: the schema's custom types (names, value forms, JSON)
       project.ex               # read / write .hearth.exs (Igniter-guarded)
@@ -430,16 +431,19 @@ What exists, condensed. The blow-by-blow is in git history.
   with conventional top-level key order. Plain OpenAPI — no Hearth block.
 - **`.hearth.exs`** — `[integrations: [<snake_name>: [module:, source:,
   sources:, source_sha256:, overrides:, headers:, base_url:, base_path:,
-  tags:, untagged:, auth:, prefixed_ids:]], registry: %{…}]`, evaluated like
-  `.formatter.exs` (`Hearth.Config.parse/1`) and validated against
-  `Hearth.Config.Schema` — one NimbleOptions schema, custom types in
-  `Config.Types` — so every level's keys are closed and an error names the
-  entry and the key, with an example. It also runs the checks across an
-  entry's values (`Spec.Values.check/1`). The modules that read a key take
-  it as valid — `Values.parse/1`, `Overrides.parse/1`, `PrefixedIds.parse/1`
-  can't fail — and keep only the checks that need the spec (regen resolves
-  `prefixed_ids:` once per integration and passes it down). `source_sha256` is the source's checksum at
-  the last gen / `--sync` (`Reprune.sha256/1`).
+  tags:, untagged:, auth:, prefixed_ids:]], registry: %{…}]`.
+  `Hearth.Config.parse/1` reads it as data: `Config.Literal` parses it,
+  never evaluates it, takes only literals and names the line of anything
+  that would run. It then validates it against `Hearth.Config.Schema` (one
+  NimbleOptions schema, custom types in `Config.Types`), so every level's
+  keys are closed and an error names the entry and the key, with an
+  example, and runs the checks across an entry's values
+  (`Spec.Values.check/1`). The modules that read a key take it as valid
+  (`Values.parse/1`, `Overrides.parse/1` and `PrefixedIds.parse/1` can't
+  fail) and keep only the checks that need the spec; regen resolves
+  `prefixed_ids:` once per integration and passes it down.
+  `source_sha256` is the source's checksum at the last gen / `--sync`
+  (`Reprune.sha256/1`).
   `tags:` (`Hearth.Spec.Selection.describe/2`) lists every tag in the source
   spec in first-seen order as `:all`, `:none` or `include:` / `exclude:`
   operationId lists; untagged operations go under `untagged:` (omitted when
