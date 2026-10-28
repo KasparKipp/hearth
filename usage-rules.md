@@ -263,8 +263,8 @@ functions that take an id and find its resource:
 `StripeApi.retrieve("cus_123")` sends `GET /customers/cus_123`, and the
 raw client's `request/2` takes a prefixed id as a path too. Name the
 functions as you like; each maps to an HTTP method. A prefix names its
-resource by an operation on it (after any `operation_ids` renames) or by
-its path. The operations aren't generated unless selected, so a few
+resource by an operation on it that one of the functions calls (after
+any `operation_ids` renames) or by its path. The operations aren't generated unless selected, so a few
 functions cover many resources.
 
 ## Several sources

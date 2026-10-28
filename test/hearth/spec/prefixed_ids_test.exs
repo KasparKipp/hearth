@@ -78,6 +78,27 @@ defmodule Hearth.Spec.PrefixedIdsTest do
       assert {:error, _} = PrefixedIds.resolve(@spec_map, parse!(prefixes: [x: "/v1/nope/{id}"]))
     end
 
+    # Regen resolves against the pruned spec, which keeps only the
+    # operations a function calls — so that's all a prefix may name.
+    test "an operationId must be one a function calls, pointing at what would work" do
+      parsed = parse!(functions: [retrieve: :get], prefixes: [cus: "PostCustomersCustomer"])
+
+      assert {:error, message} = PrefixedIds.resolve(@spec_map, parsed)
+
+      assert message ==
+               "`prefixed_ids:` prefix cus names PostCustomersCustomer " <>
+                 "(post /v1/customers/{customer}), but no function uses :post. Name the " <>
+                 "resource by an operation a function calls (GetCustomersCustomer) or by " <>
+                 ~s|its path ("/v1/customers/{customer}").|
+
+      parsed = parse!(functions: [update: :put], prefixes: [cus: "PostCustomersCustomer"])
+      assert {:error, message} = PrefixedIds.resolve(@spec_map, parsed)
+      assert message =~ ~s|no function uses :post. Name the resource by its path ("/v1/|
+
+      parsed = parse!(functions: [update: :post], prefixes: [cus: "PostCustomersCustomer"])
+      assert {:ok, [%{path: "/v1/customers/{customer}"}]} = PrefixedIds.resolve(@spec_map, parsed)
+    end
+
     test "a resource path needs exactly one path parameter" do
       assert {:error, message} =
                PrefixedIds.resolve(@spec_map, parse!(prefixes: [src: "GetSource"]))

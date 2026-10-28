@@ -8,7 +8,7 @@ defmodule Hearth.Spec.PrefixedIds do
   #     prefixed_ids: [
   #       functions: [retrieve: :get, update: :post, delete: :delete],
   #       prefixes: [
-  #         cus: "GetCustomersCustomer",          # an operation on the resource
+  #         cus: "GetCustomersCustomer",          # an operation a function calls
   #         pi: "/v1/payment_intents/{intent}"    # or its path
   #       ]
   #     ]
@@ -43,13 +43,16 @@ defmodule Hearth.Spec.PrefixedIds do
   end
 
   # Each prefix's resource: its path and the methods the spec has there.
+  # A prefix naming an operation must name one a function calls: the
+  # pruned spec keeps only those, and regen resolves against it.
   @spec resolve(map(), t()) :: {:ok, [resource()]} | {:error, String.t()}
-  def resolve(spec, %{prefixes: prefixes}) do
+  def resolve(spec, %{prefixes: prefixes, functions: functions}) do
     paths = spec["paths"] || %{}
     operations = Operation.extract(spec)
+    used = functions |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
 
     Enum.reduce_while(prefixes, {:ok, []}, fn {prefix, target}, {:ok, acc} ->
-      case resource(paths, operations, prefix, target) do
+      case resource(paths, {operations, used}, prefix, target) do
         {:ok, resource} -> {:cont, {:ok, acc ++ [resource]}}
         {:error, message} -> {:halt, {:error, message}}
       end
@@ -110,21 +113,40 @@ defmodule Hearth.Spec.PrefixedIds do
     end
   end
 
-  defp resource(paths, _operations, prefix, "/" <> _ = path) do
+  defp resource(paths, _operations_used, prefix, "/" <> _ = path) do
     if is_map(paths[path]),
       do: checked(prefix, path, paths[path]),
       else: {:error, "#{label(prefix)} names the path #{path}, which the spec doesn't have."}
   end
 
-  defp resource(paths, operations, prefix, operation_id) do
+  defp resource(paths, {operations, used}, prefix, operation_id) do
     case Enum.find(operations, &(&1.operation_id == operation_id)) do
       nil ->
         {:error,
          "#{label(prefix)} names the operation #{inspect(operation_id)}, which the spec doesn't have."}
 
       operation ->
-        checked(prefix, operation.path, paths[operation.path])
+        if operation.method in used,
+          do: checked(prefix, operation.path, paths[operation.path]),
+          else: {:error, uncalled_message(prefix, operation, operations, used)}
     end
+  end
+
+  # Points at an operation on the same path that a function does call,
+  # if the spec has one, and at the path.
+  defp uncalled_message(prefix, operation, operations, used) do
+    called =
+      Enum.find_value(used, fn method ->
+        Enum.find_value(operations, fn op ->
+          op.path == operation.path and op.method == method and op.operation_id
+        end)
+      end)
+
+    instead = if called, do: "an operation a function calls (#{called}) or by ", else: ""
+
+    "#{label(prefix)} names #{operation.operation_id} (#{operation.method} #{operation.path}), " <>
+      "but no function uses #{inspect(operation.method)}. Name the resource by " <>
+      "#{instead}its path (#{inspect(operation.path)})."
   end
 
   defp checked(prefix, path, item) do
