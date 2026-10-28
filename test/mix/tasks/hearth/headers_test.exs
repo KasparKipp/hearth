@@ -135,11 +135,27 @@ defmodule Mix.Tasks.Hearth.HeadersTest do
       assert read(regen, @layer1) =~ ~s|@headers ["x-tenant-id"]|
       assert read(regen, @layer1_test) =~ "x-tenant-id"
       assert read(regen, "config/runtime.exs") =~ "SHOP_TENANT_ID"
+      assert read(regen, @external) =~ ~s|tenant_id: System.get_env("SHOP_TENANT_ID")|
 
       regen
       |> apply_igniter!()
       |> Igniter.compose_task("hearth.regen", ["shop"])
       |> assert_unchanged()
+    end
+
+    test "a per-call header added later: regen names what the external test must pass" do
+      igniter =
+        gen([])
+        |> apply_igniter!()
+        |> Hearth.Config.Project.put_fields(:shop, headers: ["x-tenant-id": [option: :tenant_id]])
+        |> apply_igniter!()
+
+      regen = Igniter.compose_task(igniter, "hearth.regen", ["shop"])
+
+      refute read(regen, @external) =~ "SHOP_TENANT_ID"
+
+      assert notice_text(regen) =~
+               "#{@external} doesn't pass tenant_id (SHOP_TENANT_ID) on its calls"
     end
 
     test "halts on a malformed headers: entry" do
