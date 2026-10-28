@@ -103,16 +103,6 @@ defmodule Hearth.Spec.SelectionTest do
     test "an entry without tags: has no rule" do
       assert Selection.rule(module: X) == :none
     end
-
-    test "rejects a malformed tags: value" do
-      for tags <- [:all, [pets: :some], [pets: [include: "listPets"]], [pets: [only: []]]] do
-        assert {:error, message} = Selection.rule(tags: tags)
-        assert message =~ "tags:"
-      end
-
-      assert {:error, message} = Selection.rule(tags: [], untagged: :maybe)
-      assert message =~ "untagged:"
-    end
   end
 
   describe "select/2" do

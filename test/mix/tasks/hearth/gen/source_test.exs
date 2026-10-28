@@ -141,6 +141,19 @@ defmodule Mix.Tasks.Hearth.Gen.SourceTest do
       assert notice_text(from_file) =~ "priv/specs/acme-2.yaml"
     end
 
+    test "another integration's malformed entry halts gen, naming it" do
+      exs = ~s|[integrations: [other: [module: "MyApp.Other"]]]|
+
+      igniter =
+        test_project(files: %{".hearth.exs" => exs, "priv/specs/pets.yaml" => @petstore_3_0_yaml})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/pets.yaml", "--integration", "Pets"])
+
+      assert issue_text(igniter) =~
+               ~s|`module:` for other — expected a module alias, got: "MyApp.Other"|
+
+      refute Igniter.exists?(igniter, "lib/test/integrations/pets.ex")
+    end
+
     test "a URL + --list prints its tag discovery" do
       output =
         capture_io(fn ->

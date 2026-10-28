@@ -337,7 +337,6 @@ if Code.ensure_loaded?(Igniter) do
       else
         :none -> :ok
         [] -> :ok
-        {:error, detail} -> {:halt, IntegrationMessages.bad_tags_message(:regen, key, detail)}
       end
     end
 
@@ -353,9 +352,6 @@ if Code.ensure_loaded?(Igniter) do
             do: :ok,
             else:
               {:halt, Messages.auth_mismatch_message(key, spec_path, scheme, Auth.primary(spec))}
-
-        {:error, value} ->
-          {:halt, IntegrationMessages.bad_auth_message(:regen, key, value, [])}
       end
     end
 

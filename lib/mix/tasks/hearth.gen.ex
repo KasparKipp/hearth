@@ -467,12 +467,9 @@ if Code.ensure_loaded?(Igniter) do
       name = igniter.args.options[:integration] || (loaded.entry && loaded.entry.integration)
       key = if name && ModuleNames.valid_segment?(name), do: Config.key(name)
       entry = (key && integrations[key]) || []
-      raw = entry[:overrides]
+      {:ok, parsed} = Overrides.parse(entry)
 
-      case Overrides.parse(overrides: raw || []) do
-        {:ok, parsed} -> {:ok, %{key: key, entry: entry, raw: raw, parsed: parsed}}
-        {:error, detail} -> {:error, IntegrationMessages.bad_overrides_message(:gen, key, detail)}
-      end
+      {:ok, %{key: key, entry: entry, raw: entry[:overrides], parsed: parsed}}
     end
 
     defp stale_notice(igniter, _key, _source, []), do: igniter

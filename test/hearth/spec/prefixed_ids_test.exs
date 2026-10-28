@@ -48,21 +48,6 @@ defmodule Hearth.Spec.PrefixedIdsTest do
     test "an entry without prefixed_ids has none" do
       assert PrefixedIds.parse(module: X) == {:ok, nil}
     end
-
-    test "rejects malformed values" do
-      for bad <- [
-            :nope,
-            [prefixes: [cus: :GetCustomersCustomer]],
-            [prefixes: []],
-            [functions: [retrieve: :fetch], prefixes: [cus: "X"]],
-            [functions: [{:"Not Valid", :get}], prefixes: [cus: "X"]],
-            [functions: [], prefixes: [cus: "X"]],
-            [other: 1, prefixes: [cus: "X"]]
-          ] do
-        assert {:error, message} = PrefixedIds.parse(prefixed_ids: bad), inspect(bad)
-        assert message =~ "prefixed_ids:"
-      end
-    end
   end
 
   describe "resolve/2" do

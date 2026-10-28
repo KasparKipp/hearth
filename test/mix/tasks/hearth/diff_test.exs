@@ -278,6 +278,16 @@ defmodule Mix.Tasks.Hearth.DiffTest do
       assert issue_text(igniter) =~ "not found"
     end
 
+    test "when another integration's entry is malformed" do
+      igniter =
+        gen()
+        |> Hearth.Config.Project.put_integration(:other, prefix_ids: [prefixes: [cus: "X"]])
+        |> apply_igniter!()
+        |> diff()
+
+      assert issue_text(igniter) =~ "the entry for other has unknown `prefix_ids:`"
+    end
+
     test "when the pruned spec is missing" do
       igniter =
         gen()

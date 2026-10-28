@@ -124,13 +124,13 @@ defmodule Hearth.ConfigTest do
   end
 
   describe "source/1 and base_path/1" do
-    test "return the string, or nil when absent or not a string" do
+    test "return the string, or nil when absent" do
       entry = [source: "priv/specs/stripe.yaml", base_path: "/v1"]
 
       assert Config.source(entry) == "priv/specs/stripe.yaml"
       assert Config.base_path(entry) == "/v1"
       assert Config.source([]) == nil
-      assert Config.base_path(base_path: :v1) == nil
+      assert Config.base_path([]) == nil
     end
 
     test "sources: is the source when present; the label reads it" do
@@ -153,7 +153,7 @@ defmodule Hearth.ConfigTest do
         assert {:error, message} =
                  Config.parse("[integrations: [kit: [sources: #{sources}]]]")
 
-        assert message =~ "`sources:` for kit"
+        assert message =~ ~r/`sources:.*` for kit/
       end
     end
   end

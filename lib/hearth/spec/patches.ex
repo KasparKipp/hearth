@@ -22,46 +22,18 @@ defmodule Hearth.Spec.Patches do
   @type patch :: {String.t(), [String.t()], term()}
   @type stale :: {:patches, String.t()}
 
-  @spec parse(term()) :: {:ok, [patch()]} | {:error, String.t()}
-  def parse(patches) when is_map(patches) do
+  # Sorted by pointer, each split into its unescaped segments.
+  # `Hearth.Config.Schema` has checked the pointers and values.
+  @spec parse(%{String.t() => term()}) :: [patch()]
+  def parse(patches) do
     patches
     |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.reduce_while({:ok, []}, fn {pointer, value}, {:ok, acc} ->
-      case parse_patch(pointer, value) do
-        {:ok, patch} -> {:cont, {:ok, [patch | acc]}}
-        {:error, _} = error -> {:halt, error}
-      end
+    |> Enum.map(fn {"/" <> rest = pointer, value} ->
+      {pointer, rest |> String.split("/") |> Enum.map(&unescape/1), value}
     end)
-    |> case do
-      {:ok, parsed} -> {:ok, Enum.reverse(parsed)}
-      error -> error
-    end
-  end
-
-  def parse(_patches), do: {:error, shape_message()}
-
-  defp parse_patch("/" <> rest = pointer, value) do
-    if json?(value),
-      do: {:ok, {pointer, rest |> String.split("/") |> Enum.map(&unescape/1), value}},
-      else: {:error, value_message(pointer)}
-  end
-
-  defp parse_patch(pointer, _value) do
-    {:error,
-     "`overrides: [patches: …]` key #{inspect(pointer)} isn't a JSON pointer — " <>
-       ~s|it starts with "/", e.g. "/components/securitySchemes/bearerAuth".|}
   end
 
   defp unescape(segment), do: segment |> String.replace("~1", "/") |> String.replace("~0", "~")
-
-  defp json?(value) when is_binary(value) or is_number(value) or is_boolean(value), do: true
-  defp json?(nil), do: true
-  defp json?(list) when is_list(list), do: Enum.all?(list, &json?/1)
-
-  defp json?(map) when is_map(map),
-    do: Enum.all?(map, fn {key, value} -> is_binary(key) and json?(value) end)
-
-  defp json?(_value), do: false
 
   # The patched spec and the stale patches, or an error when a pointer
   # can't be followed.
@@ -159,14 +131,4 @@ defmodule Hearth.Spec.Patches do
 
   defp error_message(pointer, why),
     do: "`overrides: [patches: …]` can't set #{inspect(pointer)}: #{why}."
-
-  defp value_message(pointer) do
-    "`overrides: [patches: …]` value for #{inspect(pointer)} isn't JSON — use maps with " <>
-      ~s|string keys, lists, strings, numbers, true, false and nil, e.g. %{"type" => "http"}.|
-  end
-
-  defp shape_message do
-    "`overrides: [patches: …]` maps JSON pointers to values, e.g. " <>
-      ~s|`patches: %{"/security" => [%{"bearerAuth" => []}]}`.|
-  end
 end

@@ -19,17 +19,12 @@ defmodule Hearth.Spec.Values do
   # `{:resolve, {m, f}, keys}`. An absent `base_url:` is nil: the config
   # `base_url:`, else the spec's, with nothing wired.
   #
-  # Pure. The keyword forms are validated with NimbleOptions; the checks
-  # across values (shared keys, keys Req already uses) are here.
+  # Pure. `Hearth.Config.Schema` checks each form's shape
+  # (`Hearth.Config.Types.value/1`); the checks across values (shared
+  # keys, keys Req already uses) are here.
 
   @type t :: {:config, atom()} | {:option, atom()} | {:resolve, {module(), atom()}, [atom()]}
   @type values :: %{credential: t(), headers: [{String.t(), t()}], base_url: t() | nil}
-
-  @option_schema [option: [type: :atom, required: true]]
-  @resolve_schema [
-    resolve: [type: {:tuple, [:atom, :atom]}, required: true],
-    options: [type: {:list, :atom}, default: []]
-  ]
 
   # Names Req or Layer 1 already use as request options (Req 0.7's
   # registered options plus `Req.new/1`'s own) — a per-call
@@ -52,13 +47,9 @@ defmodule Hearth.Spec.Values do
 
   @spec parse(keyword()) :: {:ok, values()} | {:error, String.t()}
   def parse(entry) do
-    with {:ok, credential} <- credential(entry),
-         {:ok, headers} <- headers(entry),
-         {:ok, base_url} <- base_url(entry),
-         values = %{credential: credential, headers: headers, base_url: base_url},
-         :ok <- check(values) do
-      {:ok, values}
-    end
+    values = %{credential: credential(entry), headers: headers(entry), base_url: base_url(entry)}
+
+    with :ok <- check(values), do: {:ok, values}
   end
 
   # The request options `new/1` registers: the credential's (when the
@@ -94,103 +85,32 @@ defmodule Hearth.Spec.Values do
   end
 
   defp credential(entry) do
-    case Keyword.get(entry, :auth) do
-      auth when is_list(auth) ->
-        form(Keyword.get(auth, :credential, :api_key), "`credential:`")
-
-      _ ->
-        {:ok, {:config, :api_key}}
+    case entry[:auth] do
+      auth when is_list(auth) -> form(Keyword.get(auth, :credential, :api_key))
+      nil -> {:config, :api_key}
     end
   end
 
   defp base_url(entry) do
     case Keyword.fetch(entry, :base_url) do
-      :error -> {:ok, nil}
-      {:ok, form} -> form(form, "`base_url:`")
+      :error -> nil
+      {:ok, form} -> form(form)
     end
   end
 
   defp headers(entry) do
-    headers = Keyword.get(entry, :headers, [])
-
-    if Keyword.keyword?(headers),
-      do: collect(headers, []),
-      else: {:error, headers_message()}
+    for {header, form} <- Keyword.get(entry, :headers, []),
+        do: {header |> Atom.to_string() |> String.downcase(), form(form)}
   end
 
-  defp collect([], acc), do: {:ok, Enum.reverse(acc)}
+  defp form(key) when is_atom(key), do: {:config, key}
 
-  defp collect([{header, form} | rest], acc) do
-    with {:ok, pair} <- header(header, form), do: collect(rest, [pair | acc])
-  end
-
-  defp header(header, form) do
-    name = header |> Atom.to_string() |> String.downcase()
-
-    with :ok <- header_name(name),
-         {:ok, value} <- form(form, "`headers:` #{inspect(name)}") do
-      {:ok, {name, value}}
+  defp form(form) do
+    case Keyword.fetch(form, :resolve) do
+      {:ok, mf} -> {:resolve, mf, Keyword.get(form, :options, [])}
+      :error -> {:option, Keyword.fetch!(form, :option)}
     end
   end
-
-  defp header_name(name) do
-    if Regex.match?(~r/^[a-z0-9][a-z0-9!#$%&'*+.^_`|~-]*$/, name),
-      do: :ok,
-      else:
-        {:error, "`headers:` names must be HTTP header names, e.g. `\"x-app-key\": :app_key`."}
-  end
-
-  defp form(key, label) when is_atom(key) do
-    if identifier?(key), do: {:ok, {:config, key}}, else: {:error, form_message(label, nil)}
-  end
-
-  defp form(form, label) when is_list(form) do
-    {schema, build} =
-      if Keyword.has_key?(form, :resolve),
-        do: {@resolve_schema, &{:resolve, &1[:resolve], &1[:options]}},
-        else: {@option_schema, &{:option, &1[:option]}}
-
-    with {:ok, opts} <- validate(form, schema, label),
-         value = build.(opts),
-         :ok <- well_named(value, label) do
-      {:ok, value}
-    end
-  end
-
-  defp form(_form, label), do: {:error, form_message(label, nil)}
-
-  defp validate(form, schema, label) do
-    case NimbleOptions.validate(form, schema) do
-      {:ok, opts} ->
-        {:ok, opts}
-
-      {:error, %NimbleOptions.ValidationError{message: detail}} ->
-        {:error, form_message(label, detail)}
-    end
-  rescue
-    # Not a keyword list at all.
-    ArgumentError -> {:error, form_message(label, nil)}
-  end
-
-  defp well_named({:option, key}, label) do
-    if identifier?(key), do: :ok, else: {:error, form_message(label, nil)}
-  end
-
-  defp well_named({:resolve, {module, function}, keys}, label) do
-    if alias?(module) and identifier?(function) and Enum.all?(keys, &identifier?/1),
-      do: :ok,
-      else: {:error, form_message(label, nil)}
-  end
-
-  defp identifier?(atom) when atom in [nil, true, false], do: false
-
-  defp identifier?(atom) when is_atom(atom),
-    do: Regex.match?(~r/^[a-z_][a-z0-9_]*$/, Atom.to_string(atom))
-
-  defp identifier?(_other), do: false
-
-  defp alias?(module),
-    do: is_atom(module) and String.starts_with?(Atom.to_string(module), "Elixir.")
 
   # Every key a value owns — its config or option key, `:api_key` for a
   # resolved credential — belongs to that value alone. Resolver
@@ -251,15 +171,4 @@ defmodule Hearth.Spec.Values do
   defp owned_keys("`credential:`", {:resolve, _mf, _keys}), do: [:api_key]
   defp owned_keys(_label, {:resolve, _mf, _keys}), do: []
   defp owned_keys(_label, {_form, key}), do: [key]
-
-  defp form_message(label, detail) do
-    "#{label} takes a config key (`:app_key`), `[option: :app_key]` or " <>
-      "`[resolve: {MyApp.Module, :function}, options: [...]]`" <>
-      if(detail, do: " — #{detail}.", else: ".")
-  end
-
-  defp headers_message do
-    "`headers:` maps header names to where their values come from, " <>
-      ~s|e.g. `headers: ["x-app-key": :app_key, "x-tenant-id": [option: :tenant_id]]`.|
-  end
 end

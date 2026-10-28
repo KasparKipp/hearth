@@ -26,28 +26,24 @@ defmodule Hearth.Spec.PrefixedIds do
 
   @methods [:get, :post, :put, :patch, :delete]
 
+  # The HTTP methods a function can map to.
+  @spec methods() :: [atom()]
+  def methods, do: @methods
+
   @type t :: %{functions: [{atom(), atom()}], prefixes: [{String.t(), String.t()}]}
   @type resource :: %{prefix: String.t(), path: String.t(), methods: [atom()]}
 
-  @spec parse(keyword()) :: {:ok, t() | nil} | {:error, String.t()}
+  # `Hearth.Config.Schema` has checked the shape.
+  @spec parse(keyword()) :: {:ok, t() | nil}
   def parse(entry) do
     case Keyword.fetch(entry, :prefixed_ids) do
-      :error -> {:ok, nil}
-      {:ok, config} -> parse_config(config)
-    end
-  end
+      :error ->
+        {:ok, nil}
 
-  defp parse_config(config) do
-    with true <- shape?(config) || {:error, shape_message()},
-         {:ok, functions} <- functions(Keyword.get(config, :functions, retrieve: :get)),
-         {:ok, prefixes} <- prefixes(Keyword.get(config, :prefixes, [])) do
-      {:ok, %{functions: functions, prefixes: prefixes}}
+      {:ok, config} ->
+        prefixes = for {prefix, target} <- config[:prefixes], do: {Atom.to_string(prefix), target}
+        {:ok, %{functions: Keyword.get(config, :functions, retrieve: :get), prefixes: prefixes}}
     end
-  end
-
-  defp shape?(config) do
-    Keyword.keyword?(config) and config != [] and
-      Keyword.keys(config) -- [:functions, :prefixes] == []
   end
 
   # Each prefix's resource: its path and the methods the spec has there.
@@ -75,9 +71,6 @@ defmodule Hearth.Spec.PrefixedIds do
       {:ok, config} ->
         with {:ok, resources} <- resolve(spec, config),
              do: {:ok, %{functions: config.functions, resources: resources}}
-
-      {:error, message} ->
-        {:error, message}
     end
   end
 
@@ -152,37 +145,4 @@ defmodule Hearth.Spec.PrefixedIds do
   end
 
   defp label(prefix), do: "`prefixed_ids:` prefix #{prefix}"
-
-  defp functions(functions) do
-    valid? =
-      Keyword.keyword?(functions) and functions != [] and
-        Enum.all?(functions, fn {name, method} ->
-          Regex.match?(~r/^[a-z_][a-z0-9_]*$/, Atom.to_string(name)) and method in @methods
-        end)
-
-    if valid?,
-      do: {:ok, functions},
-      else:
-        {:error,
-         "`prefixed_ids: [functions: …]` maps function names to HTTP methods " <>
-           "(#{Enum.map_join(@methods, ", ", &inspect/1)}), e.g. `functions: [retrieve: :get, update: :post]`."}
-  end
-
-  defp prefixes(prefixes) do
-    valid? =
-      Keyword.keyword?(prefixes) and prefixes != [] and
-        Enum.all?(prefixes, fn {_prefix, target} -> is_binary(target) end)
-
-    if valid?,
-      do: {:ok, Enum.map(prefixes, fn {prefix, target} -> {Atom.to_string(prefix), target} end)},
-      else:
-        {:error,
-         "`prefixed_ids: [prefixes: …]` maps each id prefix to an operationId or a path, " <>
-           ~s|e.g. `prefixes: [cus: "GetCustomersCustomer"]`.|}
-  end
-
-  defp shape_message do
-    "`prefixed_ids:` must be a keyword list with `prefixes:` (and optionally `functions:`), " <>
-      ~s|e.g. `prefixed_ids: [functions: [retrieve: :get], prefixes: [cus: "GetCustomersCustomer"]]`.|
-  end
 end

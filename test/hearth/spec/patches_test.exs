@@ -19,38 +19,15 @@ defmodule Hearth.Spec.PatchesTest do
   @bearer %{"type" => "http", "scheme" => "bearer"}
 
   defp apply_patches(patches, spec \\ @spec_map) do
-    {:ok, parsed} = Patches.parse(patches)
-    Patches.apply(spec, parsed)
+    Patches.apply(spec, Patches.parse(patches))
   end
 
   describe "parse/1" do
-    test "no patches" do
-      assert Patches.parse(%{}) == {:ok, []}
-    end
+    test "sorts by pointer and splits each into unescaped segments" do
+      assert Patches.parse(%{"/b/~1x~0y" => 1, "/a" => nil}) ==
+               [{"/a", ["a"], nil}, {"/b/~1x~0y", ["b", "/x~y"], 1}]
 
-    test "a pointer must start with /" do
-      assert {:error, message} = Patches.parse(%{"components" => %{}})
-      assert message =~ ~s|"components"|
-      assert message =~ "JSON pointer"
-    end
-
-    test "replacing the whole document isn't a patch" do
-      assert {:error, message} = Patches.parse(%{"" => %{}})
-      assert message =~ "JSON pointer"
-    end
-
-    test "must be a map" do
-      assert {:error, message} = Patches.parse([{"/security", []}])
-      assert message =~ "`overrides: [patches: …]` maps JSON pointers to values"
-    end
-
-    test "values are JSON: string keys, no atoms beyond true / false / nil" do
-      assert {:error, message} = Patches.parse(%{"/components" => %{type: "http"}})
-      assert message =~ ~s|"/components"|
-      assert message =~ "string keys"
-
-      assert {:error, _} = Patches.parse(%{"/x" => :bearer})
-      assert {:ok, _} = Patches.parse(%{"/x" => [1, 2.5, true, false, "s", %{"k" => nil}]})
+      assert Patches.parse(%{}) == []
     end
   end
 

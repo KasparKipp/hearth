@@ -24,9 +24,11 @@ defmodule Hearth.Config do
   #     can come out longer and desync from that config.
   #
   # An optional `registry:` declares the project's own source shortcuts
-  # (see `load/1`). The file is evaluated like `.formatter.exs`. Pure: the Igniter side
+  # (see `load/1`). The file is evaluated like `.formatter.exs`, then
+  # validated against `Hearth.Config.Schema`. Pure: the Igniter side
   # (reading through Rewrite, writing entries) is `Hearth.Config.Project`.
 
+  alias Hearth.Config.Schema
   alias Hearth.Render.ModuleNames
 
   @path ".hearth.exs"
@@ -59,9 +61,9 @@ defmodule Hearth.Config do
           {:ok, %{integrations: integrations(), registry: map()}} | {:error, String.t()}
   def load(content) when is_binary(content) do
     with {:ok, term} <- evaluate(content),
-         {:ok, integrations} <- integrations(term),
-         {:ok, registry} <- registry(term) do
-      {:ok, %{integrations: integrations, registry: registry}}
+         {:ok, term} <- keyword(term),
+         :ok <- Schema.validate(term) do
+      {:ok, %{integrations: Keyword.get(term, :integrations, []), registry: registry(term)}}
     end
   end
 
@@ -93,7 +95,7 @@ defmodule Hearth.Config do
   @type source :: String.t() | [{atom(), String.t()}]
 
   @spec source(entry()) :: source() | nil
-  def source(entry), do: entry[:sources] || string(entry[:source])
+  def source(entry), do: entry[:sources] || entry[:source]
 
   # A source as the user reads it: `items: a.json, orders: b.json`.
   @spec source_label(source()) :: String.t()
@@ -103,10 +105,7 @@ defmodule Hearth.Config do
   def source_label(source), do: source
 
   @spec base_path(entry()) :: String.t() | nil
-  def base_path(entry), do: string(entry[:base_path])
-
-  defp string(value) when is_binary(value), do: value
-  defp string(_value), do: nil
+  def base_path(entry), do: entry[:base_path]
 
   defp evaluate(content) do
     {term, _binding} = Code.eval_string(content, [], file: @path)
@@ -115,80 +114,19 @@ defmodule Hearth.Config do
     error -> {:error, "#{@path} could not be evaluated: #{Exception.message(error)}"}
   end
 
-  # `integrations/1` has already checked `term` is a keyword list.
-  defp registry(nil), do: {:ok, %{}}
-
+  # The project's own registry, its names lowercased like registry
+  # sources are.
   defp registry(term) do
-    registry = Keyword.get(term, :registry, %{})
-
-    if valid_registry?(registry) do
-      {:ok, Map.new(registry, fn {name, versions} -> {String.downcase(name), versions} end)}
-    else
-      {:error,
-       "#{@path}: `registry:` must be a map of name → %{version => URL or file path}, " <>
-         ~s|e.g. `registry: %{"acme_api" => %{"1.3" => "https://…/openapi.json", "latest" => {:alias, "1.3"}}}`.|}
-    end
+    term
+    |> Keyword.get(:registry, %{})
+    |> Map.new(fn {name, versions} -> {String.downcase(name), versions} end)
   end
 
-  defp valid_registry?(registry) when is_map(registry) do
-    Enum.all?(registry, fn {name, versions} ->
-      is_binary(name) and Regex.match?(~r/^[a-zA-Z0-9][a-zA-Z0-9_.\-]*$/, name) and
-        is_map(versions) and Enum.all?(versions, &valid_version?/1)
-    end)
+  defp keyword(nil), do: {:ok, []}
+
+  defp keyword(term) do
+    if Keyword.keyword?(term),
+      do: {:ok, term},
+      else: {:error, "#{@path} must evaluate to a keyword list, got: #{inspect(term)}"}
   end
-
-  defp valid_registry?(_registry), do: false
-
-  defp valid_version?({version, location}) when is_binary(version) and is_binary(location),
-    do: true
-
-  defp valid_version?({version, {:alias, target}}) when is_binary(version) and is_binary(target),
-    do: true
-
-  defp valid_version?(_version), do: false
-
-  defp integrations(nil), do: {:ok, []}
-
-  defp integrations(term) do
-    with true <- Keyword.keyword?(term) || :not_keyword,
-         integrations = Keyword.get(term, :integrations, []),
-         true <- check_integrations(integrations) || :bad_integrations do
-      {:ok, integrations}
-    else
-      :not_keyword ->
-        {:error, "#{@path} must evaluate to a keyword list, got: #{inspect(term)}"}
-
-      :bad_integrations ->
-        {:error,
-         "#{@path}: `integrations:` must be a keyword list of keyword lists, " <>
-           "e.g. `[integrations: [stripe: [module: MyApp.Integrations.Stripe]]]`."}
-
-      {:bad_sources, key} ->
-        {:error,
-         "#{@path}: `sources:` for #{key} must map a short name per spec to its source, " <>
-           ~s|e.g. `sources: [items: "priv/specs/items.json", orders: "priv/specs/orders.json"]`.|}
-    end
-  end
-
-  # true, false, or `{:bad_sources, key}`.
-  defp check_integrations(integrations) do
-    Keyword.keyword?(integrations) and
-      Enum.all?(integrations, fn {_key, entry} -> Keyword.keyword?(entry) end) and
-      check_sources(integrations)
-  end
-
-  defp check_sources(integrations) do
-    case Enum.find(integrations, fn {_key, entry} -> not valid_sources?(entry[:sources]) end) do
-      nil -> true
-      {key, _entry} -> {:bad_sources, key}
-    end
-  end
-
-  defp valid_sources?(nil), do: true
-
-  defp valid_sources?([_ | _] = sources),
-    do:
-      Keyword.keyword?(sources) and Enum.all?(sources, fn {_key, source} -> is_binary(source) end)
-
-  defp valid_sources?(_sources), do: false
 end
