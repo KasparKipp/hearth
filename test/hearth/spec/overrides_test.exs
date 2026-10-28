@@ -26,19 +26,19 @@ defmodule Hearth.Spec.OverridesTest do
 
   describe "parse/1" do
     test "reads the overrides block of an entry" do
-      assert {:ok, %{tags: [{"Customers", ["/v1/customers*"]}], operation_ids: %{}}} =
+      assert %{tags: [{"Customers", ["/v1/customers*"]}], operation_ids: %{}} =
                Overrides.parse(overrides: [tags: [Customers: ["/v1/customers*"]]])
     end
 
     test "an entry without overrides has none" do
       assert Overrides.parse(module: X) ==
-               {:ok, %{patches: [], tags: [], operation_ids: %{}, shared: %{}}}
+               %{patches: [], tags: [], operation_ids: %{}, shared: %{}}
     end
   end
 
   describe "apply/2 with tags" do
     defp apply_tags(tags) do
-      {:ok, overrides} = Overrides.parse(overrides: [tags: tags])
+      overrides = Overrides.parse(overrides: [tags: tags])
       {:ok, spec, stale} = Overrides.apply(@spec_map, overrides)
       {spec, stale}
     end
@@ -88,7 +88,7 @@ defmodule Hearth.Spec.OverridesTest do
 
   describe "apply/2 with operation_ids" do
     defp rename(overrides) do
-      {:ok, parsed} = Overrides.parse(overrides: overrides)
+      parsed = Overrides.parse(overrides: overrides)
       Overrides.apply(@spec_map, parsed)
     end
 

@@ -125,15 +125,9 @@ defmodule Hearth.Spec.Auth do
   @spec choose(map(), keyword()) ::
           {:ok, map(), keyword()} | {:error, {:bad_auth, term(), [String.t()]}}
   def choose(spec, entry) do
-    case auth_scheme(entry) do
-      {:ok, nil} ->
-        case default(spec) do
-          nil -> {:ok, spec, []}
-          name -> chosen(spec, name)
-        end
-
-      {:ok, name} ->
-        chosen(spec, name)
+    case auth_scheme(entry) || default(spec) do
+      nil -> {:ok, spec, []}
+      name -> chosen(spec, name)
     end
   end
 
@@ -155,8 +149,8 @@ defmodule Hearth.Spec.Auth do
   end
 
   # The entry's `auth: [scheme: …]`, if it names one.
-  @spec auth_scheme(keyword()) :: {:ok, String.t() | nil}
-  def auth_scheme(entry), do: {:ok, entry[:auth][:scheme]}
+  @spec auth_scheme(keyword()) :: String.t() | nil
+  def auth_scheme(entry), do: entry[:auth][:scheme]
 
   # Whether the strategy takes a credential (`api_key`, or the entry's
   # `credential:`).

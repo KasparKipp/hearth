@@ -331,11 +331,11 @@ if Code.ensure_loaded?(Igniter) do
       with {:ok, igniter, config} <- Project.load(igniter),
            {:ok, source} <- source(igniter, config),
            {:ok, igniter, loaded} <- load(igniter, source, config, keep(igniter, config)),
-           {:ok, overrides} <- overrides(igniter, loaded, config.integrations),
+           overrides = overrides(igniter, loaded, config.integrations),
            {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
            {:ok, spec, auth} <- choose_auth(spec, overrides),
            {:ok, prefixed} <- prefixed_ids(spec, overrides),
-           {:ok, values} <- values(overrides),
+           values = Hearth.Spec.Values.parse(overrides.entry),
            :ok <- auth_headers(spec, values, overrides) do
         input = %{
           source: source,
@@ -380,18 +380,6 @@ if Code.ensure_loaded?(Igniter) do
 
         {:error, detail} ->
           {:error, IntegrationMessages.bad_prefixed_ids_message(:gen, overrides.key, detail)}
-      end
-    end
-
-    # Like `prefixed_ids:`, kept from an entry written before gen:
-    # `headers:`, `auth: [credential:]` and `base_url:`.
-    defp values(overrides) do
-      case Hearth.Spec.Values.parse(overrides.entry) do
-        {:ok, values} ->
-          {:ok, values}
-
-        {:error, detail} ->
-          {:error, IntegrationMessages.bad_values_message(:gen, overrides.key, detail)}
       end
     end
 
@@ -452,9 +440,8 @@ if Code.ensure_loaded?(Igniter) do
     # merge of `sources:` (the rest of `overrides:` is read after load).
     defp keep(igniter, config) do
       with name when is_binary(name) <- igniter.args.options[:integration],
-           true <- ModuleNames.valid_segment?(name),
-           {:ok, parsed} <- Overrides.parse(config.integrations[Config.key(name)] || []) do
-        parsed.shared
+           true <- ModuleNames.valid_segment?(name) do
+        Overrides.parse(config.integrations[Config.key(name)] || []).shared
       else
         _ -> %{}
       end
@@ -467,9 +454,7 @@ if Code.ensure_loaded?(Igniter) do
       name = igniter.args.options[:integration] || (loaded.entry && loaded.entry.integration)
       key = if name && ModuleNames.valid_segment?(name), do: Config.key(name)
       entry = (key && integrations[key]) || []
-      {:ok, parsed} = Overrides.parse(entry)
-
-      {:ok, %{key: key, entry: entry, raw: entry[:overrides], parsed: parsed}}
+      %{key: key, entry: entry, raw: entry[:overrides], parsed: Overrides.parse(entry)}
     end
 
     defp stale_notice(igniter, _key, _source, []), do: igniter

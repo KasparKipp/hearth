@@ -238,6 +238,15 @@ defmodule Hearth.Config.SchemaTest do
       assert error(entry(base_url: "https://x.test")) =~ "not the URL itself"
     end
 
+    test "values that share a key or take a Req option name, naming the entry" do
+      message = error(entry(headers: ["x-a": :same, "x-b": [option: :same]]))
+      assert message =~ "the entry for kit — "
+      assert message =~ "use the same key :same"
+
+      assert error(entry(auth: [credential: :retry])) =~ "already a request option"
+      assert error(entry(base_url: :gateway)) =~ "its key must be `:base_url`"
+    end
+
     test "scalars of the wrong type" do
       assert error(entry(source: :stripe)) =~ "`source:` for kit"
       assert error(entry(base_path: :v1)) =~ "`base_path:` for kit"

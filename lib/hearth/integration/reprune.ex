@@ -59,7 +59,7 @@ if Code.ensure_loaded?(Igniter) do
       with {:ok, rule} <- rule(entry),
            {:ok, source} <- present(source),
            :ok <- single_override(opts[:source], entry),
-           {:ok, overrides} <- Overrides.parse(entry),
+           overrides = Overrides.parse(entry),
            {:ok, igniter, loaded} <-
              Load.load(igniter, source, opts[:registry] || %{}, overrides.shared),
            {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),

@@ -3,13 +3,15 @@ defmodule Hearth.Config.Schema do
 
   # The shape of `.hearth.exs`, in one place: a NimbleOptions schema the
   # whole file is validated against when it's read (`Hearth.Config.load/1`).
-  # Shape only — types, the keys each level allows, required keys. What
+  # Shape — types, the keys each level allows, required keys — plus the
+  # checks across an entry's values (`Hearth.Spec.Values.check/1`). What
   # needs the spec (a `scheme:` it has, a prefix target that resolves, a
   # rename that doesn't collide) stays with the module that reads the
   # key. Errors name the entry and the key, and carry an example where
   # one helps. Pure.
 
   alias Hearth.Config.Types
+  alias Hearth.Spec.Values
 
   @state {:or,
           [
@@ -136,9 +138,18 @@ defmodule Hearth.Config.Schema do
   @spec validate(keyword()) :: :ok | {:error, String.t()}
   def validate(term) do
     case NimbleOptions.validate(term, @schema) do
-      {:ok, _validated} -> :ok
+      {:ok, _validated} -> check_values(Keyword.get(term, :integrations, []))
       {:error, error} -> {:error, message(error)}
     end
+  end
+
+  defp check_values(integrations) do
+    Enum.find_value(integrations, :ok, fn {key, entry} ->
+      case Values.check(entry) do
+        :ok -> nil
+        {:error, detail} -> {:error, "#{@path}: #{where([:integrations, key])} — #{detail}"}
+      end
+    end)
   end
 
   # NimbleOptions reports a key given twice as unknown too.

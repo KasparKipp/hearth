@@ -78,15 +78,6 @@ defmodule Hearth.Integration.Messages do
     """
   end
 
-  # `headers:`, `credential:` or `base_url:` — the detail names which.
-  def bad_values_message(task, key, detail) do
-    """
-    hearth.#{task}: the .hearth.exs entry for #{key} has a problem.
-
-    #{detail}
-    """
-  end
-
   def auth_header_message(task, key, names, auth) do
     """
     hearth.#{task}: `headers:` for #{key} names #{Enum.map_join(names, ", ", &inspect/1)}, \

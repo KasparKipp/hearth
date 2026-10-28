@@ -20,10 +20,7 @@ defmodule Hearth.Spec.PrefixedIdsTest do
     }
   }
 
-  defp parse!(prefixed_ids) do
-    {:ok, parsed} = PrefixedIds.parse(prefixed_ids: prefixed_ids)
-    parsed
-  end
+  defp parse!(prefixed_ids), do: PrefixedIds.parse(prefixed_ids: prefixed_ids)
 
   describe "parse/1" do
     test "reads functions and prefixes" do
@@ -33,20 +30,19 @@ defmodule Hearth.Spec.PrefixedIdsTest do
                  prefixes: [cus: "GetCustomersCustomer", sub: "/v1/subscriptions/{id}"]
                ]
              ) ==
-               {:ok,
-                %{
-                  functions: [retrieve: :get, update: :post],
-                  prefixes: [{"cus", "GetCustomersCustomer"}, {"sub", "/v1/subscriptions/{id}"}]
-                }}
+               %{
+                 functions: [retrieve: :get, update: :post],
+                 prefixes: [{"cus", "GetCustomersCustomer"}, {"sub", "/v1/subscriptions/{id}"}]
+               }
     end
 
     test "functions default to retrieve: :get" do
-      assert {:ok, %{functions: [retrieve: :get]}} =
+      assert %{functions: [retrieve: :get]} =
                PrefixedIds.parse(prefixed_ids: [prefixes: [cus: "GetCustomersCustomer"]])
     end
 
     test "an entry without prefixed_ids has none" do
-      assert PrefixedIds.parse(module: X) == {:ok, nil}
+      assert PrefixedIds.parse(module: X) == nil
     end
   end
 
