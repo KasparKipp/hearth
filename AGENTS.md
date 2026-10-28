@@ -434,9 +434,11 @@ What exists, condensed. The blow-by-blow is in git history.
   `.formatter.exs` (`Hearth.Config.parse/1`) and validated against
   `Hearth.Config.Schema` — one NimbleOptions schema, custom types in
   `Config.Types` — so every level's keys are closed and an error names the
-  entry and the key, with an example. Shape only: the modules that read a
-  key take it as valid and keep the checks that need the spec or other
-  values. `source_sha256` is the source's checksum at
+  entry and the key, with an example. It also runs the checks across an
+  entry's values (`Spec.Values.check/1`). The modules that read a key take
+  it as valid — `Values.parse/1`, `Overrides.parse/1`, `PrefixedIds.parse/1`
+  can't fail — and keep only the checks that need the spec (regen resolves
+  `prefixed_ids:` once per integration and passes it down). `source_sha256` is the source's checksum at
   the last gen / `--sync` (`Reprune.sha256/1`).
   `tags:` (`Hearth.Spec.Selection.describe/2`) lists every tag in the source
   spec in first-seen order as `:all`, `:none` or `include:` / `exclude:`
@@ -562,8 +564,8 @@ What exists, condensed. The blow-by-blow is in git history.
   halts gen and regen — `put_api_key/1` would set it first.
 - **Values** — where the credential (`auth: [credential:]`), each
   `headers:` value and the base URL (`base_url:`) come from
-  (`Spec.Values.parse/1`; keyword forms validated with NimbleOptions,
-  shared keys and Req option names checked across values):
+  (`Spec.Values.parse/1`; each form's shape checked by the schema, shared
+  keys and Req option names by `Values.check/1` when the file is read):
   `key` — the option, else config, `<INT>_<KEY>` wired into runtime.exs
   (the default credential `:api_key`; `base_url: :base_url` wires
   `<INT>_BASE_URL`, dev without a placeholder); `[option: key]` — the option

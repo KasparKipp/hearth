@@ -51,21 +51,16 @@ defmodule Hearth.Spec.Overrides do
   @type stale :: {:patches | :tags | :operation_ids, String.t()}
 
   # `Hearth.Config.Schema` has checked the shape.
-  @spec parse(keyword()) :: {:ok, t()}
+  @spec parse(keyword()) :: t()
   def parse(entry) do
     overrides = Keyword.get(entry, :overrides, [])
 
-    {:ok,
-     %{
-       patches: Patches.parse(Keyword.get(overrides, :patches, %{})),
-       tags:
-         for(
-           {tag, entries} <- Keyword.get(overrides, :tags, []),
-           do: {Atom.to_string(tag), entries}
-         ),
-       operation_ids: Keyword.get(overrides, :operation_ids, %{}),
-       shared: Map.new(Keyword.get(overrides, :shared, %{}), &shared/1)
-     }}
+    %{
+      patches: Patches.parse(Keyword.get(overrides, :patches, %{})),
+      tags: for({tag, entries} <- Keyword.get(overrides, :tags, []), do: {"#{tag}", entries}),
+      operation_ids: Keyword.get(overrides, :operation_ids, %{}),
+      shared: Map.new(Keyword.get(overrides, :shared, %{}), &shared/1)
+    }
   end
 
   defp shared({component, key}) do

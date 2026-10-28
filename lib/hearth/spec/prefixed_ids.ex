@@ -34,15 +34,11 @@ defmodule Hearth.Spec.PrefixedIds do
   @type resource :: %{prefix: String.t(), path: String.t(), methods: [atom()]}
 
   # `Hearth.Config.Schema` has checked the shape.
-  @spec parse(keyword()) :: {:ok, t() | nil}
+  @spec parse(keyword()) :: t() | nil
   def parse(entry) do
-    case Keyword.fetch(entry, :prefixed_ids) do
-      :error ->
-        {:ok, nil}
-
-      {:ok, config} ->
-        prefixes = for {prefix, target} <- config[:prefixes], do: {Atom.to_string(prefix), target}
-        {:ok, %{functions: Keyword.get(config, :functions, retrieve: :get), prefixes: prefixes}}
+    with config when is_list(config) <- entry[:prefixed_ids] do
+      prefixes = for {prefix, target} <- config[:prefixes], do: {Atom.to_string(prefix), target}
+      %{functions: Keyword.get(config, :functions, retrieve: :get), prefixes: prefixes}
     end
   end
 
@@ -65,10 +61,10 @@ defmodule Hearth.Spec.PrefixedIds do
   @spec prepare(map(), keyword()) :: {:ok, map() | nil} | {:error, String.t()}
   def prepare(spec, entry) do
     case parse(entry) do
-      {:ok, nil} ->
+      nil ->
         {:ok, nil}
 
-      {:ok, config} ->
+      config ->
         with {:ok, resources} <- resolve(spec, config),
              do: {:ok, %{functions: config.functions, resources: resources}}
     end

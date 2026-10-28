@@ -212,8 +212,18 @@ if Code.ensure_loaded?(Igniter) do
       spec_path = Names.spec_path(key)
 
       with {:ok, layer1} <- layer1(key, entry),
-           {:ok, igniter, spec, changes} <- pruned_spec(igniter, key, entry, spec_path) do
+           {:ok, igniter, spec, changes} <- pruned_spec(igniter, key, entry, spec_path),
+           {:ok, prefixed} <- prefixed_ids(key, spec, entry),
+           :ok <- check_pruned(igniter, key, entry, {spec_path, spec, prefixed}) do
         names = ModuleNames.from_layer1(layer1)
+
+        input = %{
+          spec_path: spec_path,
+          spec: spec,
+          entry: entry,
+          prefixed: prefixed,
+          values: Values.parse(entry)
+        }
 
         cond do
           target == layer1 and igniter.args.options[:remove_old] ->
@@ -222,13 +232,12 @@ if Code.ensure_loaded?(Igniter) do
           target in [nil, layer1] ->
             {igniter, old_functions} = CallSites.functions(igniter, names)
 
-            {replacements, rewrite?, changes} =
-              plan_sync(igniter, old_functions, spec, entry, changes)
+            {replacements, rewrite?, changes} = plan_sync(igniter, old_functions, input, changes)
 
             igniter
             |> Sync.extend_external_test(names, spec, changes)
-            |> render(names, spec_path, spec, entry)
-            |> wire_new_auth(names, changes, entry)
+            |> render(names, input)
+            |> wire_new_auth(names, changes, input.values)
             |> CallSites.rewrite(names, replacements, rewrite?)
 
           true ->
@@ -236,8 +245,8 @@ if Code.ensure_loaded?(Igniter) do
 
             Move.run(igniter, names, new, %{
               key: key,
-              render: &render(&1, new, spec_path, spec, entry),
-              wiring: wiring(igniter, new, spec, entry)
+              render: &render(&1, new, input),
+              wiring: wiring(igniter, new, input)
             })
         end
       else
@@ -247,31 +256,21 @@ if Code.ensure_loaded?(Igniter) do
 
     # `--sync` changed the auth scheme: wire its credential config the
     # way `gen` would (existing values are kept).
-    defp wire_new_auth(igniter, names, %{auth: auth}, entry) when not is_nil(auth) do
+    defp wire_new_auth(igniter, names, %{auth: auth}, values) when not is_nil(auth) do
       otp_app = Igniter.Project.Application.app_name(igniter)
-
-      case Values.parse(entry) do
-        {:ok, values} -> Patches.wire_credential(igniter, otp_app, names, auth, values.credential)
-        {:error, _} -> igniter
-      end
+      Patches.wire_credential(igniter, otp_app, names, auth, values.credential)
     end
 
-    defp wire_new_auth(igniter, _names, _changes, _entry), do: igniter
+    defp wire_new_auth(igniter, _names, _changes, _values), do: igniter
 
     # `--sync` only: which removed functions to replace at their call
     # sites (`Hearth.Regen.CallSites`), whether the user agreed, and the
     # changes for the external test — "added" means a function the old
     # Layer 2 didn't have, and renames the call-site rewrite handles are
     # left out of its notices.
-    defp plan_sync(_igniter, _old, _spec, _entry, nil), do: {[], false, nil}
+    defp plan_sync(_igniter, _old, _input, nil), do: {[], false, nil}
 
-    defp plan_sync(igniter, old, spec, entry, changes) do
-      prefixed =
-        case PrefixedIds.prepare(spec, entry) do
-          {:ok, prefixed} -> prefixed
-          {:error, _detail} -> nil
-        end
-
+    defp plan_sync(igniter, old, %{spec: spec, prefixed: prefixed}, changes) do
       replacements = CallSites.replacements(old, spec, prefixed, changes.renamed)
       rewrite? = CallSites.accept?(igniter, replacements)
 
@@ -296,8 +295,7 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     # `--sync` re-prunes the spec from its source (`Hearth.Regen.Sync`).
-    # Otherwise the pruned spec is read as is, and must still hold
-    # exactly what the entry's `tags:` select.
+    # Otherwise the pruned spec is read as is (`check_pruned/4`).
     defp pruned_spec(igniter, key, entry, spec_path) do
       if igniter.args.options[:sync] do
         Sync.run(igniter, key, entry, spec_path)
@@ -305,16 +303,11 @@ if Code.ensure_loaded?(Igniter) do
         with true <- Igniter.exists?(igniter, spec_path) or :missing,
              igniter = Igniter.include_existing_file(igniter, spec_path),
              {:ok, bytes} <- Content.read(igniter, spec_path),
-             {:ok, spec} <- Loader.decode(bytes, :yaml),
-             :ok <- check_selection(key, entry, spec_path, spec),
-             :ok <- check_auth(key, entry, spec_path, spec) do
+             {:ok, spec} <- Loader.decode(bytes, :yaml) do
           {:ok, igniter, spec, nil}
         else
           :missing ->
             {:halt, Messages.missing_spec_message(spec_path)}
-
-          {:halt, message} ->
-            {:halt, message}
 
           {:error, reason} ->
             {:halt, "hearth.regen: failed to parse #{spec_path}: #{format_reason(reason)}"}
@@ -322,14 +315,32 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp check_selection(key, entry, spec_path, spec) do
-      operations = Operation.extract(spec)
+    # The entry's `prefixed_ids:`, resolved against the pruned spec.
+    defp prefixed_ids(key, spec, entry) do
+      case PrefixedIds.prepare(spec, entry) do
+        {:ok, prefixed} ->
+          {:ok, prefixed}
 
-      exempt =
-        case PrefixedIds.prepare(spec, entry) do
-          {:ok, prefixed} -> unselected_targets(operations, entry, prefixed)
-          {:error, _detail} -> []
-        end
+        {:error, detail} ->
+          {:halt, IntegrationMessages.bad_prefixed_ids_message(:regen, key, detail)}
+      end
+    end
+
+    # Plain regen: the pruned spec must still hold exactly what the
+    # entry's `tags:` select, under the scheme its `auth:` names.
+    # `--sync` has just re-pruned it from them.
+    defp check_pruned(igniter, key, entry, {spec_path, spec, prefixed}) do
+      if igniter.args.options[:sync] do
+        :ok
+      else
+        with :ok <- check_selection(key, entry, {spec_path, spec, prefixed}),
+             do: check_auth(key, entry, spec_path, spec)
+      end
+    end
+
+    defp check_selection(key, entry, {spec_path, spec, prefixed}) do
+      operations = Operation.extract(spec)
+      exempt = unselected_targets(operations, entry, prefixed)
 
       with {:ok, rule} <- Selection.rule(entry),
            [_ | _] = problems <- Selection.check(rule, operations -- exempt) do
@@ -343,30 +354,21 @@ if Code.ensure_loaded?(Igniter) do
     # The entry's `auth: [scheme: …]` must be the scheme the pruned spec
     # wires; a changed choice is applied with `--sync`.
     defp check_auth(key, entry, spec_path, spec) do
-      case Auth.auth_scheme(entry) do
-        {:ok, nil} ->
-          :ok
+      scheme = Auth.auth_scheme(entry)
 
-        {:ok, scheme} ->
-          if Auth.primary(spec) == scheme,
-            do: :ok,
-            else:
-              {:halt, Messages.auth_mismatch_message(key, spec_path, scheme, Auth.primary(spec))}
-      end
+      if scheme in [nil, Auth.primary(spec)],
+        do: :ok,
+        else: {:halt, Messages.auth_mismatch_message(key, spec_path, scheme, Auth.primary(spec))}
     end
 
-    defp wiring(igniter, names, spec, entry) do
+    defp wiring(igniter, names, %{spec: spec, entry: entry, values: values}) do
       %{
         otp_app: Igniter.Project.Application.app_name(igniter),
         names: names,
         auth: Auth.strategy(spec),
         servers: Servers.resolve(spec),
         prefix: prefix(entry, Operation.extract(spec)),
-        values:
-          case Values.parse(entry) do
-            {:ok, values} -> values
-            {:error, _} -> Values.default()
-          end
+        values: values
       }
     end
 
@@ -376,49 +378,37 @@ if Code.ensure_loaded?(Igniter) do
     # that config; it is only the fallback for an entry without one. A
     # hand-edit can add a path outside the recorded prefix — halt then,
     # rather than strip the wrong segments.
-    defp render(igniter, names, spec_path, spec, entry) do
-      operations = Operation.extract(spec)
-      prefix = prefix(entry, operations)
+    defp render(igniter, names, input) do
+      operations = Operation.extract(input.spec)
+      prefix = prefix(input.entry, operations)
 
       if BasePath.prefix_of_all?(operations, prefix) do
-        render_prefixed(igniter, names, {spec_path, spec, entry}, operations, prefix)
+        render_prefixed(igniter, names, input, operations, prefix)
       else
         Igniter.add_issue(
           igniter,
-          Messages.base_path_mismatch_message(spec_path, prefix, operations)
+          Messages.base_path_mismatch_message(input.spec_path, prefix, operations)
         )
       end
     end
 
-    defp render_prefixed(igniter, names, {spec_path, spec, entry}, operations, prefix) do
-      key = Config.key(names.integration)
+    defp render_prefixed(igniter, names, %{values: values} = input, operations, prefix) do
+      auth = Auth.strategy(input.spec)
 
-      auth = Auth.strategy(spec)
+      case Headers.sent_by_auth(values.headers, auth) do
+        [] ->
+          igniter
+          |> render_layers(names, input, functions(operations, input.prefixed), prefix)
+          |> wire_values(names, input.entry, values, auth)
+          |> stale_config_notice(names, values, auth)
+          |> ExternalSetup.run(names, values, auth)
 
-      with {:prefixed, {:ok, prefixed}} <- {:prefixed, PrefixedIds.prepare(spec, entry)},
-           {:values, {:ok, values}} <- {:values, Values.parse(entry)},
-           {:auth_headers, []} <- {:auth_headers, Headers.sent_by_auth(values.headers, auth)} do
-        functions = functions(operations, prefixed)
+        headers ->
+          key = Config.key(names.integration)
 
-        igniter
-        |> render_layers(names, {spec_path, spec, entry, prefixed, values}, functions, prefix)
-        |> wire_values(names, entry, values, auth)
-        |> stale_config_notice(names, values, auth)
-        |> ExternalSetup.run(names, values, auth)
-      else
-        {:prefixed, {:error, detail}} ->
           Igniter.add_issue(
             igniter,
-            IntegrationMessages.bad_prefixed_ids_message(:regen, key, detail)
-          )
-
-        {:values, {:error, detail}} ->
-          Igniter.add_issue(igniter, IntegrationMessages.bad_values_message(:regen, key, detail))
-
-        {:auth_headers, names} ->
-          Igniter.add_issue(
-            igniter,
-            IntegrationMessages.auth_header_message(:regen, key, names, auth)
+            IntegrationMessages.auth_header_message(:regen, key, headers, auth)
           )
       end
     end
@@ -498,13 +488,10 @@ if Code.ensure_loaded?(Igniter) do
     defp prefix(entry, operations),
       do: Config.base_path(entry) || BasePath.common_prefix(operations)
 
-    defp render_layers(
-           igniter,
-           names,
-           {spec_path, spec, entry, prefixed, values},
-           operations,
-           prefix
-         ) do
+    defp render_layers(igniter, names, input, operations, prefix) do
+      %{spec_path: spec_path, spec: spec, entry: entry, prefixed: prefixed, values: values} =
+        input
+
       otp_app = Igniter.Project.Application.app_name(igniter)
       auth = Auth.strategy(spec)
       servers = Servers.resolve(spec)

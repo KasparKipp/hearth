@@ -477,6 +477,20 @@ defmodule Mix.Tasks.Hearth.RegenTest do
                "defmodule Test.Billing.Petstore do"
     end
 
+    test "halts on another entry's values sharing a key, naming that entry" do
+      other = ~s|other: [module: Test.Other, headers: ["x-a": :api_key]]|
+      files = %{@petstore | ".hearth.exs" => "[integrations: [#{@petstore_entry}, #{other}]]"}
+
+      igniter = test_project(files: files) |> regen()
+
+      assert has_issue?(igniter, [
+               ".hearth.exs: the entry for other",
+               ~s|`headers:` "x-a" use the same key :api_key|
+             ])
+
+      refute Igniter.exists?(igniter, @layer1)
+    end
+
     test "halts when it doesn't name a module" do
       files = %{@petstore | ".hearth.exs" => ~s|[integrations: [petstore: [source: "x.yaml"]]]|}
 

@@ -45,12 +45,16 @@ defmodule Hearth.Spec.Values do
   @spec default() :: values()
   def default, do: %{credential: {:config, :api_key}, headers: [], base_url: nil}
 
-  @spec parse(keyword()) :: {:ok, values()} | {:error, String.t()}
-  def parse(entry) do
-    values = %{credential: credential(entry), headers: headers(entry), base_url: base_url(entry)}
+  # `Hearth.Config.Schema` has checked the entry — its shape, and
+  # `check/1` when the file was read.
+  @spec parse(keyword()) :: values()
+  def parse(entry),
+    do: %{credential: credential(entry), headers: headers(entry), base_url: base_url(entry)}
 
-    with :ok <- check(values), do: {:ok, values}
-  end
+  # The checks across an entry's values: no key shared between them, none
+  # Req already uses, `:base_url` for the base URL.
+  @spec check(keyword()) :: :ok | {:error, String.t()}
+  def check(entry), do: conflicts(parse(entry))
 
   # The request options `new/1` registers: the credential's (when the
   # auth scheme takes one), each header's, the resolvers'. `:base_url`
@@ -115,7 +119,7 @@ defmodule Hearth.Spec.Values do
   # Every key a value owns — its config or option key, `:api_key` for a
   # resolved credential — belongs to that value alone. Resolver
   # `options:` may be shared: they only read what the call passes.
-  defp check(values) do
+  defp conflicts(values) do
     owned =
       [{"`credential:`", values.credential}] ++
         Enum.map(values.headers, fn {name, value} -> {"`headers:` #{inspect(name)}", value} end) ++

@@ -164,6 +164,27 @@ defmodule Mix.Tasks.Hearth.PrefixedIdsTest do
       assert gen(prefixed_ids: prefixed) |> issue_text() =~
                ~s|prefix cus names the operation "NoSuchOperation"|
     end
+
+    # Resolved once, before the pruned spec is checked against `tags:` —
+    # here `:none` no longer selects ListCustomers either.
+    test "regen halts on a prefix target the pruned spec doesn't have, before the selection" do
+      issues =
+        gen()
+        |> apply_igniter!()
+        |> Hearth.Config.Project.put_fields(:shop,
+          prefixed_ids: [prefixes: [cus: "NoSuchOperation"]],
+          tags: [Customers: :none]
+        )
+        |> apply_igniter!()
+        |> Igniter.compose_task("hearth.regen", ["shop"])
+        |> issue_text()
+
+      assert issues =~
+               "hearth.regen: the .hearth.exs entry for shop has a problem in `prefixed_ids:`"
+
+      assert issues =~ ~s|prefix cus names the operation "NoSuchOperation"|
+      refute issues =~ "doesn't select it"
+    end
   end
 
   describe "added later" do
