@@ -104,6 +104,7 @@ defmodule Mix.Tasks.Hearth.Gen.InstallAndDocsTest do
       assert doc =~ "registry: %{"
       refute doc =~ "coming soon"
       refute doc =~ "Only local file sources"
+      refute doc =~ ~s(--tag "Customers:GetCustomers")
     end
 
     test "long_doc --list text covers file sources" do

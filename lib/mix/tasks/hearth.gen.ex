@@ -33,7 +33,7 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
         mix hearth.gen https://example.com/openapi.json --integration Acme
 
         # Registry shortcut — Hearth's, or one in your .hearth.exs
-        mix hearth.gen stripe@2026-04-22.dahlia --tag "Customers:GetCustomers"
+        mix hearth.gen acme@1.0
 
     The source is recorded as the integration's `.hearth.exs`
     `source:` exactly as given (a bare shortcut as `name@latest`), so

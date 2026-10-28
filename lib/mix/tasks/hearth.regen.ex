@@ -46,9 +46,10 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
     `--sync` re-prunes the pruned spec from the entry's `source:` with
     its `tags:`, re-records `tags:`, lists the operations added and
     removed, and regenerates. Use it after editing `tags:`, or after
-    pointing `source:` at a newer version of the spec. `source:` must
-    be a local spec file. `--sync --all` asks for confirmation first
-    (`--yes` skips it) — run `mix hearth.diff --all` to see the drift.
+    pointing `source:` at a newer version of the spec.
+    A URL or shortcut source is fetched again; plain `regen` never
+    fetches. `--sync --all` asks for confirmation first (`--yes` skips
+    it) — run `mix hearth.diff --all` to see the drift.
 
     When a function goes away — renamed, or now covered by a
     `prefixed_ids` function — `--sync` asks to rename its calls across

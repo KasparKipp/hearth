@@ -140,10 +140,8 @@ touched, and `regen --sync` applies it.
 ## Status
 
 Early (`0.1.x`). Generation works from OpenAPI 3.0 / 3.1 and Swagger 2.0
-specs — local files (YAML or JSON), URLs, and registry shortcuts, Hearth's
-(`mix hearth.gen stripe@latest`) or your own in `.hearth.exs`. Bearer,
-API-key and HTTP basic auth are wired automatically; OAuth2 and OpenID
-Connect leave a TODO in the raw client.
+specs. Bearer, API-key and HTTP basic auth are wired automatically; OAuth2
+and OpenID Connect leave a TODO in the raw client.
 
 ## License
 
