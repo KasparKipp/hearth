@@ -47,7 +47,7 @@ if Code.ensure_loaded?(Igniter) do
           {added, removed} = changes(Operation.extract(previous), result.selected)
           renamed = renamed(Operation.extract(previous), Operation.extract(result.pruned))
           auth = auth_change(previous, result.pruned)
-          drift = Drift.compare(previous, result.pruned)
+          drift = Drift.compare(previous, result.pruned, result.merge)
           fields = Selection.describe(result.operations, result.selected)
 
           igniter =

@@ -135,7 +135,7 @@ if Code.ensure_loaded?(Igniter) do
 
       with {:ok, igniter, current} <- read_pruned(igniter, key, spec_path),
            {:ok, igniter, result} <- reprune(igniter, key, entry, current) do
-        changes = Drift.compare(current, result.pruned)
+        changes = Drift.compare(current, result.pruned, result.merge)
         unlisted = Selection.unlisted(result.operations, result.rule)
 
         report =

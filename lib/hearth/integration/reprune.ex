@@ -34,7 +34,7 @@ if Code.ensure_loaded?(Igniter) do
             stale_overrides: [Overrides.stale()],
             auth: keyword(),
             splits: [Hearth.Spec.Merge.component()],
-            source_keys: [atom()]
+            merge: [keys: [atom()], splits: [Hearth.Spec.Merge.component()]]
           }
 
     @type reason ::
@@ -82,8 +82,8 @@ if Code.ensure_loaded?(Igniter) do
            pruned: pruned,
            stale_overrides: stale,
            auth: auth,
-           splits: loaded.splits,
-           source_keys: source_keys(source)
+           splits: loaded.splits -- Map.keys(overrides.shared),
+           merge: [keys: source_keys(source), splits: loaded.splits]
          }}
       else
         [] -> {:error, label(source), :empty_selection}
@@ -145,7 +145,7 @@ if Code.ensure_loaded?(Igniter) do
           plain = get_in(current, ["components", section, name]),
           not is_nil(plain) do
         keeper =
-          Enum.find(result.source_keys, hd(result.source_keys), fn key ->
+          Enum.find(result.merge[:keys], hd(result.merge[:keys]), fn key ->
             result.pruned
             |> get_in(["components", section, "#{key}_#{name}"])
             |> Hearth.Spec.Merge.alike?(plain)

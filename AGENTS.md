@@ -303,6 +303,7 @@ lib/
       values.ex                # credential: / headers: / base_url: — config, option or resolver
       drift.ex                 # pruned spec vs re-pruned source → changes
       drift/schema.ex          # JSON schema shape changes (additive / breaking)
+      drift/copies.ex          # sources: copies (items_x) paired with x across a split / join
     render/                    # pure: data → source strings
       module_names.ex          # every layer's module from Layer 1
       layer1.ex  layer2.ex  layer3.ex
@@ -624,8 +625,13 @@ What exists, condensed. The blow-by-blow is in git history.
   parameters / request body / responses with local `$ref`s resolved, and
   `components/schemas` by name, all through `Drift.Schema` (properties,
   `required`, `enum`, `type`, `$ref`, `items`, compositions; annotations
-  ignored). `Selection.unlisted/2` lists new upstream operations `tags:`
-  doesn't mention (informational). `source_sha256` (written by gen and
+  ignored). With `sources:`, a merge's copies (`items_x`) pair with the
+  plain `x` on the other side (`Drift.Copies`; splits from the merge's
+  own list, joins by name): a split or join is one non-breaking line,
+  then each source compared with what it had (its copy, else `x`), so a
+  `shared:` pin moving between sources isn't drift; refs to a copy count
+  as refs to `x`. `Selection.unlisted/2` lists new upstream operations
+  `tags:` doesn't mention (informational). `source_sha256` (written by gen and
   `--sync`) says whether the source changed since. Drift is an Igniter
   issue — `--fail-on breaking` downgrades additive-only drift to a notice
   — and `run/1` exits 1 on issues. `--sync` prints the same

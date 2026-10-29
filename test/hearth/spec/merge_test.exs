@@ -166,8 +166,8 @@ defmodule Hearth.Spec.MergeTest do
                Merge.merge(items: items(), orders: orders())
     end
 
-    test "keep: pins the plain name to one source; only the others are prefixed" do
-      assert {:ok, merged, []} =
+    test "keep: pins the plain name to one source; only the others are prefixed, still a split" do
+      assert {:ok, merged, [{"schemas", "address"}]} =
                Merge.merge([items: items(), orders: orders()], %{{"schemas", "address"} => :items})
 
       schemas = merged["components"]["schemas"]
@@ -290,7 +290,7 @@ defmodule Hearth.Spec.MergeTest do
     test "keep: the pinned source's copy wins when the copies differ only in docs" do
       described = &put_in(&1, ["components", "schemas", "money", "description"], &2)
 
-      assert {:ok, merged, []} =
+      assert {:ok, merged, [{"schemas", "address"}]} =
                Merge.merge(
                  [items: described.(items(), "Item."), orders: described.(orders(), "Order.")],
                  %{{"schemas", "address"} => :items, {"schemas", "money"} => :orders}
