@@ -203,6 +203,9 @@ defmodule Mix.Tasks.Hearth.SourcesTest do
       report = igniter |> Igniter.compose_task("hearth.diff", ["kit"]) |> issue_text()
 
       assert report =~ "deadline is no longer the same in every source"
+      assert report =~ "~ deadline: split per source into items_deadline, orders_deadline"
+      assert report =~ "~ orders_deadline: property tz added"
+      refute report =~ "- deadline"
       assert report =~ ~s|overrides: [shared: %{"schemas/deadline" => :items}]|
 
       synced = Igniter.compose_task(igniter, "hearth.regen", ["kit", "--sync"])
@@ -239,7 +242,8 @@ defmodule Mix.Tasks.Hearth.SourcesTest do
 
       report = issue_text(diff)
       refute report =~ "no longer the same"
-      assert report =~ "+ orders_deadline"
+      assert report =~ "~ deadline: orders_deadline split off from it"
+      assert report =~ "~ orders_deadline: property tz added"
       refute report =~ "- deadline"
       refute report =~ "items_deadline"
     end

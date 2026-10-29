@@ -255,6 +255,131 @@ defmodule Hearth.Spec.DriftTest do
     end
   end
 
+  # `sources:` merges split a component per source (`Pet` → `items_Pet`,
+  # `orders_Pet`) when the copies stop matching, and join them back when
+  # they match again. The generated code never names a schema.
+  describe "compare/3 with a merge" do
+    @merge [keys: [:items, :orders], splits: [{"schemas", "Pet"}]]
+    @tag_prop %{"tag" => %{"type" => "string"}}
+
+    defp pet_at(spec, name) do
+      put_in(
+        spec,
+        ["paths", "/pets/{id}", "get", "responses", "200", "content", "application/json"],
+        %{"schema" => %{"$ref" => "#/components/schemas/#{name}"}}
+      )
+    end
+
+    defp tagged, do: put_in(@pet, ["properties"], Map.merge(@pet["properties"], @tag_prop))
+
+    defp split do
+      base()
+      |> put_in(["components", "schemas"], %{"items_Pet" => @pet, "orders_Pet" => tagged()})
+      |> pet_at("items_Pet")
+    end
+
+    test "a split is one non-breaking line, then each copy's own changes" do
+      assert summary(Drift.compare(base(), split(), @merge)) == [
+               {:schema, :changed, "Pet", "split per source into items_Pet, orders_Pet", false},
+               {:schema, :changed, "orders_Pet", "property tag added", false}
+             ]
+    end
+
+    test "a join is one non-breaking line, then what each copy lost or gained" do
+      assert summary(Drift.compare(split(), base(), @merge)) == [
+               {:schema, :changed, "Pet", "joined from items_Pet, orders_Pet", false},
+               {:schema, :changed, "Pet", "from orders_Pet: property tag removed", true}
+             ]
+    end
+
+    test "a copy split off a name its keeper still holds" do
+      kept =
+        put_in(base(), ["components", "schemas"], %{"Pet" => @pet, "orders_Pet" => tagged()})
+
+      assert summary(Drift.compare(base(), kept, @merge)) == [
+               {:schema, :changed, "Pet", "orders_Pet split off from it", false},
+               {:schema, :changed, "orders_Pet", "property tag added", false}
+             ]
+    end
+
+    test "refs inside the copies follow the pairing" do
+      owner = fn name -> %{"type" => "object", "properties" => %{"pet" => %{"$ref" => name}}} end
+
+      old =
+        put_in(base(), ["components", "schemas", "Owner"], owner.("#/components/schemas/Pet"))
+
+      new =
+        split()
+        |> put_in(
+          ["components", "schemas", "items_Owner"],
+          owner.("#/components/schemas/items_Pet")
+        )
+        |> put_in(
+          ["components", "schemas", "orders_Owner"],
+          owner.("#/components/schemas/orders_Pet")
+        )
+
+      merge = Keyword.update!(@merge, :splits, &[{"schemas", "Owner"} | &1])
+      refute Drift.breaking?(Drift.compare(old, new, merge))
+    end
+
+    # `shared:` moves `Pet` from items to orders: items' copy splits off
+    # and orders' copy joins it, each compared with what its source had.
+    defp pinned(pet, other, copy),
+      do: put_in(base(), ["components", "schemas"], %{"Pet" => pet, "#{other}_Pet" => copy})
+
+    test "a pin moving between sources compares each source with itself" do
+      old = pinned(@pet, :orders, tagged())
+      new = pinned(tagged(), :items, @pet)
+
+      assert summary(Drift.compare(old, new, @merge)) == [
+               {:schema, :changed, "Pet", "items_Pet split off from it; orders_Pet joined it",
+                false}
+             ]
+
+      assert summary(Drift.compare(old, pinned(@pet, :items, @pet), @merge)) == [
+               {:schema, :changed, "Pet", "items_Pet split off from it; orders_Pet joined it",
+                false},
+               {:schema, :changed, "Pet", "from orders_Pet: property tag removed", true}
+             ]
+    end
+
+    test "a schema named like a copy, but not one the merge split, stays itself" do
+      status = %{"type" => "string"}
+
+      old = put_in(base(), ["components", "schemas", "status"], status)
+      new = put_in(old, ["components", "schemas", "items_status"], status)
+
+      assert summary(Drift.compare(old, new, @merge)) == [
+               {:schema, :added, "items_status", nil, false}
+             ]
+    end
+
+    test "only the copies the pruned spec reaches" do
+      partial = put_in(base(), ["components", "schemas"], %{"orders_Pet" => tagged()})
+
+      assert summary(Drift.compare(base(), partial, @merge)) == [
+               {:schema, :changed, "Pet", "split per source into orders_Pet", false},
+               {:schema, :changed, "orders_Pet", "property tag added", false}
+             ]
+    end
+
+    test "a join goes by the longest source key a copy starts with" do
+      merge = [keys: [:a, :a_b]]
+      old = put_in(base(), ["components", "schemas"], %{"a_b_Pet" => tagged(), "b_Pet" => @pet})
+      new = put_in(base(), ["components", "schemas"], %{"Pet" => @pet, "b_Pet" => @pet})
+
+      assert summary(Drift.compare(old, new, merge)) == [
+               {:schema, :changed, "Pet", "joined from a_b_Pet", false},
+               {:schema, :changed, "Pet", "from a_b_Pet: property tag removed", true}
+             ]
+    end
+
+    test "without source keys, names are compared as they are" do
+      assert {:schema, :removed, "Pet", nil, true} in summary(Drift.compare(base(), split()))
+    end
+  end
+
   describe "breaking?/1" do
     test "is true when any change is breaking" do
       refute Drift.breaking?([%{breaking?: false}])

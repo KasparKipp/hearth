@@ -19,8 +19,10 @@ defmodule Hearth.Spec.Merge do
   #     differs through a renamed ref then differs too. `keep` pins a
   #     plain name to one source (`%{{"schemas", "address"} => :items}`,
   #     from `overrides: [shared: …]`): that source keeps it, only the
-  #     others are prefixed; when the copies are alike, its copy is kept. The split components without a keeper are
-  #     returned, so diff can warn when a shared name splits;
+  #     others are prefixed; when the copies are alike, its copy is
+  #     kept. The split components are returned, pinned ones included,
+  #     so diff can pair a split's copies with the plain name, and warn
+  #     when a shared name splits;
   #   * tags and security are unioned, info names every source (and
   #     keeps a description only when they share it), and the first
   #     source wins any other top-level key.
@@ -49,7 +51,7 @@ defmodule Hearth.Spec.Merge do
 
       with {:ok, paths} <- paths(sources),
            :ok <- unique_operation_ids(sources) do
-        {:ok, document(sources, paths, origin, keep), splits -- Map.keys(keep)}
+        {:ok, document(sources, paths, origin, keep), splits}
       end
     end
   end

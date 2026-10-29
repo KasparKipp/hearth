@@ -281,9 +281,10 @@ Each source's server path joins its paths (`/items/v1/items/{id}`).
 Components the sources shape differently get the source key as a
 prefix (`items_address`); ones that differ only in docs (descriptions,
 summaries, titles, examples) are kept once, as the first source has
-them. When one that was shared splits, `diff` says
-which source to pin with `overrides: [shared: %{"schemas/address" =>
-:items}]`. `--source` doesn't apply.
+them. When one that was shared splits, `diff` reports the split and
+each copy's changes, and says which source to pin with
+`overrides: [shared: %{"schemas/address" => :items}]`. `--source`
+doesn't apply.
 
 ## Headers
 

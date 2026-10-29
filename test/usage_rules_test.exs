@@ -77,6 +77,7 @@ defmodule Hearth.UsageRulesTest do
     assert @content =~ "## Several sources"
     assert @content =~ ~s|sources: [items: "priv/specs/items.json", orders: "orders@1.2"]|
     assert @content =~ ~s|overrides: [shared: %{"schemas/address" =>|
+    assert @content =~ "`diff` reports the split and\neach copy's changes"
     assert @content =~ "summaries, titles, examples) are kept once"
   end
 
