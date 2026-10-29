@@ -38,6 +38,55 @@ jobs:
       - run: mix deps.audit
       - run: mix hex.audit
 
+  dialyzer:
+    name: Dialyzer
+    runs-on: ubuntu-latest
+    env:
+      # Analyse the library as shipped, without test/support.
+      MIX_ENV: dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        id: beam
+        with:
+          elixir-version: "1.20"
+          otp-version: "29"
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: dialyzer-${{ hashFiles('mix.lock') }}
+
+      # PLTs are restored and saved separately so a failing Dialyzer run
+      # still caches them (mix.exs puts them in priv/plts).
+      - name: Restore PLT cache
+        id: plt_cache
+        uses: actions/cache/restore@v4
+        with:
+          key: plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
+          path: priv/plts
+
+      - run: mix deps.get
+
+      - name: Create PLTs
+        if: steps.plt_cache.outputs.cache-hit != 'true'
+        run: mix dialyzer --plt
+
+      - name: Save PLT cache
+        if: steps.plt_cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: plt-${{ runner.os }}-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+          path: priv/plts
+
+      # `github` annotates the PR diff; `dialyxir` keeps the full warning in the log.
+      - run: mix dialyzer --format github --format dialyxir
+
   test:
     name: Test (Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }})
     runs-on: ubuntu-latest

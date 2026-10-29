@@ -25,7 +25,7 @@ if Code.ensure_loaded?(Igniter) do
 
     @type result :: %{
             source: String.t(),
-            sha256: String.t(),
+            sha256: String.t() | [{atom(), String.t()}],
             operations: [Operation.t()],
             rule: Selection.rule(),
             selected: [Operation.t()],

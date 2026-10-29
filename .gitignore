@@ -29,3 +29,6 @@ hearth-*.tar
 /lib/hearth/generated/
 /test/hearth/generated/
 /priv/hearth/
+
+# Dialyzer PLTs (cached in CI).
+/priv/plts/
