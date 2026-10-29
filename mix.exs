@@ -13,6 +13,7 @@ defmodule Hearth.MixProject do
       aliases: aliases(),
       package: package(),
       docs: docs(),
+      dialyzer: dialyzer(),
       deps: deps(),
       name: "Hearth",
       description: "Mix tasks that generate three-layer Req HTTP clients from OpenAPI specs.",
@@ -59,6 +60,17 @@ defmodule Hearth.MixProject do
     ]
   end
 
+  # PLTs live in priv/plts so CI can cache them (gitignored).
+  # Hearth is Mix tasks, so `:mix` must be in the PLT; the optional
+  # deps aren't runtime apps, so they're added explicitly.
+  defp dialyzer do
+    [
+      plt_core_path: "priv/plts",
+      plt_local_path: "priv/plts",
+      plt_add_apps: [:mix, :igniter]
+    ]
+  end
+
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
@@ -81,6 +93,7 @@ defmodule Hearth.MixProject do
       {:plug, "~> 1.0", optional: true},
       {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:ex_crap, "~> 0.1", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]

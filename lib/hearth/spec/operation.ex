@@ -161,11 +161,9 @@ defmodule Hearth.Spec.Operation do
     }
   end
 
-  defp params_in(params, location) when is_list(params) do
+  defp params_in(params, location) do
     Enum.filter(params, fn param -> is_map(param) and param["in"] == location end)
   end
-
-  defp params_in(_params, _location), do: []
 
   defp resolve_all(params, component_params) when is_list(params) do
     Enum.map(params, &resolve(&1, component_params))
