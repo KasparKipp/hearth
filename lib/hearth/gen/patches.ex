@@ -81,6 +81,8 @@ if Code.ensure_loaded?(Igniter) do
 
     defp append_alternates(igniter, _file, _otp_app, _layer1, [], _prefix), do: igniter
 
+    # TODO: follow mix.exs `config_path`, as `Gen.TestConfig` does, not
+    # `config/`, for umbrella children.
     defp append_alternates(igniter, file, otp_app, layer1, urls, prefix) do
       marker = alternates_marker(layer1)
 

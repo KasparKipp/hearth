@@ -434,6 +434,7 @@ if Code.ensure_loaded?(Igniter) do
 
     # A value that moved off config leaves its runtime.exs line behind;
     # regen doesn't remove config, so it names the lines to delete.
+    # TODO: follow mix.exs `config_path` for runtime.exs, not `config/`.
     defp stale_config_notice(igniter, names, values, auth) do
       igniter = Igniter.include_existing_file(igniter, "config/runtime.exs", required?: false)
 

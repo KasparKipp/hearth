@@ -14,11 +14,10 @@ if Code.ensure_loaded?(Igniter) do
     # file: prod values live in `config/runtime.exs`. Instead,
     # `config/test.exs` is created when missing and `config/config.exs`
     # made to load it (`ensure_loaded/1`), leaving every other file alone.
+    # Both follow mix.exs `config_path`, like `configure/6` does: an
+    # umbrella child's (`"../../config/config.exs"`) are the umbrella's.
     #
     # Guarded like the Mix tasks: Igniter is an optional dependency.
-
-    @config_exs "config/config.exs"
-    @test_exs "config/test.exs"
 
     @import_test """
     if config_env() == :test do
@@ -28,34 +27,44 @@ if Code.ensure_loaded?(Igniter) do
 
     @spec configure(Igniter.t(), atom(), [atom()], Macro.t()) :: Igniter.t()
     def configure(igniter, otp_app, config_path, value) do
+      {config_exs, test_exs} = paths(igniter)
+
       igniter
-      |> ensure_loaded()
-      |> Igniter.update_elixir_file(@test_exs, fn zipper ->
+      |> ensure_loaded(config_exs, test_exs)
+      |> Igniter.update_elixir_file(test_exs, fn zipper ->
         zipper
         |> Igniter.Project.Config.modify_config_code(config_path, otp_app, value,
           updater: &{:ok, &1}
         )
         |> case do
-          :error -> {:warning, failed(otp_app, config_path, value)}
+          :error -> {:warning, failed(test_exs, otp_app, config_path, value)}
           other -> other
         end
       end)
     end
 
-    defp failed(otp_app, [first | rest], value) do
-      """
-      Could not set #{inspect([otp_app, first | rest])} in #{@test_exs}. Add:
+    # The project's config file and the test.exs beside it.
+    defp paths(igniter) do
+      config_exs = Igniter.Project.Application.config_path(igniter)
+      {config_exs, config_exs |> Path.dirname() |> Path.join("test.exs")}
+    end
 
-          config #{inspect(otp_app)}, #{inspect(first)}, #{Enum.map_join(rest, ", ", &"#{&1}: ")}#{Sourceror.to_string(value)}
+    # Callers set a module's key (`[Layer1, :base_url]`); a deeper path
+    # would need a nested example, so it doesn't match.
+    defp failed(test_exs, otp_app, [module, key], value) do
+      """
+      Could not set #{inspect([otp_app, module, key])} in #{test_exs}. Add:
+
+          config #{inspect(otp_app)}, #{inspect(module)}, #{key}: #{Sourceror.to_string(value)}
       """
     end
 
-    # `config/test.exs` exists, and `config/config.exs` imports it.
-    defp ensure_loaded(igniter) do
+    # test.exs exists, and the config file imports it.
+    defp ensure_loaded(igniter, config_exs, test_exs) do
       igniter
-      |> Igniter.create_or_update_elixir_file(@test_exs, "import Config\n", &{:ok, &1})
+      |> Igniter.create_or_update_elixir_file(test_exs, "import Config\n", &{:ok, &1})
       |> Igniter.create_or_update_elixir_file(
-        @config_exs,
+        config_exs,
         "import Config\n\n" <> @import_test,
         &import_test/1
       )

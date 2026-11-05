@@ -443,7 +443,9 @@ What exists, condensed. The blow-by-blow is in git history.
   empty `dev.exs` / `prod.exs` and appends `import_config
   "#{config_env()}.exs"`; test.exs is created when missing, and a
   `config.exs` with no `import_config` that could load it gains an
-  `if config_env() == :test` import); extra servers as commented
+  `if config_env() == :test` import; both paths follow mix.exs
+  `config_path`, so an umbrella child's go to the umbrella's
+  `config/`); extra servers as commented
   alternates. Nothing writes `dev.exs` or `prod.exs`.
 - **Pruned spec** — `Prune.prune/2` keeps the selected paths and the
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
