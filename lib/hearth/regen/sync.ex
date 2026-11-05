@@ -21,6 +21,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Fs.Content
     alias Hearth.Integration.Messages, as: IntegrationMessages
     alias Hearth.Integration.Reprune
+    alias Hearth.Prompt
     alias Hearth.Regen.Messages
     alias Hearth.Spec.Auth
     alias Hearth.Spec.Drift
@@ -153,8 +154,7 @@ if Code.ensure_loaded?(Igniter) do
       do: Igniter.add_notice(igniter, Messages.external_renamed_notice(location, renamed))
 
     defp accept?(igniter, location, ids) do
-      igniter.args.options[:yes] || igniter.assigns[:test_mode?] ||
-        Mix.shell().yes?(Messages.external_prompt(location, ids), default: :no)
+      Prompt.confirm?(igniter, Messages.external_prompt(location, ids))
     end
 
     # Whether the external test already calls the operation's Layer 3

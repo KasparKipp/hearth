@@ -5,6 +5,29 @@ defmodule Hearth.Fs.ContentTest do
 
   alias Hearth.Fs.Content
 
+  describe "project_path/1" do
+    test "keeps a relative path as it is" do
+      assert Content.project_path("priv/spec.yaml") == "priv/spec.yaml"
+      assert Content.project_path("../specs/spec.yaml") == "../specs/spec.yaml"
+    end
+
+    test "makes an absolute path inside the project relative to it" do
+      assert Content.project_path(Path.expand("priv/spec.yaml")) == "priv/spec.yaml"
+    end
+
+    test "reaches an absolute path outside the project through .." do
+      assert Content.project_path(Path.expand("../specs/spec.yaml")) == "../specs/spec.yaml"
+    end
+  end
+
+  describe "read/2 with an absolute path" do
+    test "finds the file under its project-relative key" do
+      igniter = test_project(files: %{"priv/spec.yaml" => "openapi: 3.0.0\n"})
+
+      assert Content.read(igniter, Path.expand("priv/spec.yaml")) == {:ok, "openapi: 3.0.0\n"}
+    end
+  end
+
   describe "read/2" do
     test "returns the content of a file in the igniter's Rewrite" do
       igniter = test_project(files: %{"priv/spec.yaml" => "openapi: 3.0.0\n"})
