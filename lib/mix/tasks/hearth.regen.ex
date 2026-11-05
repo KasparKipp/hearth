@@ -57,6 +57,10 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
     external tests for new functions, and lists tests that still call an
     operation it removed. `--yes` accepts both.
 
+    Each of regen's questions defaults to no. Without a terminal to ask
+    in (a pipe, CI, cron) regen declines each one and prints it; pass
+    `--yes` to accept.
+
     ## Moving an integration
 
     `--module` regenerates exactly one integration into a new
@@ -94,8 +98,9 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
       * `--remove-old` — with `--module`, remove the old module too.
       * `--sync` — re-prune the pruned spec from `source:` with `tags:`
         first (see above).
-      * `--yes` — non-interactive: accept every `hearth:collaborating`
-        prompt.
+      * `--yes` — non-interactive: accept each of regen's questions, the
+        `hearth:collaborating` ones included. Without a terminal, and
+        without `--yes`, each one is declined.
     """
   end
 end
@@ -116,6 +121,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Integration.Manifest
     alias Hearth.Integration.Messages, as: IntegrationMessages
     alias Hearth.Integration.Names
+    alias Hearth.Prompt
     alias Hearth.Regen.CallSites
     alias Hearth.Regen.ExternalSetup
     alias Hearth.Regen.Messages
@@ -581,24 +587,24 @@ if Code.ensure_loaded?(Igniter) do
       Igniter.create_new_file(igniter, location, content, on_exists: :overwrite)
     end
 
-    # `hearth:collaborating` files prompt per file. `--yes` and test
-    # mode accept without asking.
     # `--sync --all` re-prunes every integration from its source — a
-    # potentially huge change. Ask first; `--yes` and test mode accept.
+    # potentially huge change. Ask first (`Hearth.Prompt`: `--yes` and
+    # test mode accept, no terminal declines).
     defp confirm_sync_all(igniter, selected) do
       cond do
         !(igniter.args.options[:sync] && igniter.args.options[:all]) -> :ok
-        igniter.args.options[:yes] || igniter.assigns[:test_mode?] -> :ok
-        Mix.shell().yes?(Messages.sync_all_prompt(Keyword.keys(selected)), default: :no) -> :ok
+        Prompt.confirm?(igniter, Messages.sync_all_prompt(Keyword.keys(selected))) -> :ok
         true -> {:error, Messages.sync_all_declined_message()}
       end
     end
 
+    # `hearth:collaborating` files prompt per file, like every question
+    # (`Hearth.Prompt`).
     defp accept?(igniter, location) do
-      igniter.args.options[:yes] || igniter.assigns[:test_mode?] ||
-        Mix.shell().yes?("hearth.regen: #{location} is hearth:collaborating — regenerate it?",
-          default: :no
-        )
+      Prompt.confirm?(
+        igniter,
+        "hearth.regen: #{location} is hearth:collaborating — regenerate it?"
+      )
     end
 
     defp format_reason(%{__exception__: true} = ex), do: Exception.message(ex)

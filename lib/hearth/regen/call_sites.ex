@@ -19,6 +19,7 @@ if Code.ensure_loaded?(Igniter) do
     # Guarded like the Mix tasks: Igniter is an optional dependency.
 
     alias Hearth.Fs.Content
+    alias Hearth.Prompt
     alias Hearth.Regen.Messages
     alias Hearth.Spec.Operation
     alias Hearth.Spec.PrefixedIds
@@ -59,8 +60,7 @@ if Code.ensure_loaded?(Igniter) do
     def accept?(_igniter, []), do: false
 
     def accept?(igniter, replacements) do
-      igniter.args.options[:yes] || igniter.assigns[:test_mode?] ||
-        Mix.shell().yes?(Messages.call_sites_prompt(replacements), default: :no)
+      Prompt.confirm?(igniter, Messages.call_sites_prompt(replacements))
     end
 
     @spec rewrite(Igniter.t(), map(), [{String.t(), String.t()}], boolean()) :: Igniter.t()

@@ -134,6 +134,10 @@ expectations included. It asks before appending external tests for new
 functions, and names tests that still call a removed operation.
 `--yes` accepts both questions.
 
+Each of `regen`'s questions defaults to no. Without a terminal to ask
+in — a pipe, CI, cron — `regen` declines each one and prints it; pass
+`--yes` to accept them all.
+
 To move one integration into a new namespace:
 
     mix hearth.regen stripe --module MyApp.Payments.Stripe
@@ -340,6 +344,7 @@ Hand-edited a generated file? Mark it in the moduledoc:
 
 * `hearth:owned` — `regen` skips the file entirely.
 * `hearth:collaborating` — `regen` prompts y/N before overwriting.
+  Without a terminal it keeps the file, unless you pass `--yes`.
 * _(no token)_ — `regen` overwrites silently. The default for
   freshly-generated files.
 

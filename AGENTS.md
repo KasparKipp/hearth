@@ -129,6 +129,16 @@ generated files are plumbing. The opt-outs are moduledoc tokens,
 test mode accept), documented for users in usage-rules.md. What the code
 keeps:
 
+- regen's questions go through `Hearth.Prompt.confirm?/2`. Only a `--yes`
+  in the user's flags (`argv_flags`) accepts: Igniter 0.8 puts `yes: true`
+  in `options` whenever stdin isn't a terminal (`Igniter.Mix.Task.set_yes/2`),
+  so regen code never reads `options[:yes]` (a test scans for it). With no
+  terminal (stdin not a character device, or `/dev/null`), every question
+  is declined and printed. The `:hearth_tty?`
+  assign stands in for the terminal in tests; without it, test mode
+  accepts. gen's install prompt still takes `options[:yes]` — it only adds
+  a formatter import, as Igniter's own installers do.
+
 - Only `@moduledoc` text is scanned (`Ownership.classify/1` parses the file),
   so a token copied into a Layer 2 `@doc` from a spec description, or
   mentioned in a comment, doesn't count. A file that doesn't parse falls
@@ -334,9 +344,10 @@ lib/
       external_setup.ex        # seed values the external scaffold lacks (Igniter-guarded)
     diff/
       messages.ex              # diff's report and halts
+    prompt.ex                  # regen's y/N questions: --yes given, terminal, or decline
     fs/
       ownership.ex             # hearth:owned / hearth:collaborating
-      content.ex               # read through Igniter's Rewrite (Igniter-guarded)
+      content.ex               # read through Igniter's Rewrite, paths project-relative (Igniter-guarded)
 test/
   hearth/…  mix/tasks/hearth/… # mirror lib/
   mix/tasks/hearth/gen/        # gen's tests, one file per concern
@@ -370,7 +381,9 @@ What exists, condensed. The blow-by-blow is in git history.
   install would be a no-op, `--yes`/test mode accept, else prompt). The
   source — file, URL, or shortcut (normalized to `name@latest` when bare) —
   goes through `Integration.Load` with the `.hearth.exs` registry
-  (`Project.load/1`): a file is read through Rewrite; a URL is fetched by
+  (`Project.load/1`): a file is read through Rewrite, keyed relative to the
+  project (`Content.project_path/1`; an absolute path in the Rewrite would make
+  Igniter's format step glob `/**/.formatter.exs`); a URL is fetched by
   `Spec.Fetcher` (`:httpc`, TLS verified against the OS store, redirects
   followed; the `:hearth_fetch` igniter assign stubs it, and Igniter test mode
   refuses the network without one) with its format from the extension or the
@@ -476,7 +489,8 @@ What exists, condensed. The blow-by-blow is in git history.
   gen writes the entry (`Hearth.Config.Project.put_integration/3`, created
   from a template when missing); writes are Sourceror keyword edits that keep
   the user's comments and other entries.
-- **`hearth.regen`** — takes comma-separated integration names (each must be a
+- **`hearth.regen`** — every y/N below goes through `Hearth.Prompt` (`--yes`
+  or test mode accept; no terminal declines). Takes comma-separated integration names (each must be a
   single alias segment with a `.hearth.exs` entry; `stripe` → `stripe:` and
   `priv/hearth/stripe.yaml`) or `--all` (every `.hearth.exs` entry); neither,
   or both, halts. Per integration: derives every module from the entry's

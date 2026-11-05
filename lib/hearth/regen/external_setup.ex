@@ -12,6 +12,7 @@ if Code.ensure_loaded?(Igniter) do
 
     alias Hearth.Fs.Content
     alias Hearth.Gen.Patches
+    alias Hearth.Prompt
     alias Hearth.Regen.Messages
     alias Hearth.Spec.Auth
     alias Hearth.Spec.Values
@@ -112,8 +113,7 @@ if Code.ensure_loaded?(Igniter) do
       do: Igniter.add_notice(igniter, Messages.external_unpassed_notice(location, unpassed))
 
     defp accept?(igniter, location, env_vars) do
-      igniter.args.options[:yes] || igniter.assigns[:test_mode?] ||
-        Mix.shell().yes?(Messages.external_seed_prompt(location, env_vars), default: :no)
+      Prompt.confirm?(igniter, Messages.external_seed_prompt(location, env_vars))
     end
   end
 end
