@@ -2,6 +2,7 @@ if Code.ensure_loaded?(Igniter) do
   defmodule Hearth.Gen.Patches do
     @moduledoc false
 
+    alias Hearth.Gen.TestConfig
     alias Hearth.Spec.Auth
     alias Hearth.Spec.Values
 
@@ -61,13 +62,11 @@ if Code.ensure_loaded?(Igniter) do
     defp patch_base_url_config(igniter, otp_app, layer1, servers, prefix) do
       url = with_prefix(servers.test || Hearth.Spec.Servers.placeholder(servers), prefix)
 
-      Igniter.Project.Config.configure(
+      TestConfig.configure(
         igniter,
-        "test.exs",
         otp_app,
         [layer1, :base_url],
-        {:code, Sourceror.parse_string!(inspect(url))},
-        updater: &{:ok, &1}
+        Sourceror.parse_string!(inspect(url))
       )
     end
 
@@ -240,16 +239,14 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     # `config/test.exs` points the Layer 2 dispatcher at the Mox mock;
-    # prod/dev fall back to Layer 3 with no config. `updater` keeps an
-    # existing value on re-run.
+    # prod/dev fall back to Layer 3 with no config. An existing value is
+    # kept on re-run.
     defp patch_impl_config(igniter, otp_app, layer2, mock) do
-      Igniter.Project.Config.configure(
+      TestConfig.configure(
         igniter,
-        "test.exs",
         otp_app,
         [layer2, :impl],
-        {:code, Sourceror.parse_string!(inspect(mock))},
-        updater: &{:ok, &1}
+        Sourceror.parse_string!(inspect(mock))
       )
     end
 

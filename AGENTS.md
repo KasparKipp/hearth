@@ -324,6 +324,7 @@ lib/
       messages.ex              # gen's user-facing text, tag discovery
       patches.ex               # deps, mock, config (Igniter-guarded)
       test_helper.ex           # :external joins test_helper.exs's excludes (Igniter-guarded)
+      test_config.ex           # config/test.exs values, never dev.exs / prod.exs (Igniter-guarded)
       list.ex                  # --list: shortcuts, versions, tag discovery (Igniter-guarded)
     regen/
       messages.ex              # regen's user-facing text
@@ -437,8 +438,13 @@ What exists, condensed. The blow-by-blow is in git history.
   `exclude:` is left alone with a warning (and gen's notice skips the file);
   `config/runtime.exs` credential (prod
   raises, dev falls back to `"DEV_NO_<INT>_API_KEY"`); `config/test.exs`
-  `impl:` mock and a non-prod `base_url:`; extra servers as commented
-  alternates.
+  `impl:` mock and a non-prod `base_url:` (`Gen.TestConfig` — not
+  `Igniter.Project.Config.configure/6`, which for `"test.exs"` creates
+  empty `dev.exs` / `prod.exs` and appends `import_config
+  "#{config_env()}.exs"`; test.exs is created when missing, and a
+  `config.exs` with no `import_config` that could load it gains an
+  `if config_env() == :test` import); extra servers as commented
+  alternates. Nothing writes `dev.exs` or `prod.exs`.
 - **Pruned spec** — `Prune.prune/2` keeps the selected paths and the
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
   with conventional top-level key order. Plain OpenAPI — no Hearth block.
