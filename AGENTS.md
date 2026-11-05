@@ -322,7 +322,9 @@ lib/
       messages.ex              # text shared by regen and diff
     gen/
       messages.ex              # gen's user-facing text, tag discovery
-      patches.ex               # deps, mock, test_helper, config (Igniter-guarded)
+      patches.ex               # deps, mock, config (Igniter-guarded)
+      test_helper.ex           # :external joins test_helper.exs's excludes (Igniter-guarded)
+      test_config.ex           # config/test.exs values, never dev.exs / prod.exs (Igniter-guarded)
       list.ex                  # --list: shortcuts, versions, tag discovery (Igniter-guarded)
     regen/
       messages.ex              # regen's user-facing text
@@ -425,10 +427,26 @@ What exists, condensed. The blow-by-blow is in git history.
   `{:mox, "~> 1.0", only: [:test]}`, queues `deps.get` when that changed
   `mix.exs`; `defmock` appended idempotently; `test/support` added to
   `elixirc_paths(:test)` via `Igniter.Project.Test.ensure_test_support/1`
-  (a project that already sets `elixirc_paths` is left alone); `config/runtime.exs` credential (prod
+  (a project that already sets `elixirc_paths` is left alone);
+  `:external` excluded in `test/test_helper.exs` (`Gen.TestHelper`) — added
+  to every literal `exclude:` list passed to `ExUnit.start/1` /
+  `ExUnit.configure/1` (`configure/1` replaces `:exclude`, so a second call
+  would drop the project's own), else an `ExUnit.configure(exclude:
+  [:external])` line; a cons list gets it in its head (`[:slow, :external
+  | rest]`, a no-op when the head has it); the exact line earlier Hearths
+  appended is removed when another `exclude:` exists; a non-literal
+  `exclude:` is left alone with a warning (and gen's notice skips the file);
+  `config/runtime.exs` credential (prod
   raises, dev falls back to `"DEV_NO_<INT>_API_KEY"`); `config/test.exs`
-  `impl:` mock and a non-prod `base_url:`; extra servers as commented
-  alternates.
+  `impl:` mock and a non-prod `base_url:` (`Gen.TestConfig` — not
+  `Igniter.Project.Config.configure/6`, which for `"test.exs"` creates
+  empty `dev.exs` / `prod.exs` and appends `import_config
+  "#{config_env()}.exs"`; test.exs is created when missing, and a
+  `config.exs` with no `import_config` that could load it gains an
+  `if config_env() == :test` import; both paths follow mix.exs
+  `config_path`, so an umbrella child's go to the umbrella's
+  `config/`); extra servers as commented
+  alternates. Nothing writes `dev.exs` or `prod.exs`.
 - **Pruned spec** — `Prune.prune/2` keeps the selected paths and the
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
   with conventional top-level key order. Plain OpenAPI — no Hearth block.

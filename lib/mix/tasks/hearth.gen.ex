@@ -579,20 +579,23 @@ if Code.ensure_loaded?(Igniter) do
         prefix: prefix,
         values: input.values
       })
-      |> Igniter.add_notice(
-        Messages.generated_notice(
-          Config.source_label(path),
-          spec,
-          operations,
-          selected,
-          Enum.map(files, &{&1.module, &1.location, &1.label}),
-          Patches.wired_files(auth, input.values) ++
-            ["#{pruned_spec_path} (pruned spec)", ".hearth.exs (integration entry)"],
-          Messages.credential_hint(auth, names, input.values.credential) <>
-            Messages.headers_hint(input.values.headers, names) <>
-            Messages.base_url_hint(input.values.base_url, names)
+      |> then(fn igniter ->
+        Igniter.add_notice(
+          igniter,
+          Messages.generated_notice(
+            Config.source_label(path),
+            spec,
+            operations,
+            selected,
+            Enum.map(files, &{&1.module, &1.location, &1.label}),
+            Patches.wired_files(igniter, auth, input.values) ++
+              ["#{pruned_spec_path} (pruned spec)", ".hearth.exs (integration entry)"],
+            Messages.credential_hint(auth, names, input.values.credential) <>
+              Messages.headers_hint(input.values.headers, names) <>
+              Messages.base_url_hint(input.values.base_url, names)
+          )
         )
-      )
+      end)
       |> prefixed_notice(names, input.prefixed, covered)
       |> headers_notice(
         names,
