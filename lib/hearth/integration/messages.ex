@@ -191,6 +191,11 @@ defmodule Hearth.Integration.Messages do
 
   defp load_detail(_source, {:merge, message}, _registry), do: message
 
+  defp load_detail(_source, {:build, command, message}, _registry) do
+    "`build:` ran `mix #{command}`, which failed, so the source wasn't read:\n\n" <>
+      "  #{message}"
+  end
+
   defp load_detail(source, :missing, _registry) do
     "file not found at #{inspect(source)}. " <>
       "Check the path is correct and relative to the project root."

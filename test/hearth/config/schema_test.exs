@@ -56,6 +56,11 @@ defmodule Hearth.Config.SchemaTest do
              ) == :ok
     end
 
+    test "build:, a Mix command line" do
+      assert Schema.validate(entry(build: "acme.spec")) == :ok
+      assert Schema.validate(entry(build: "acme.spec --out 'priv/specs/a b.yaml'")) == :ok
+    end
+
     test "sources:, with a checksum per source" do
       assert Schema.validate(
                entry(sources: [a: "a.json", b: "b@1"], source_sha256: [a: "1", b: "2"])
@@ -255,6 +260,14 @@ defmodule Hearth.Config.SchemaTest do
 
       assert error(entry(auth: [credential: :retry])) =~ "already a request option"
       assert error(entry(base_url: :gateway)) =~ "its key must be `:base_url`"
+    end
+
+    test "build: that doesn't name a Mix task, with an example" do
+      for build <- ["", "  ", "--out x.yaml", "acme.spec --out 'x", :acme_spec, ["acme.spec"]] do
+        message = error(entry(build: build))
+        assert message =~ "`build:` for kit", message
+        assert message =~ ~s|build: "acme.spec|, message
+      end
     end
 
     test "scalars of the wrong type" do

@@ -93,7 +93,7 @@ with it) is wrapped in the same `if Code.ensure_loaded?(Igniter)` guard —
 | `mix hearth.install` | One-time per-project setup (formatter import).                              |
 | `mix hearth.gen`     | Generate the three-layer integration from an API spec. Create-only.         |
 | `mix hearth.regen`   | Regenerate integrations from their pruned specs, ownership-aware.           |
-| `mix hearth.diff`    | Report drift between integrations and their sources. Read-only, CI-friendly. |
+| `mix hearth.diff`    | Report drift between integrations and their sources. Writes nothing, CI-friendly. |
 
 ---
 
@@ -274,7 +274,7 @@ lib/
     hearth.install.ex          # one-time project setup
     hearth.gen.ex              # spec → integration (create-only)
     hearth.regen.ex            # pruned spec → refreshed integration
-    hearth.diff.ex             # pruned spec vs source → drift report (read-only)
+    hearth.diff.ex             # pruned spec vs source → drift report (writes nothing; build: may)
   hearth/
     registry.ex                # curated, versioned spec shortcuts (stripe@…), + .hearth.exs ones
     config.ex                  # pure: .hearth.exs — parse, keys, entry fields
@@ -319,6 +319,7 @@ lib/
       names.ex                 # pick integrations from names / --all (regen + diff)
       load.ex                  # any source (file / URL / shortcut) → spec (Igniter-guarded)
       reprune.ex               # source + tags: → pruned spec (Igniter-guarded)
+      build.ex                 # build: — the Mix task that writes the source (Igniter-guarded)
       messages.ex              # text shared by regen and diff
     gen/
       messages.ex              # gen's user-facing text, tag discovery
@@ -451,7 +452,7 @@ What exists, condensed. The blow-by-blow is in git history.
   components reachable by `$ref` from them (`securitySchemes` whole), encoded
   with conventional top-level key order. Plain OpenAPI — no Hearth block.
 - **`.hearth.exs`** — `[integrations: [<snake_name>: [module:, source:,
-  sources:, source_sha256:, overrides:, headers:, base_url:, base_path:,
+  sources:, source_sha256:, build:, overrides:, headers:, base_url:, base_path:,
   tags:, untagged:, auth:, prefixed_ids:]], registry: %{…}]`.
   `Hearth.Config.parse/1` reads it as data: `Config.Literal` parses it,
   never evaluates it, takes only literals and names the line of anything
@@ -619,6 +620,16 @@ What exists, condensed. The blow-by-blow is in git history.
   keeps `credential:` and `base_url:` in the entry, and `--sync` keeps
   `credential:` when it rewrites `auth:` (`Auth.with_credential/2`); with `base_url:` set the
   no-servers warning is skipped. Golden case `values`.
+- **Build step** — the entry's `build:` (`Config.build/1`, checked by
+  `Config.Types.command/1`), a Mix command line split like an alias
+  step, runs before the source is read (`Integration.Build.run/2`,
+  `Mix.Task.rerun/2`, writing to disk ahead of Igniter's preview): from `Reprune.run/3` (diff, `--sync`; not with
+  `--source`) and from gen when the source comes from the entry. Once per
+  command per run (`:hearth_built` assign); a raise or any exit but
+  `{:shutdown, 0}` is `{:build, command, message}`, which
+  `Integration.Messages` turns into the halt. The `:hearth_build` assign
+  stubs Mix in tests, like `:hearth_fetch`. gen keeps `build:` in the
+  entry it writes; plain regen never builds.
 - **Call sites on `--sync`** — `Regen.CallSites` reads the old Layer 2's
   `@callback`s before rendering; a callback that's gone because an operation
   was renamed, or is now covered by a prefixed-id function, maps to its
@@ -653,7 +664,7 @@ What exists, condensed. The blow-by-blow is in git history.
   `--sync`) says whether the source changed since. Drift is an Igniter
   issue — `--fail-on breaking` downgrades additive-only drift to a notice
   — and `run/1` exits 1 on issues. `--sync` prints the same
-  `Drift.format/1` lines for what it applied. Writes nothing.
+  `Drift.format/1` lines for what it applied. Writes nothing (`build:` aside).
 
 ---
 

@@ -109,6 +109,18 @@ defmodule Hearth.Config do
   @spec base_path(entry()) :: String.t() | nil
   def base_path(entry), do: entry[:base_path]
 
+  # The entry's `build:` — a Mix command line that writes its source —
+  # as `{command, task, args}`, split like an alias step. The schema
+  # has checked it names a task.
+  @spec build(entry()) :: {String.t(), String.t(), [String.t()]} | nil
+  def build(entry) do
+    with command when is_binary(command) <- entry[:build] do
+      command = String.trim(command)
+      [task | args] = OptionParser.split(command)
+      {command, task, args}
+    end
+  end
+
   # The project's own registry, its names lowercased like registry
   # sources are.
   defp registry(term) do

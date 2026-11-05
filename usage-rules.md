@@ -194,11 +194,16 @@ keyed by its snake_case name:
   see "Where values come from".
 * `sources` — several specs merged into one integration, in place of
   `source`; see below.
+* `build` — a Mix task that writes the source before it's read; see
+  "Build the source first".
 
 Commit it alongside `priv/hearth/`. The pruned spec itself is plain
 OpenAPI. The file is plain data: lists, keyword lists, maps, strings,
 atoms, numbers, tuples and module names, and nothing in it runs — a
-function call or a variable halts. Every task checks the file when it
+function call or a variable halts. The one exception is `build:`: the
+file isn't evaluated, but `build:` names a Mix task that Hearth runs,
+so review it like code and don't run Hearth on a `.hearth.exs` you
+don't trust. Every task checks the file when it
 reads it: an unknown key or a malformed value halts, naming the entry
 and the key.
 
@@ -286,6 +291,30 @@ each copy's changes, and says which source to pin with
 `overrides: [shared: %{"schemas/address" => :items}]`. `--source`
 doesn't apply.
 
+## Build the source first
+
+When the spec is built from something else (another format, several
+files, a script), name the Mix task that writes it with `build:`, a
+command line like an alias step:
+
+    acme: [
+      source: "priv/specs/acme.yaml",
+      build: "acme.spec --out priv/specs/acme.yaml",
+      ...
+    ]
+
+`diff`, `regen --sync` and a `gen` that reads its source from the entry
+(no source argument) run it before they read `source:`, each command
+once per run. Plain `regen`, `gen` with a source argument and
+`diff --source` don't run it. When the task raises or exits non-zero,
+the run halts with its message and the source isn't read. The task
+writes to disk as it runs, before Hearth shows or confirms its own
+changes, so it has run even when you then decline them.
+
+Make the task deterministic: `source_sha256` is how `diff` tells
+whether the source changed, so a build that writes different bytes for
+the same input (a timestamp, map order) shows up as a changed source.
+
 ## Headers
 
 To send a header on every call, map it to where its value comes from
@@ -322,7 +351,8 @@ breaking: `--sync` renames the generated function and keeps the
 operation selected — `tags:` follows the new id — and the report names
 the call sites to rename (`list_pets → list_all_pets`).
 
-`diff` writes nothing and exits non-zero on drift — run it in CI.
+`diff` writes nothing (apart from what `build:` writes) and exits
+non-zero on drift — run it in CI.
 `--fail-on breaking` fails only on breaking changes. `--source`
 previews another spec (e.g. a newer version) without touching
 `.hearth.exs`. To apply drift, point `source:` at the spec you want

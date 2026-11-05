@@ -32,7 +32,11 @@ defmodule Mix.Tasks.Hearth.Diff.Docs do
     It also lists new upstream operations that `tags:` doesn't select,
     so you can decide on them. Those never fail the run.
 
-    `hearth.diff` writes nothing. It exits non-zero when it finds
+    An entry's `build:` (a Mix task that writes the source) runs first;
+    when it fails, diff halts without reading the source. `--source`
+    skips it.
+
+    `hearth.diff` writes nothing itself. It exits non-zero when it finds
     drift, so it can run in CI. Apply the drift with
     `mix hearth.regen <integration> --sync`.
 

@@ -47,8 +47,9 @@ defmodule Mix.Tasks.Hearth.Regen.Docs do
     its `tags:`, re-records `tags:`, lists the operations added and
     removed, and regenerates. Use it after editing `tags:`, or after
     pointing `source:` at a newer version of the spec.
-    A URL or shortcut source is fetched again; plain `regen` never
-    fetches. `--sync --all` asks for confirmation first (`--yes` skips
+    A URL or shortcut source is fetched again, and an entry's `build:`
+    (a Mix task that writes the source) runs first; plain `regen` never
+    fetches or builds. `--sync --all` asks for confirmation first (`--yes` skips
     it) — run `mix hearth.diff --all` to see the drift.
 
     When a function goes away — renamed, or now covered by a

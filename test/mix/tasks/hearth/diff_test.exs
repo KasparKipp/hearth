@@ -267,6 +267,63 @@ defmodule Mix.Tasks.Hearth.DiffTest do
     end
   end
 
+  describe "build:" do
+    # gen's entry with `build:` added; the `:hearth_build` stub stands
+    # in for the Mix task.
+    defp with_build(igniter, build, runner) do
+      exs =
+        igniter
+        |> Igniter.include_existing_file(".hearth.exs")
+        |> then(&Rewrite.source!(&1.rewrite, ".hearth.exs"))
+        |> Rewrite.Source.get(:content)
+        |> String.replace(
+          ~s|source: "priv/specs/pets.json"|,
+          ~s|source: "priv/specs/pets.json",\n      build: #{inspect(build)}|
+        )
+
+      igniter |> put_source(exs, ".hearth.exs") |> Igniter.assign(:hearth_build, runner)
+    end
+
+    test "runs before the source is read, so diff compares what it built" do
+      igniter =
+        gen()
+        |> with_build("pets.spec --strict", fn igniter, "pets.spec", ["--strict"] ->
+          {:ok,
+           Igniter.create_new_file(igniter, "priv/specs/pets.json", spec(pet_age: true),
+             on_exists: :overwrite
+           )}
+        end)
+        |> diff()
+
+      assert issue_text(igniter) =~ "~ Pet: property age added"
+      assert issue_text(igniter) =~ "The source changed since the last gen or sync."
+    end
+
+    test "a failing build halts with its message, before anything is compared" do
+      igniter =
+        gen()
+        |> with_build("pets.spec", fn _igniter, "pets.spec", [] ->
+          {:error, "pets.wsdl has no <types> section"}
+        end)
+        |> diff()
+
+      text = issue_text(igniter)
+      assert text =~ "hearth.diff: pets: `build:` ran `mix pets.spec`, which failed"
+      assert text =~ "pets.wsdl has no <types> section"
+      refute text =~ "drifted"
+    end
+
+    test "--source skips it: the other spec is compared as it is" do
+      igniter =
+        gen()
+        |> with_build("pets.spec", fn _, _, _ -> flunk("build: ran under --source") end)
+        |> put_source(spec(pet_age: true), "priv/specs/pets-v2.json")
+        |> diff(["pets", "--source", "priv/specs/pets-v2.json"])
+
+      assert issue_text(igniter) =~ "~ Pet: property age added"
+    end
+  end
+
   describe "halts" do
     test "when nothing is named" do
       assert gen() |> diff([]) |> issue_text() =~ "mix hearth.diff stripe"

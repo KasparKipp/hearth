@@ -28,6 +28,7 @@ defmodule Hearth.Config.Schema do
     source: [type: :string],
     sources: [type: :non_empty_keyword_list, keys: [*: [type: :string]]],
     source_sha256: [type: {:or, [:string, {:keyword_list, [*: [type: :string]]}]}],
+    build: [type: {:custom, Types, :command, []}],
     base_path: [type: :string],
     tags: [type: :keyword_list, keys: [*: [type: @state]]],
     untagged: [type: @state],
