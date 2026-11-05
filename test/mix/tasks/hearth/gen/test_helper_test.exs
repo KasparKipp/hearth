@@ -178,6 +178,35 @@ defmodule Mix.Tasks.Hearth.Gen.TestHelperTest do
       assert_unchanged(igniter, @helper)
       assert Enum.any?(igniter.warnings, &(&1 =~ "test/test_helper.exs" and &1 =~ ":external"))
     end
+
+    test "the notice doesn't list the helper when it was left alone" do
+      igniter = gen("excludes = [:foo]\nExUnit.start(exclude: excludes)\n")
+      refute notice_text(igniter) =~ "test/test_helper.exs (:external exclude)"
+
+      igniter = gen("ExUnit.start(exclude: [:foo])\n")
+      assert notice_text(igniter) =~ "test/test_helper.exs (:external exclude)"
+    end
+
+    test "a clobbered helper with a non-literal exclude: the warning names the old line" do
+      original =
+        "excludes = [:foo]\nExUnit.start(exclude: excludes)\n\nExUnit.configure(exclude: [:external])\n"
+
+      igniter = gen(original)
+
+      assert_unchanged(igniter, @helper)
+
+      assert Enum.any?(
+               igniter.warnings,
+               &(&1 =~ "test/test_helper.exs" and &1 =~ "ExUnit.configure(exclude: [:external])" and
+                   &1 =~ "remove")
+             )
+    end
+
+    test "Hearth's old configure line alone is kept: it's the only exclude" do
+      "ExUnit.start()\n\nExUnit.configure(exclude: [:external])\n"
+      |> gen()
+      |> assert_unchanged(@helper)
+    end
   end
 
   describe "re-running is a no-op when :external is already excluded" do

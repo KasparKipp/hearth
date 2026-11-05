@@ -431,7 +431,10 @@ What exists, condensed. The blow-by-blow is in git history.
   to every literal `exclude:` list passed to `ExUnit.start/1` /
   `ExUnit.configure/1` (`configure/1` replaces `:exclude`, so a second call
   would drop the project's own), else an `ExUnit.configure(exclude:
-  [:external])` line; a non-literal `exclude:` is left alone with a warning;
+  [:external])` line; a cons list gets it in its head (`[:slow, :external
+  | rest]`, a no-op when the head has it); the exact line earlier Hearths
+  appended is removed when another `exclude:` exists; a non-literal
+  `exclude:` is left alone with a warning (and gen's notice skips the file);
   `config/runtime.exs` credential (prod
   raises, dev falls back to `"DEV_NO_<INT>_API_KEY"`); `config/test.exs`
   `impl:` mock and a non-prod `base_url:`; extra servers as commented

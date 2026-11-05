@@ -346,13 +346,17 @@ if Code.ensure_loaded?(Igniter) do
       |> Kernel.<>("\n")
     end
 
-    def wired_files(auth, values \\ Values.default()) do
-      base = [
-        "test/support/mocks.ex",
-        "mix.exs (test/support in elixirc_paths)",
-        "test/test_helper.exs (:external exclude)",
-        "config/test.exs (impl, base_url)"
-      ]
+    # The files `wire/2` patched, for gen's notice. `igniter` is the one
+    # `wire/2` returned: a helper it left alone isn't listed.
+    def wired_files(igniter, auth, values \\ Values.default()) do
+      helper =
+        if Hearth.Gen.TestHelper.left_alone?(igniter),
+          do: [],
+          else: ["test/test_helper.exs (:external exclude)"]
+
+      base =
+        ["test/support/mocks.ex", "mix.exs (test/support in elixirc_paths)"] ++
+          helper ++ ["config/test.exs (impl, base_url)"]
 
       config? = &match?({:config, _key}, &1)
 
