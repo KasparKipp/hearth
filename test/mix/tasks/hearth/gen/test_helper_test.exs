@@ -24,6 +24,34 @@ defmodule Mix.Tasks.Hearth.Gen.TestHelperTest do
 
   defp count(text, fragment), do: length(String.split(text, fragment)) - 1
 
+  # The tags a helper leaves excluded: the `exclude:` of its last
+  # `ExUnit.start/1` / `ExUnit.configure/1` call, evaluated with the
+  # file's top-level assignments (`rest = [...]`) bound. Raises unless
+  # the helper is valid Elixir.
+  defp effective_exclude(helper) do
+    exprs =
+      case Code.string_to_quoted!(helper) do
+        {:__block__, _, exprs} -> exprs
+        expr -> [expr]
+      end
+
+    {_ast, excludes} =
+      Macro.prewalk(exprs, [], fn
+        {{:., _, [{:__aliases__, _, [:ExUnit]}, fun]}, _, [opts]} = call, acc
+        when fun in [:start, :configure] and is_list(opts) ->
+          if Keyword.has_key?(opts, :exclude),
+            do: {call, [opts[:exclude] | acc]},
+            else: {call, acc}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    assignments = Enum.filter(exprs, &match?({:=, _, _}, &1))
+    {value, _binding} = Code.eval_quoted({:__block__, [], assignments ++ [hd(excludes)]})
+    value
+  end
+
   describe "a helper with no exclude" do
     test "gets one" do
       helper = gen_helper("ExUnit.start()\n")
@@ -120,6 +148,29 @@ defmodule Mix.Tasks.Hearth.Gen.TestHelperTest do
       refute helper =~ "ExUnit.configure("
     end
 
+    test "a cons tail: :external joins the head, or the file is left alone with a warning" do
+      original = "rest = [:flaky]\nExUnit.start(exclude: [:slow | rest])\n"
+      igniter = gen(original)
+      helper = created_file(igniter, @helper)
+
+      if helper == original do
+        assert Enum.any?(igniter.warnings, &(&1 =~ "test/test_helper.exs" and &1 =~ ":external"))
+      else
+        assert Enum.sort(effective_exclude(helper)) == [:external, :flaky, :slow]
+      end
+    end
+
+    test "a helper the old gen clobbered gets the project's excludes back" do
+      # What gen used to write: a trailing configure that replaces
+      # `:foo`. `:external` joins `start/1`'s list and the line goes.
+      helper =
+        gen_helper("ExUnit.start(exclude: [:foo])\n\nExUnit.configure(exclude: [:external])\n")
+
+      assert Enum.sort(effective_exclude(helper)) == [:external, :foo]
+      assert helper =~ "ExUnit.start(exclude: [:foo, :external])"
+      refute helper =~ "ExUnit.configure("
+    end
+
     test "an exclude that isn't a literal list is left alone, with a warning" do
       original = "excludes = [:foo]\nExUnit.start(exclude: excludes)\n"
       igniter = gen(original)
@@ -136,7 +187,9 @@ defmodule Mix.Tasks.Hearth.Gen.TestHelperTest do
           {"ExUnit.configure/1, among others",
            "ExUnit.start()\nExUnit.configure(exclude: [:foo, :external])\n"},
           {"ExUnit.start/1 opts", "ExUnit.start(exclude: [:foo, :external])\n"},
-          {"a tag filter", "ExUnit.start(exclude: [external: true])\n"}
+          {"a tag filter", "ExUnit.start(exclude: [external: true])\n"},
+          {"a cons list with :external in its head",
+           "excludes = [:slow]\nExUnit.start(exclude: [:external | excludes])\n"}
         ] do
       test "#{form}" do
         unquote(helper) |> gen() |> assert_unchanged(@helper)
