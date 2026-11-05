@@ -46,7 +46,7 @@ if Code.ensure_loaded?(Igniter) do
       igniter
       |> wire_mock(names.mock, names.layer2)
       |> compile_test_support()
-      |> patch_test_helper()
+      |> Hearth.Gen.TestHelper.exclude_external()
       |> wire_values(otp_app, names, Values.config_keys(values, Auth.keyed?(auth)))
       |> patch_impl_config(otp_app, names.layer2, names.mock)
       |> patch_base_url_config(otp_app, names.layer1, servers, prefix)
@@ -154,30 +154,6 @@ if Code.ensure_loaded?(Igniter) do
     # compile — add it to `elixirc_paths(:test)`. Igniter leaves a project
     # that already sets `elixirc_paths` (e.g. Phoenix) untouched.
     defp compile_test_support(igniter), do: Igniter.Project.Test.ensure_test_support(igniter)
-
-    # `:external`-tagged tests hit the real network — make them opt-in
-    # by excluding the `:external` tag in `test/test_helper.exs`. The
-    # `exclude: [:external]` substring is its own idempotency marker.
-    defp patch_test_helper(igniter) do
-      Igniter.create_or_update_file(
-        igniter,
-        "test/test_helper.exs",
-        "ExUnit.start()\nExUnit.configure(exclude: [:external])\n",
-        fn source ->
-          content = Rewrite.Source.get(source, :content)
-
-          if String.contains?(content, "exclude: [:external]") do
-            source
-          else
-            Rewrite.Source.update(
-              source,
-              :content,
-              content <> "\nExUnit.configure(exclude: [:external])\n"
-            )
-          end
-        end
-      )
-    end
 
     # Creates `test/support/mocks.ex` if absent, else appends one more
     # guarded `Mox.defmock` line — idempotent: the mock module name is a
