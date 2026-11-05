@@ -14,6 +14,7 @@ if Code.ensure_loaded?(Igniter) do
     # Guarded like the Mix tasks: Igniter is an optional dependency.
 
     alias Hearth.Config
+    alias Hearth.Integration.Build
     alias Hearth.Integration.Load
     alias Hearth.Spec.Auth
     alias Hearth.Spec.Loader
@@ -45,12 +46,14 @@ if Code.ensure_loaded?(Igniter) do
             | :no_source
             | :empty_selection
             | :source_for_sources
+            | Build.error()
             | Load.reason()
 
+    # The entry's `build:` runs first, writing the source it reads.
     # Options: `:source` — another source to re-prune instead of the
-    # entry's; `:current` — the pruned spec, so upstream renames are
-    # carried into `tags:`; `:registry` — the project's `.hearth.exs`
-    # registry, for shortcuts.
+    # entry's, read as it is (no `build:`); `:current` — the pruned spec,
+    # so upstream renames are carried into `tags:`; `:registry` — the
+    # project's `.hearth.exs` registry, for shortcuts.
     @spec run(Igniter.t(), Config.entry(), keyword()) ::
             {:ok, Igniter.t(), result()} | {:error, String.t() | nil, reason()}
     def run(igniter, entry, opts \\ []) do
@@ -59,6 +62,7 @@ if Code.ensure_loaded?(Igniter) do
       with {:ok, rule} <- rule(entry),
            {:ok, source} <- present(source),
            :ok <- single_override(opts[:source], entry),
+           {:ok, igniter} <- build(igniter, entry, opts[:source]),
            overrides = Overrides.parse(entry),
            {:ok, igniter, loaded} <-
              Load.load(igniter, source, opts[:registry] || %{}, overrides.shared),
@@ -93,6 +97,9 @@ if Code.ensure_loaded?(Igniter) do
 
     @spec sha256(binary()) :: String.t()
     defdelegate sha256(bytes), to: Load
+
+    defp build(igniter, entry, nil), do: Build.run(igniter, entry)
+    defp build(igniter, _entry, _other_source), do: {:ok, igniter}
 
     defp carry_renames(rule, nil, _operations), do: rule
 

@@ -50,6 +50,10 @@ defmodule Mix.Tasks.Hearth.Gen.Docs do
 
         mix hearth.gen --integration Shop --tag "Items:get_item" --tag "Orders:get_order"
 
+    An entry with `build:` — a Mix task that writes the source, e.g.
+    `build: "acme.spec --out priv/specs/acme.yaml"` — runs it first; gen
+    halts when it fails. gen keeps `build:` in the entry.
+
     ## Registry shortcuts
 
       Currently available:
@@ -139,6 +143,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Hearth.Config.Project
     alias Hearth.Gen.Messages
     alias Hearth.Gen.Patches
+    alias Hearth.Integration.Build
     alias Hearth.Integration.Load
     alias Hearth.Integration.Manifest
     alias Hearth.Integration.Messages, as: IntegrationMessages
@@ -255,6 +260,7 @@ if Code.ensure_loaded?(Igniter) do
     defp dispatch_source(igniter) do
       with {:ok, igniter, config} <- Project.load(igniter),
            {:ok, source} <- source(igniter, config),
+           {:ok, igniter} <- build(igniter, source, config),
            {:ok, igniter, loaded} <- load(igniter, source, config, keep(igniter, config)),
            overrides = overrides(igniter, loaded, config.integrations),
            {:ok, spec, stale} <- apply_overrides(loaded.spec, overrides),
@@ -273,6 +279,7 @@ if Code.ensure_loaded?(Igniter) do
           prefixed_raw: overrides.entry[:prefixed_ids],
           values: values,
           headers_raw: overrides.entry[:headers],
+          build_raw: overrides.entry[:build],
           base_url_raw: Keyword.fetch(overrides.entry, :base_url)
         }
 
@@ -340,6 +347,21 @@ if Code.ensure_loaded?(Igniter) do
 
         source ->
           normalize_source(source)
+      end
+    end
+
+    # The entry's `build:` writes the entry's source, so it runs only
+    # when gen reads that source — not for a source argument.
+    defp build(igniter, source, config) do
+      if igniter.args.positional[:source] do
+        {:ok, igniter}
+      else
+        entry = config.integrations[Config.key(igniter.args.options[:integration])] || []
+
+        case Build.run(igniter, entry) do
+          {:ok, igniter} -> {:ok, igniter}
+          {:error, reason} -> {:error, IntegrationMessages.load_message(:gen, source, reason)}
+        end
       end
     end
 
@@ -534,6 +556,7 @@ if Code.ensure_loaded?(Igniter) do
       entry =
         [module: names.layer1] ++
           source_fields(path) ++
+          if(input.build_raw, do: [build: input.build_raw], else: []) ++
           [source_sha256: input.sha256] ++
           if(input.overrides, do: [overrides: input.overrides], else: []) ++
           if(input.prefixed_raw, do: [prefixed_ids: input.prefixed_raw], else: []) ++

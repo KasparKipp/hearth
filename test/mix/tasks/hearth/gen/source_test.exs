@@ -182,6 +182,49 @@ defmodule Mix.Tasks.Hearth.Gen.SourceTest do
     end
   end
 
+  describe "build:" do
+    @acme_exs ~s|[integrations: [acme: [source: "priv/specs/acme.yaml", build: "acme.spec"]]]|
+
+    test "gen without a source runs the entry's build: first, and keeps it in the entry" do
+      igniter =
+        test_project(files: %{".hearth.exs" => @acme_exs})
+        |> Igniter.assign(:hearth_build, fn igniter, "acme.spec", [] ->
+          {:ok, Igniter.create_new_file(igniter, "priv/specs/acme.yaml", @petstore_3_0_yaml)}
+        end)
+        |> Igniter.compose_task("hearth.gen", ["--integration", "Acme"])
+
+      assert_creates(igniter, "lib/test/integrations/acme.ex")
+      assert entry(igniter, :acme)[:build] == "acme.spec"
+      assert entry(igniter, :acme)[:source] == "priv/specs/acme.yaml"
+    end
+
+    test "a source argument is read as it is" do
+      igniter =
+        test_project(
+          files: %{".hearth.exs" => @acme_exs, "priv/specs/acme.yaml" => @petstore_3_0_yaml}
+        )
+        |> Igniter.assign(:hearth_build, fn _, _, _ ->
+          flunk("build: ran for a source argument")
+        end)
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/acme.yaml", "--integration", "Acme"])
+
+      assert_creates(igniter, "lib/test/integrations/acme.ex")
+      assert entry(igniter, :acme)[:build] == "acme.spec"
+    end
+
+    test "a failing build: halts gen with its message" do
+      igniter =
+        test_project(files: %{".hearth.exs" => @acme_exs})
+        |> Igniter.assign(:hearth_build, fn _, _, _ -> {:error, "acme.wsdl not found"} end)
+        |> Igniter.compose_task("hearth.gen", ["--integration", "Acme"])
+
+      text = Enum.join(igniter.issues, "\n")
+      assert text =~ "hearth.gen: `build:` ran `mix acme.spec`, which failed"
+      assert text =~ "acme.wsdl not found"
+      refute Igniter.exists?(igniter, "lib/test/integrations/acme.ex")
+    end
+  end
+
   describe "source recognition" do
     test "YAML file source decodes, summarizes, and generates the behaviour" do
       igniter =

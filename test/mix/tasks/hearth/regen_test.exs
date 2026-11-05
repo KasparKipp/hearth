@@ -860,6 +860,45 @@ defmodule Mix.Tasks.Hearth.RegenTest do
       assert has_issue?(igniter, ["could not fetch https://example.com/spec.yaml", "HTTP 503"])
     end
 
+    test "--sync runs build: before it reads the source" do
+      test = self()
+
+      igniter =
+        gen_list_pets()
+        |> set_entry(entry([pets: :all], build: "petstore.spec --strict"))
+        |> Igniter.assign(:hearth_build, fn igniter, task, args ->
+          send(test, {:built, task, args})
+          {:ok, igniter}
+        end)
+        |> regen(["petstore", "--sync"])
+
+      assert_received {:built, "petstore.spec", ["--strict"]}
+      assert pruned_paths(igniter) == ["get /pets", "get /pets/{petId}", "post /pets"]
+    end
+
+    test "--sync halts when build: fails, leaving the pruned spec as it was" do
+      igniter =
+        gen_list_pets()
+        |> set_entry(entry([pets: :all], build: "petstore.spec"))
+        |> Igniter.assign(:hearth_build, fn _, _, _ -> {:error, "no <types> section"} end)
+        |> regen(["petstore", "--sync"])
+
+      assert has_issue?(igniter, ["`build:` ran `mix petstore.spec`", "no <types> section"])
+      assert pruned_paths(igniter) == ["get /pets"]
+    end
+
+    test "plain regen doesn't run build: — it never reads the source" do
+      tags = [pets: [include: ["listPets"], exclude: ["createPets", "showPetById"]]]
+
+      igniter =
+        gen_list_pets()
+        |> set_entry(entry(tags, build: "petstore.spec"))
+        |> Igniter.assign(:hearth_build, fn _, _, _ -> flunk("build: ran without --sync") end)
+        |> regen()
+
+      assert igniter.issues == []
+    end
+
     test "--sync offers to append external tests for the added operations" do
       igniter =
         gen_list_pets()

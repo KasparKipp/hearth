@@ -63,6 +63,25 @@ defmodule Hearth.Config.Types do
       if(detail, do: " (#{Hearth.Config.Schema.strip(detail)})", else: "")
   end
 
+  # `build:` — a Mix command line, its first word the task (or alias).
+  # `OptionParser.split/1` raises on an unclosed quote.
+  def command(command) when is_binary(command) do
+    case OptionParser.split(command) do
+      ["-" <> _ | _] -> {:error, command_message(command)}
+      [_task | _args] -> {:ok, command}
+      [] -> {:error, command_message(command)}
+    end
+  rescue
+    RuntimeError -> {:error, command_message(command) <> " (a quote isn't closed)"}
+  end
+
+  def command(other), do: {:error, command_message(other)}
+
+  defp command_message(value) do
+    ~s|expected a Mix command that writes the source, e.g. | <>
+      ~s|`build: "acme.spec --out priv/specs/acme.yaml"`, got: #{inspect(value)}|
+  end
+
   # `headers:` — HTTP header names (any case) to value forms.
   def headers(headers) do
     with true <- Keyword.keyword?(headers) || {:error, "expected a keyword list"},
