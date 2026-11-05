@@ -2,6 +2,7 @@ if Code.ensure_loaded?(Igniter) do
   defmodule Hearth.Gen.Patches do
     @moduledoc false
 
+    alias Hearth.Gen.TestConfig
     alias Hearth.Spec.Auth
     alias Hearth.Spec.Values
 
@@ -46,7 +47,7 @@ if Code.ensure_loaded?(Igniter) do
       igniter
       |> wire_mock(names.mock, names.layer2)
       |> compile_test_support()
-      |> patch_test_helper()
+      |> Hearth.Gen.TestHelper.exclude_external()
       |> wire_values(otp_app, names, Values.config_keys(values, Auth.keyed?(auth)))
       |> patch_impl_config(otp_app, names.layer2, names.mock)
       |> patch_base_url_config(otp_app, names.layer1, servers, prefix)
@@ -61,13 +62,11 @@ if Code.ensure_loaded?(Igniter) do
     defp patch_base_url_config(igniter, otp_app, layer1, servers, prefix) do
       url = with_prefix(servers.test || Hearth.Spec.Servers.placeholder(servers), prefix)
 
-      Igniter.Project.Config.configure(
+      TestConfig.configure(
         igniter,
-        "test.exs",
         otp_app,
         [layer1, :base_url],
-        {:code, Sourceror.parse_string!(inspect(url))},
-        updater: &{:ok, &1}
+        Sourceror.parse_string!(inspect(url))
       )
     end
 
@@ -82,6 +81,8 @@ if Code.ensure_loaded?(Igniter) do
 
     defp append_alternates(igniter, _file, _otp_app, _layer1, [], _prefix), do: igniter
 
+    # TODO: follow mix.exs `config_path`, as `Gen.TestConfig` does, not
+    # `config/`, for umbrella children.
     defp append_alternates(igniter, file, otp_app, layer1, urls, prefix) do
       marker = alternates_marker(layer1)
 
@@ -154,30 +155,6 @@ if Code.ensure_loaded?(Igniter) do
     # compile — add it to `elixirc_paths(:test)`. Igniter leaves a project
     # that already sets `elixirc_paths` (e.g. Phoenix) untouched.
     defp compile_test_support(igniter), do: Igniter.Project.Test.ensure_test_support(igniter)
-
-    # `:external`-tagged tests hit the real network — make them opt-in
-    # by excluding the `:external` tag in `test/test_helper.exs`. The
-    # `exclude: [:external]` substring is its own idempotency marker.
-    defp patch_test_helper(igniter) do
-      Igniter.create_or_update_file(
-        igniter,
-        "test/test_helper.exs",
-        "ExUnit.start()\nExUnit.configure(exclude: [:external])\n",
-        fn source ->
-          content = Rewrite.Source.get(source, :content)
-
-          if String.contains?(content, "exclude: [:external]") do
-            source
-          else
-            Rewrite.Source.update(
-              source,
-              :content,
-              content <> "\nExUnit.configure(exclude: [:external])\n"
-            )
-          end
-        end
-      )
-    end
 
     # Creates `test/support/mocks.ex` if absent, else appends one more
     # guarded `Mox.defmock` line — idempotent: the mock module name is a
@@ -264,16 +241,14 @@ if Code.ensure_loaded?(Igniter) do
     end
 
     # `config/test.exs` points the Layer 2 dispatcher at the Mox mock;
-    # prod/dev fall back to Layer 3 with no config. `updater` keeps an
-    # existing value on re-run.
+    # prod/dev fall back to Layer 3 with no config. An existing value is
+    # kept on re-run.
     defp patch_impl_config(igniter, otp_app, layer2, mock) do
-      Igniter.Project.Config.configure(
+      TestConfig.configure(
         igniter,
-        "test.exs",
         otp_app,
         [layer2, :impl],
-        {:code, Sourceror.parse_string!(inspect(mock))},
-        updater: &{:ok, &1}
+        Sourceror.parse_string!(inspect(mock))
       )
     end
 
@@ -370,13 +345,17 @@ if Code.ensure_loaded?(Igniter) do
       |> Kernel.<>("\n")
     end
 
-    def wired_files(auth, values \\ Values.default()) do
-      base = [
-        "test/support/mocks.ex",
-        "mix.exs (test/support in elixirc_paths)",
-        "test/test_helper.exs (:external exclude)",
-        "config/test.exs (impl, base_url)"
-      ]
+    # The files `wire/2` patched, for gen's notice. `igniter` is the one
+    # `wire/2` returned: a helper it left alone isn't listed.
+    def wired_files(igniter, auth, values \\ Values.default()) do
+      helper =
+        if Hearth.Gen.TestHelper.left_alone?(igniter),
+          do: [],
+          else: ["test/test_helper.exs (:external exclude)"]
+
+      base =
+        ["test/support/mocks.ex", "mix.exs (test/support in elixirc_paths)"] ++
+          helper ++ ["config/test.exs (impl, base_url)"]
 
       config? = &match?({:config, _key}, &1)
 

@@ -427,7 +427,14 @@ In a test:
     end)
 
 The generated external test is `:external`-tagged and excluded by
-default. Run live calls with:
+default: gen adds `:external` to the `exclude:` list your
+`test/test_helper.exs` already passes to `ExUnit.start/1` or
+`ExUnit.configure/1`, keeping your own excludes, or adds
+`ExUnit.configure(exclude: [:external])` when it passes none. A helper
+an earlier Hearth broke (its own trailing `ExUnit.configure(exclude:
+[:external])`, which replaced your excludes) gets that line removed. An
+`exclude:` built in code (a variable) is left alone, with a warning. Run
+live calls with:
 
     mix test --include external
 
