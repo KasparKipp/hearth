@@ -129,6 +129,53 @@ defmodule Mix.Tasks.Hearth.Gen.ConfigFilesTest do
     end
   end
 
+  describe "an umbrella child (config_path: \"../../config/config.exs\")" do
+    # `deps` spans lines: on a one-line `defp deps, do: []` Igniter's
+    # `add_dep` writes `:only => :test`, which Sourceror can't parse.
+    @child_mix_exs """
+    defmodule Test.MixProject do
+      use Mix.Project
+
+      def project do
+        [
+          app: :test,
+          version: "0.1.0",
+          build_path: "../../_build",
+          config_path: "../../config/config.exs",
+          deps_path: "../../deps",
+          lockfile: "../../mix.lock",
+          elixir: "~> 1.17",
+          deps: deps()
+        ]
+      end
+
+      def application do
+        [extra_applications: [:logger]]
+      end
+
+      defp deps do
+        []
+      end
+    end
+    """
+
+    @child_files ~w(config/config.exs config/test.exs config/dev.exs config/prod.exs config/runtime.exs)
+
+    test "the test config goes to the umbrella's config/, nothing under the child's" do
+      igniter =
+        @phoenix
+        |> Map.new(fn {path, content} -> {"../../" <> path, content} end)
+        |> Map.put("mix.exs", @child_mix_exs)
+        |> gen()
+
+      test_config = created_file(igniter, "../../config/test.exs")
+      assert test_config =~ "impl: Test.Integrations.Petstore.PetstoreApi.Mock"
+      assert test_config =~ "base_url:"
+
+      Enum.each(@child_files, &refute_creates(igniter, &1))
+    end
+  end
+
   describe "regen" do
     @pruned %{
       "priv/hearth/petstore.yaml" => @petstore_3_0_yaml,
