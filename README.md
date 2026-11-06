@@ -2,6 +2,13 @@
 
 **Generate small, Req-based API clients from API specs.**
 
+> [!WARNING]
+> **Expect breaking changes.** Hearth is in early development (`0.1.x`) and
+> is being refined against real integrations, so its tasks, flags,
+> `.hearth.exs` keys and generated code can change in any release. Code
+> you've already generated stays yours, but the next `regen` may write it
+> differently.
+
 ## What is Hearth?
 
 Hearth is a set of [Igniter](https://hexdocs.pm/igniter) Mix tasks that turn
@@ -139,9 +146,13 @@ touched, and `regen --sync` applies it.
 
 ## Status
 
-Early (`0.1.x`). Generation works from OpenAPI 3.0 / 3.1 and Swagger 2.0
-specs. Bearer, API-key and HTTP basic auth are wired automatically; OAuth2
-and OpenID Connect leave a TODO in the raw client.
+Generation works from OpenAPI 3.0 / 3.1 and Swagger 2.0 specs. Bearer,
+API-key and HTTP basic auth are wired automatically. OAuth2 and OpenID
+Connect leave a TODO in the raw client; until token refresh is generated, a
+credential resolver can fetch the token, as the OHIP example does.
+
+Not yet supported: multipart uploads, streaming and server-sent events,
+pagination helpers, and response typespecs.
 
 ## License
 
