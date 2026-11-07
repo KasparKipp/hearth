@@ -255,7 +255,10 @@ own paths and operationIds:
 
 Before the first `gen`, write the entry with just `overrides:`. Later,
 edit them and run `mix hearth.regen <int> --sync`. An override that
-matches nothing is reported.
+matches nothing in the source — a typo, a path or operationId renamed
+upstream, a patch the source now has itself — is reported by `gen` and
+`--sync`, and fails `diff` until you remove it (`--fail-on drift`
+reports it without failing). Removing it needs no regen.
 
 ## Prefixed ids
 
@@ -363,7 +366,8 @@ operation selected — `tags:` follows the new id — and the report names
 the call sites to rename (`list_pets → list_all_pets`).
 
 `diff` writes nothing (apart from what `build:` writes) and exits
-non-zero on drift — run it in CI.
+non-zero on drift, or on an override that matches nothing — run it in
+CI. `--fail-on drift` fails on drift only, reporting such overrides;
 `--fail-on breaking` fails only on breaking changes. `--source`
 previews another spec (e.g. a newer version) without touching
 `.hearth.exs`. To apply drift, point `source:` at the spec you want

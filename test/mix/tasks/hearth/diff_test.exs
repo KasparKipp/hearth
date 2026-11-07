@@ -159,10 +159,18 @@ defmodule Mix.Tasks.Hearth.DiffTest do
       assert issue_text(igniter) =~ "[breaking]"
     end
 
+    test "--fail-on drift still fails on additive drift" do
+      igniter =
+        gen() |> put_source(spec(limit_param: true)) |> diff(["pets", "--fail-on", "drift"])
+
+      assert issue_text(igniter) =~ "query parameter limit added"
+    end
+
     test "rejects an unknown --fail-on" do
       igniter = gen() |> diff(["pets", "--fail-on", "sometimes"])
 
       assert issue_text(igniter) =~ "--fail-on"
+      assert issue_text(igniter) =~ "`any`, `drift` or `breaking`"
     end
 
     test "an unsynced tags: edit shows up as drift" do
@@ -348,6 +356,16 @@ defmodule Mix.Tasks.Hearth.DiffTest do
         |> diff(["pets", "--source", "priv/specs/pets-v2.json"])
 
       assert issue_text(igniter) =~ "~ Pet: property age added"
+    end
+  end
+
+  describe "docs" do
+    test "long_doc covers stale overrides and --fail-on drift" do
+      doc = Mix.Tasks.Hearth.Diff.Docs.long_doc()
+
+      assert doc =~ "--fail-on any|drift|breaking"
+      assert doc =~ "`drift` fails on any drift"
+      assert doc =~ "overrides that match nothing"
     end
   end
 

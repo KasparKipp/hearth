@@ -138,12 +138,14 @@ defmodule Mix.Tasks.Hearth.PatchesTest do
                ["open", "closed", "archived"]
     end
 
-    test "diff sees no drift and reports the patch stale" do
+    test "diff fails when upstream adopts a patch" do
       igniter = Igniter.compose_task(caught_up(), "hearth.diff", ["acme"])
 
-      assert igniter.issues == []
-      assert notice_text(igniter) =~ "no drift"
-      assert notice_text(igniter) =~ @stale
+      text = issue_text(igniter)
+      assert text =~ "no drift"
+      assert text =~ "already in the source"
+      assert text =~ @stale
+      assert text =~ "Remove them from `overrides:` in .hearth.exs — no regen needed."
     end
 
     test "--sync doesn't duplicate the value, and reports the patch stale" do

@@ -5,30 +5,49 @@ defmodule Hearth.Diff.Messages do
   # for one integration, and the task's own halts. Pure: strings in,
   # strings out.
 
+  alias Hearth.Integration.Messages, as: IntegrationMessages
   alias Hearth.Spec.Drift
   alias Hearth.Spec.Operation
 
   # `source_state` — how the compared source relates to the entry's
   # `source_sha256`: `:unchanged`, `:changed` (`{:changed, keys}` for
   # `sources:`), or `nil` when there's nothing recorded. `entry_source?` — whether `source` is the entry's
-  # own `source:` (or a `--source` candidate).
-  def report(key, source, changes, unlisted, source_state, entry_source?) do
+  # own `source:` (or a `--source` candidate). `stale` — the entry's
+  # overrides that match nothing in the source. They ride in the report
+  # because Igniter prints only the issues when there are any.
+  def report(key, source, changes, unlisted, source_state, entry_source?, stale) do
     [
-      header(key, source, changes),
+      header(key, source, changes, stale),
       source_line(source_state, changes, entry_source?),
       section("Auth", Enum.filter(changes, &(&1.area == :auth))),
       section("Operations", Enum.filter(changes, &(&1.area == :operation))),
       section("Schemas", Enum.filter(changes, &(&1.area == :schema))),
       unlisted_section(unlisted),
-      footer(key, source, changes, entry_source?)
+      footer(key, source, changes, entry_source?),
+      stale_section(key, source, stale)
     ]
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join("\n\n")
     |> Kernel.<>("\n")
   end
 
-  defp header(key, source, []), do: "hearth.diff: #{key}: no drift against #{source}."
-  defp header(key, source, _changes), do: "hearth.diff: #{key} has drifted from #{source}."
+  defp header(key, source, [], []), do: "hearth.diff: #{key}: no drift against #{source}."
+
+  defp header(key, source, [], stale),
+    do: "hearth.diff: #{key}: no drift against #{source}, but #{stale_count(stale)}."
+
+  defp header(key, source, _changes, _stale),
+    do: "hearth.diff: #{key} has drifted from #{source}."
+
+  defp stale_count([_one]), do: "1 override matches nothing"
+  defp stale_count(stale), do: "#{length(stale)} overrides match nothing"
+
+  defp stale_section(_key, _source, []), do: nil
+
+  defp stale_section(key, source, stale) do
+    IntegrationMessages.stale_overrides_notice(key, source, stale) <>
+      "Remove them from `overrides:` in .hearth.exs — no regen needed."
+  end
 
   defp source_line(nil, _changes, _entry_source?), do: nil
 
@@ -106,7 +125,7 @@ defmodule Hearth.Diff.Messages do
 
   def bad_fail_on_message(value) do
     """
-    hearth.diff: --fail-on must be `any` or `breaking`, got #{inspect(value)}.
+    hearth.diff: --fail-on must be `any`, `drift` or `breaking`, got #{inspect(value)}.
     """
   end
 

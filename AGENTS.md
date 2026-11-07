@@ -562,7 +562,9 @@ What exists, condensed. The blow-by-blow is in git history.
 - **Overrides** — an entry's `overrides:` (`Spec.Overrides`) corrects the
   source spec before selection: `parse/1` validates it (unknown kinds are an
   error naming the supported ones), `apply/2` rewrites the decoded source and
-  returns stale entries. `patches:` (`Spec.Patches`) — JSON pointer → value,
+  returns stale entries — a notice in gen and `--sync`; diff folds them
+  into its report and fails on them under `--fail-on any` (the default).
+  `patches:` (`Spec.Patches`) — JSON pointer → value,
   `nil` removes, `-` appends, maps (a list, before `-`) created on the way;
   applied first, in pointer order, to the OpenAPI 3 form (after Swagger 2
   conversion); a value already there, an appended value already in the
@@ -587,7 +589,8 @@ What exists, condensed. The blow-by-blow is in git history.
   the credential comes from, or why there isn't one. Applied by gen (from
   an entry written before gen, which gen keeps), and by `Integration.Reprune`
   for `--sync` and diff, so the pruned spec carries the result and plain regen
-  needs nothing. Stale entries become a notice in gen, `--sync` and diff.
+  needs nothing. Stale entries become a notice in gen and `--sync`, and fail
+  diff (see Overrides).
 - **Prefixed ids** — the entry's `prefixed_ids: [functions:, prefixes:]`
   (`Spec.PrefixedIds`): functions named by the user, each mapped to an HTTP
   method (default `[retrieve: :get]`); a prefix names its resource by the
@@ -692,10 +695,14 @@ What exists, condensed. The blow-by-blow is in git history.
   `shared:` pin moving between sources isn't drift; refs to a copy count
   as refs to `x`. `Selection.unlisted/2` lists new upstream operations
   `tags:` doesn't mention (informational). `source_sha256` (written by gen and
-  `--sync`) says whether the source changed since. Drift is an Igniter
-  issue — `--fail-on breaking` downgrades additive-only drift to a notice
-  — and `run/1` exits 1 on issues. `--sync` prints the same
-  `Drift.format/1` lines for what it applied. Writes nothing (`build:` aside).
+  `--sync`) says whether the source changed since. Stale overrides ride in
+  the report (`Diff.Messages.report/7`, with a remove-them remedy line), so
+  they print whether it's an issue or a notice. The report is an Igniter
+  issue on drift or stale overrides (`--fail-on any`, the default);
+  `--fail-on drift` fails on drift only, and `--fail-on breaking`
+  downgrades additive-only drift to a notice — and `run/1` exits 1 on
+  issues. `--sync` prints the same `Drift.format/1` lines for what it
+  applied. Writes nothing (`build:` aside).
 
 ---
 

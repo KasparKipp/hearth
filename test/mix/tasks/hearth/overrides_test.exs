@@ -97,14 +97,17 @@ defmodule Mix.Tasks.Hearth.OverridesTest do
   describe "regen and diff" do
     defp generated, do: gen(tags: [Customers: ["get /v1/customers"]]) |> apply_igniter!()
 
-    # Adds one entry to the Customers tag override.
-    defp add_override(igniter, entry) do
+    # Adds entries to the Customers tag override.
+    defp add_override(igniter, entries) do
       igniter = Igniter.include_existing_file(igniter, ".hearth.exs")
 
       exs =
         igniter
         |> created_file(".hearth.exs")
-        |> String.replace(~s|"get /v1/customers"]|, ~s|"get /v1/customers", #{inspect(entry)}]|)
+        |> String.replace(
+          ~s|"get /v1/customers"]|,
+          ~s|"get /v1/customers", #{Enum.map_join(List.wrap(entries), ", ", &inspect/1)}]|
+        )
 
       igniter
       |> Igniter.create_new_file(".hearth.exs", exs, on_exists: :overwrite)
@@ -132,14 +135,56 @@ defmodule Mix.Tasks.Hearth.OverridesTest do
                "def get_customers_search("
     end
 
-    test "--sync and diff report stale overrides" do
+    @stale ~s|tags Customers: "NoSuchOp"|
+    @remedy "Remove them from `overrides:` in .hearth.exs — no regen needed."
+
+    test "diff fails on a stale override, and says how to fix it" do
+      igniter = generated() |> add_override("NoSuchOp")
+      diffed = Igniter.compose_task(igniter, "hearth.diff", ["shop"])
+
+      text = issue_text(diffed)
+
+      assert text =~
+               "shop: no drift against priv/specs/shop.json, but 1 override matches nothing."
+
+      assert text =~ @stale
+      assert text =~ @remedy
+      refute notice_text(diffed) =~ @stale
+    end
+
+    test "--sync reports a stale override as a notice" do
+      synced =
+        generated()
+        |> add_override("NoSuchOp")
+        |> Igniter.compose_task("hearth.regen", ["shop", "--sync"])
+
+      assert synced.issues == []
+      assert notice_text(synced) =~ @stale
+    end
+
+    test "--fail-on breaking / --fail-on drift leave a stale override a notice" do
       igniter = generated() |> add_override("NoSuchOp")
 
-      assert igniter |> Igniter.compose_task("hearth.diff", ["shop"]) |> notice_text() =~
-               ~s|tags Customers: "NoSuchOp"|
+      for fail_on <- ["breaking", "drift"] do
+        diffed = Igniter.compose_task(igniter, "hearth.diff", ["shop", "--fail-on", fail_on])
 
-      assert igniter |> Igniter.compose_task("hearth.regen", ["shop", "--sync"]) |> notice_text() =~
-               ~s|tags Customers: "NoSuchOp"|
+        assert diffed.issues == []
+        assert notice_text(diffed) =~ @stale
+        assert notice_text(diffed) =~ @remedy
+      end
+    end
+
+    test "drift and a stale override share one report" do
+      igniter =
+        generated()
+        |> add_override(["GetCustomersSearch", "NoSuchOp"])
+        |> Igniter.compose_task("hearth.diff", ["shop"])
+
+      assert [report] = igniter.issues
+      assert report =~ "shop has drifted from priv/specs/shop.json"
+      assert report =~ "+ get /v1/customers/search (GetCustomersSearch)"
+      assert report =~ @stale
+      assert report =~ @remedy
     end
   end
 
