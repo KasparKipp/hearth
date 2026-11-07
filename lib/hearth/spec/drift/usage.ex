@@ -59,16 +59,18 @@ defmodule Hearth.Spec.Drift.Usage do
       end)
   end
 
-  defp schemas_reached(spec, root), do: follow(spec, refs(root), MapSet.new())
+  # `seen` is a plain map, not a MapSet: MapSet's opaque type trips
+  # Dialyzer on recent OTP (https://github.com/elixir-lang/elixir/issues/14837).
+  defp schemas_reached(spec, root), do: follow(spec, refs(root), %{})
 
   defp follow(_spec, [], seen) do
-    for @schema_ref <> name <- seen, do: unescape(name)
+    for {@schema_ref <> name, true} <- seen, do: unescape(name)
   end
 
   defp follow(spec, [ref | rest], seen) do
-    if MapSet.member?(seen, ref),
+    if Map.has_key?(seen, ref),
       do: follow(spec, rest, seen),
-      else: follow(spec, refs(target(spec, ref)) ++ rest, MapSet.put(seen, ref))
+      else: follow(spec, refs(target(spec, ref)) ++ rest, Map.put(seen, ref, true))
   end
 
   defp refs(%{"$ref" => "#/" <> _ = ref} = map), do: [ref | refs(Map.delete(map, "$ref"))]
