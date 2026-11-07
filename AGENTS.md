@@ -561,9 +561,11 @@ What exists, condensed. The blow-by-blow is in git history.
   source spec before selection: `parse/1` validates it (unknown kinds are an
   error naming the supported ones), `apply/2` rewrites the decoded source and
   returns stale entries. `patches:` (`Spec.Patches`) — JSON pointer → value,
-  `nil` removes, `-` appends, maps created on the way; applied first, in
-  pointer order, to the OpenAPI 3 form (after Swagger 2 conversion); a value already there or a missing key to remove is stale,
-  an unfollowable pointer an error. `tags:` — path globs (`*` crosses `/`),
+  `nil` removes, `-` appends, maps (a list, before `-`) created on the way;
+  applied first, in pointer order, to the OpenAPI 3 form (after Swagger 2
+  conversion); a value already there, an appended value already in the
+  list, or a missing key to remove is stale, an unfollowable pointer an
+  error. `tags:` — path globs (`*` crosses `/`),
   `method /glob`, or operationIds; adds to upstream tags. `operation_ids:` —
   upstream operationId (or `"method /path"`) → new operationId, applied after
   tags so both refer to the source as published; a new id or derived function

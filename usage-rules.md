@@ -250,7 +250,8 @@ own paths and operationIds:
 * `operation_ids` — rename an operation, found by its operationId or by
   `"method /path"`. The function follows: `GetCustomer` → `get_customer`.
 * `patches` — set a JSON pointer to a value; `nil` removes it, `-`
-  appends to a list. Applied first, to the OpenAPI 3 form.
+  appends to a list unless the list already holds the value. Applied
+  first, to the OpenAPI 3 form.
 
 Before the first `gen`, write the entry with just `overrides:`. Later,
 edit them and run `mix hearth.regen <int> --sync`. An override that

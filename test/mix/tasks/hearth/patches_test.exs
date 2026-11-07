@@ -96,6 +96,70 @@ defmodule Mix.Tasks.Hearth.PatchesTest do
     end
   end
 
+  describe "an append upstream catches up with" do
+    @enum_append %{"/components/schemas/Status/enum/-" => "archived"}
+
+    defp status_spec(enum) do
+      @spec_map
+      |> put_in(
+        ["paths", "/items/{id}", "get", "responses"],
+        %{
+          "200" => %{
+            "description" => "OK",
+            "content" => %{
+              "application/json" => %{"schema" => %{"$ref" => "#/components/schemas/Status"}}
+            }
+          }
+        }
+      )
+      |> Map.put("components", %{
+        "schemas" => %{"Status" => %{"type" => "string", "enum" => enum}}
+      })
+    end
+
+    # gen with the append, then upstream adds the value itself.
+    defp caught_up do
+      gen(@enum_append, status_spec(["open", "closed"]))
+      |> apply_igniter!()
+      |> Igniter.create_new_file(
+        "priv/specs/acme.json",
+        JSON.encode!(status_spec(["open", "closed", "archived"])),
+        on_exists: :overwrite
+      )
+      |> apply_igniter!()
+    end
+
+    @stale ~s|patches "/components/schemas/Status/enum/-" (already in the source)|
+
+    test "gen appends the value" do
+      igniter = gen(@enum_append, status_spec(["open", "closed"]))
+
+      assert pruned(igniter)["components"]["schemas"]["Status"]["enum"] ==
+               ["open", "closed", "archived"]
+    end
+
+    test "diff sees no drift and reports the patch stale" do
+      igniter = Igniter.compose_task(caught_up(), "hearth.diff", ["acme"])
+
+      assert igniter.issues == []
+      assert notice_text(igniter) =~ "no drift"
+      assert notice_text(igniter) =~ @stale
+    end
+
+    test "--sync doesn't duplicate the value, and reports the patch stale" do
+      synced = Igniter.compose_task(caught_up(), "hearth.regen", ["acme", "--sync"])
+
+      enum =
+        synced
+        |> Igniter.include_existing_file("priv/hearth/acme.yaml")
+        |> pruned()
+        |> get_in(["components", "schemas", "Status", "enum"])
+
+      assert enum == ["open", "closed", "archived"]
+      assert notice_text(synced) =~ @stale
+    end
+  end
+
   describe "added later" do
     test "diff reports the auth change; --sync wires the credential" do
       igniter = gen(%{}) |> apply_igniter!()

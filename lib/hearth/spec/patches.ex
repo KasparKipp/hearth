@@ -12,12 +12,14 @@ defmodule Hearth.Spec.Patches do
   #
   # A value replaces whatever is there; maps missing on the way are
   # created. `nil` removes the key (or list item). In a list, a segment
-  # is an existing index, or `-` to append. Pointers address the
-  # OpenAPI 3 form of the spec, and apply in pointer order, so
-  # `"/security/-"` appends to what `"/security"` set.
+  # is an existing index, or `-` to append; a missing list to append to
+  # is created. Pointers address the OpenAPI 3 form of the spec, and
+  # apply in pointer order, so `"/security/-"` appends to what
+  # `"/security"` set.
   #
-  # A patch the source already satisfies — the value is there, or the
-  # key to remove isn't — is returned as stale. Pure.
+  # A patch the source already satisfies — the value is there, the list
+  # to append to already holds it, or the key to remove isn't there —
+  # is returned as stale. Pure.
 
   @type patch :: {String.t(), [String.t()], term()}
   @type stale :: {:patches, String.t()}
@@ -58,7 +60,30 @@ defmodule Hearth.Spec.Patches do
     case fetch(spec, segments) do
       {:ok, ^value} when not is_nil(value) -> {:stale, "already in the source"}
       :error when is_nil(value) -> {:stale, "nothing to remove"}
-      _ -> put(spec, segments, value, [])
+      _ -> put_unless_held(spec, segments, value)
+    end
+  end
+
+  defp put_unless_held(spec, segments, value) do
+    if held?(spec, segments, value),
+      do: {:stale, "already in the source"},
+      else: put(spec, segments, value, [])
+  end
+
+  # An append (`…/-`) whose list already holds the value, matched
+  # exactly like the pin in `patch/3` (`1` isn't `1.0`).
+  defp held?(_spec, _segments, nil), do: false
+
+  defp held?(spec, segments, value) do
+    case Enum.split(segments, -1) do
+      {parent, ["-"]} ->
+        case fetch(spec, parent) do
+          {:ok, list} when is_list(list) -> Enum.any?(list, &(&1 === value))
+          _ -> false
+        end
+
+      _ ->
+        false
     end
   end
 
@@ -84,8 +109,11 @@ defmodule Hearth.Spec.Patches do
   defp put(map, [segment], nil, _path) when is_map(map), do: {:ok, Map.delete(map, segment)}
   defp put(map, [segment], value, _path) when is_map(map), do: {:ok, Map.put(map, segment, value)}
 
+  # A missing child is created: a list when the next segment appends.
   defp put(map, [segment | rest], value, path) when is_map(map) do
-    with {:ok, child} <- put(Map.get(map, segment, %{}), rest, value, [segment | path]) do
+    missing = if rest == ["-"], do: [], else: %{}
+
+    with {:ok, child} <- put(Map.get(map, segment, missing), rest, value, [segment | path]) do
       {:ok, Map.put(map, segment, child)}
     end
   end
