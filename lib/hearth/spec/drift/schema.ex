@@ -21,11 +21,21 @@ defmodule Hearth.Spec.Drift.Schema do
   #     `nullable` or 3.1 `"null"` in `type`, alike — lost (tighter) or
   #     gained (looser)
   #   * `$ref` changes (both) — a `$ref` target's own changes are
-  #     reported under that component
+  #     reported under that component; keywords beside an unchanged
+  #     `$ref` (`nullable`, constraints) are compared
+  #   * constraint keywords (`maxLength`, `pattern`, `format`, …), by
+  #     `Hearth.Spec.Drift.Constraints`. A `readOnly` property's don't
+  #     count in requests, a `writeOnly` one's in responses
+  #   * `additionalProperties` (absent ≡ `true` ≡ `{}`): `true` → a
+  #     schema → `false` tightens, the reverse loosens; a schema against
+  #     a schema is compared recursively
   #   * `items` and `allOf` / `oneOf` / `anyOf` members (by position) are
   #     compared recursively; a member count change is both
   #
-  # Nested changes carry their path: `owner.name`, `tags[]`, `allOf[1]`.
+  # Nested changes carry their path: `owner.name`, `tags[]`, `meta{}`,
+  # `allOf[1]`.
+
+  alias Hearth.Spec.Drift.Constraints
 
   @compositions ~w(allOf oneOf anyOf)
 
@@ -34,7 +44,8 @@ defmodule Hearth.Spec.Drift.Schema do
 
   @spec changes(term(), term(), side()) :: [{String.t(), boolean()}]
   def changes(old, new, side \\ :request) do
-    for {detail, effect} <- walk("", old, new), do: {detail, breaking?(effect, side)}
+    for {detail, effect} <- walk("", old, new, %{side: side, ignore: nil}),
+        do: {detail, breaking?(effect, side)}
   end
 
   @spec breaking?(effect(), side()) :: boolean()
@@ -43,28 +54,27 @@ defmodule Hearth.Spec.Drift.Schema do
   def breaking?(_effect, :both), do: true
   def breaking?(effect, side), do: effect == side
 
-  defp walk(_path, same, same), do: []
+  # `ctx.ignore` — the side whose constraint changes don't count here
+  # (inside a `readOnly` or `writeOnly` property), else nil.
+  defp walk(_path, same, same, _ctx), do: []
 
-  defp walk(path, %{} = old, %{} = new) do
-    if Map.has_key?(old, "$ref") or Map.has_key?(new, "$ref") do
-      ref(path, old["$ref"], new["$ref"])
-    else
+  defp walk(path, %{} = old, %{} = new, ctx) do
+    if old["$ref"] == new["$ref"] do
       type(path, old, new) ++
         nullable(path, old, new) ++
         enum(path, old, new) ++
-        properties(path, old, new) ++
+        constraints(path, old, new, ctx) ++
+        properties(path, old, new, ctx) ++
         required(path, old, new) ++
-        items(path, old, new) ++
-        Enum.flat_map(@compositions, &composition(path, &1, old[&1], new[&1]))
+        additional(path, old["additionalProperties"], new["additionalProperties"], ctx) ++
+        items(path, old, new, ctx) ++
+        Enum.flat_map(@compositions, &composition(path, &1, {old[&1], new[&1]}, ctx))
+    else
+      [at(path, "$ref #{ref_name(old["$ref"])} → #{ref_name(new["$ref"])}", :both)]
     end
   end
 
-  defp walk(path, _old, _new), do: [at(path, "schema changed", :both)]
-
-  defp ref(_path, same, same), do: []
-
-  defp ref(path, old, new),
-    do: [at(path, "$ref #{ref_name(old)} → #{ref_name(new)}", :both)]
+  defp walk(path, _old, _new, _ctx), do: [at(path, "schema changed", :both)]
 
   defp ref_name(nil), do: "(inline)"
   defp ref_name(ref), do: ref |> String.split("/") |> List.last()
@@ -127,16 +137,24 @@ defmodule Hearth.Spec.Drift.Schema do
       if lost == [], do: [], else: [at(path, "enum loses #{values(lost)}", :request)]
   end
 
-  defp values(values), do: values |> List.wrap() |> Enum.map_join(", ", &text/1)
+  defp values(values), do: values |> List.wrap() |> Enum.map_join(", ", &Constraints.text/1)
 
-  # A keyword's value as it reads in a detail line.
-  @spec text(term()) :: String.t()
-  def text(nil), do: "(none)"
-  def text(value) when is_binary(value), do: value
-  def text(value) when is_number(value) or is_boolean(value), do: to_string(value)
-  def text(value), do: JSON.encode!(value)
+  defp constraints(_path, _old, _new, %{ignore: side, side: side}), do: []
 
-  defp properties(path, old, new) do
+  defp constraints(path, old, new, %{ignore: ignore}) do
+    for {detail, effect} <- Constraints.changes(old, new),
+        do: at(path, detail, ignoring(effect, ignore))
+  end
+
+  # Inside a `readOnly` property of a schema used on both sides only the
+  # response counts, and the other way round for `writeOnly`.
+  defp ignoring(effect, nil), do: effect
+  defp ignoring(ignore, ignore), do: :none
+  defp ignoring(:both, :request), do: :response
+  defp ignoring(:both, :response), do: :request
+  defp ignoring(effect, _ignore), do: effect
+
+  defp properties(path, old, new, ctx) do
     old_props = old["properties"] || %{}
     new_props = new["properties"] || %{}
     new_required = List.wrap(new["required"])
@@ -156,11 +174,23 @@ defmodule Hearth.Spec.Drift.Schema do
     nested =
       for name <- sorted_keys(old_props),
           Map.has_key?(new_props, name),
-          change <- walk(join(path, name), old_props[name], new_props[name]),
+          {old_prop, new_prop} = {old_props[name], new_props[name]},
+          change <- walk(join(path, name), old_prop, new_prop, property(ctx, old_prop, new_prop)),
           do: change
 
     added ++ removed ++ nested
   end
+
+  defp property(ctx, old, new) do
+    cond do
+      flag?(old, new, "readOnly") -> %{ctx | ignore: :request}
+      flag?(old, new, "writeOnly") -> %{ctx | ignore: :response}
+      true -> ctx
+    end
+  end
+
+  defp flag?(old, new, key),
+    do: is_map(old) and is_map(new) and old[key] == true and new[key] == true
 
   # Only properties present in both versions — added and removed ones
   # are reported by `properties/3`.
@@ -182,16 +212,41 @@ defmodule Hearth.Spec.Drift.Schema do
     end
   end
 
-  defp items(path, old, new) do
+  defp items(path, old, new, ctx) do
     case {old["items"], new["items"]} do
       {nil, nil} -> []
-      {old_items, new_items} -> walk(path <> "[]", old_items, new_items)
+      {old_items, new_items} -> walk(path <> "[]", old_items, new_items, ctx)
     end
   end
 
-  defp composition(_path, _key, same, same), do: []
+  defp additional(path, old, new, ctx) do
+    case {extra(old), extra(new)} do
+      {same, same} ->
+        []
 
-  defp composition(path, key, old, new) do
+      {%{} = old, %{} = new} ->
+        walk(path <> "{}", old, new, ctx)
+
+      {old, new} ->
+        effect = if openness(new) < openness(old), do: :request, else: :response
+        [at(path, "additionalProperties #{extra_name(old)} → #{extra_name(new)}", effect)]
+    end
+  end
+
+  # `additionalProperties` absent, `true` and `{}` all allow anything.
+  defp extra(value) when value in [nil, true, %{}], do: true
+  defp extra(value), do: value
+
+  defp openness(true), do: 2
+  defp openness(false), do: 0
+  defp openness(_schema), do: 1
+
+  defp extra_name(value) when is_boolean(value), do: to_string(value)
+  defp extra_name(_schema), do: "schema"
+
+  defp composition(_path, _key, {same, same}, _ctx), do: []
+
+  defp composition(path, key, {old, new}, ctx) do
     old = List.wrap(old)
     new = List.wrap(new)
 
@@ -199,7 +254,7 @@ defmodule Hearth.Spec.Drift.Schema do
       old
       |> Enum.zip(new)
       |> Enum.with_index()
-      |> Enum.flat_map(fn {{o, n}, i} -> walk(join(path, "#{key}[#{i}]"), o, n) end)
+      |> Enum.flat_map(fn {{o, n}, i} -> walk(join(path, "#{key}[#{i}]"), o, n, ctx) end)
     else
       [at(path, "#{key}: #{length(old)} → #{length(new)} schemas", :both)]
     end

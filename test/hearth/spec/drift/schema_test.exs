@@ -14,9 +14,16 @@ defmodule Hearth.Spec.Drift.SchemaTest do
       assert Schema.changes(object(%{"a" => @string}), object(%{"a" => @string})) == []
     end
 
-    test "ignores descriptions, examples and titles" do
+    test "ignores descriptions, examples, titles and other annotations" do
       old = %{"type" => "string", "description" => "old", "example" => "x"}
-      new = %{"type" => "string", "description" => "new", "title" => "T"}
+
+      new = %{
+        "type" => "string",
+        "description" => "new",
+        "title" => "T",
+        "deprecated" => true,
+        "x-foo" => "bar"
+      }
 
       assert Schema.changes(old, new) == []
     end

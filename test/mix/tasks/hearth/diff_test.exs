@@ -6,9 +6,22 @@ defmodule Mix.Tasks.Hearth.DiffTest do
   # A small spec, varied per test. pets: listPets, createPets, showPet.
   defp spec(changes \\ []) do
     list_params =
-      if changes[:limit_param],
-        do: [%{"name" => "limit", "in" => "query"}],
-        else: []
+      cond do
+        max = changes[:limit_max] ->
+          [
+            %{
+              "name" => "limit",
+              "in" => "query",
+              "schema" => %{"type" => "string", "maxLength" => max}
+            }
+          ]
+
+        changes[:limit_param] ->
+          [%{"name" => "limit", "in" => "query"}]
+
+        true ->
+          []
+      end
 
     pet_props =
       Map.merge(
@@ -113,6 +126,20 @@ defmodule Mix.Tasks.Hearth.DiffTest do
       # Pet is only reachable from showPet, so it leaves the pruned spec too.
       assert issue_text(igniter) =~ "- Pet  [breaking]"
       assert issue_text(igniter) =~ "2 changes (2 breaking)"
+    end
+
+    test "a request parameter that accepts less is breaking" do
+      igniter =
+        test_project(files: %{"priv/specs/pets.json" => spec(limit_max: 100)})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/pets.json", "--integration", "Pets"])
+        |> apply_igniter!()
+        |> put_source(spec(limit_max: 10))
+        |> diff()
+
+      assert issue_text(igniter) =~
+               "~ get /pets (listPets): query parameter limit: maxLength 100 → 10  [breaking]"
+
+      assert issue_text(igniter) =~ "1 change (1 breaking)"
     end
 
     test "--fail-on breaking leaves additive drift as a notice" do
