@@ -312,7 +312,9 @@ lib/
       headers.ex               # required-header suggestions for headers:
       values.ex                # credential: / headers: / base_url: — config, option or resolver
       drift.ex                 # pruned spec vs re-pruned source → changes
-      drift/schema.ex          # JSON schema shape changes (additive / breaking)
+      drift/schema.ex          # JSON schema shape changes, judged by side (request / response)
+      drift/constraints.ex     # constraint keywords (maxLength, pattern, …) → tighter / looser
+      drift/usage.ex           # which side each component schema is used on
       drift/copies.ex          # sources: copies (items_x) paired with x across a split / join
     render/                    # pure: data → source strings
       module_names.ex          # every layer's module from Layer 1
@@ -560,10 +562,14 @@ What exists, condensed. The blow-by-blow is in git history.
 - **Overrides** — an entry's `overrides:` (`Spec.Overrides`) corrects the
   source spec before selection: `parse/1` validates it (unknown kinds are an
   error naming the supported ones), `apply/2` rewrites the decoded source and
-  returns stale entries. `patches:` (`Spec.Patches`) — JSON pointer → value,
-  `nil` removes, `-` appends, maps created on the way; applied first, in
-  pointer order, to the OpenAPI 3 form (after Swagger 2 conversion); a value already there or a missing key to remove is stale,
-  an unfollowable pointer an error. `tags:` — path globs (`*` crosses `/`),
+  returns stale entries — a notice in gen and `--sync`; diff folds them
+  into its report and fails on them under `--fail-on any` (the default).
+  `patches:` (`Spec.Patches`) — JSON pointer → value,
+  `nil` removes, `-` appends, maps (a list, before `-`) created on the way;
+  applied first, in pointer order, to the OpenAPI 3 form (after Swagger 2
+  conversion); a value already there, an appended value already in the
+  list, or a missing key to remove is stale, an unfollowable pointer an
+  error. `tags:` — path globs (`*` crosses `/`),
   `method /glob`, or operationIds; adds to upstream tags. `operation_ids:` —
   upstream operationId (or `"method /path"`) → new operationId, applied after
   tags so both refer to the source as published; a new id or derived function
@@ -583,7 +589,8 @@ What exists, condensed. The blow-by-blow is in git history.
   the credential comes from, or why there isn't one. Applied by gen (from
   an entry written before gen, which gen keeps), and by `Integration.Reprune`
   for `--sync` and diff, so the pruned spec carries the result and plain regen
-  needs nothing. Stale entries become a notice in gen, `--sync` and diff.
+  needs nothing. Stale entries become a notice in gen and `--sync`, and fail
+  diff (see Overrides).
 - **Prefixed ids** — the entry's `prefixed_ids: [functions:, prefixes:]`
   (`Spec.PrefixedIds`): functions named by the user, each mapped to an HTTP
   method (default `[retrieve: :get]`); a prefix names its resource by the
@@ -667,18 +674,40 @@ What exists, condensed. The blow-by-blow is in git history.
   notices external tests still calling the old function),
   parameters / request body / responses with local `$ref`s resolved, and
   `components/schemas` by name, all through `Drift.Schema` (properties,
-  `required`, `enum`, `type`, `$ref`, `items`, compositions; annotations
-  ignored). With `sources:`, a merge's copies (`items_x`) pair with the
+  `required`, `enum` as a set, `type` as a set plus nullability — 3.0
+  `nullable` ≡ 3.1 `"null"` — `$ref` (keywords beside an unchanged one
+  still compared), `items`, `additionalProperties` (absent ≡ `true` ≡
+  `{}`; schema vs schema recursed at `x{}`), compositions, and the
+  constraint keywords in `Drift.Constraints` — bounds, `maximum` /
+  `exclusiveMaximum` (and the `minimum` pair) as one effective bound,
+  3.0 boolean or 3.1 number alike, `multipleOf`, `pattern`, `format`,
+  `const`, `uniqueItems`, `readOnly` / `writeOnly`, `not`, `default`
+  (changed breaks requests, added or removed breaks nothing); numbers
+  by value (`1` ≡ `1.0`), `integer` ⊂ `number`, `items` added
+  tightens / removed loosens; an explicit list, so annotations and
+  rare 3.1 keywords are ignored). Changes inside a `readOnly` property
+  (required, enum, type, constraints) don't break requests, a
+  `writeOnly` one's don't break responses — still listed, as
+  non-breaking. Verdicts are side-aware: each change has an effect
+  (`:request` tighter, `:response` looser, `:both`, `:none`), breaking
+  when it matches the schema's side — parameters and request bodies are
+  `:request`, responses `:response`, a component the side `Drift.Usage`
+  finds by walking operations through local `$ref`s in both specs (a
+  copy folded into its plain name; unreferenced → `:both`). With `sources:`, a merge's copies (`items_x`) pair with the
   plain `x` on the other side (`Drift.Copies`; splits from the merge's
   own list, joins by name): a split or join is one non-breaking line,
   then each source compared with what it had (its copy, else `x`), so a
   `shared:` pin moving between sources isn't drift; refs to a copy count
   as refs to `x`. `Selection.unlisted/2` lists new upstream operations
   `tags:` doesn't mention (informational). `source_sha256` (written by gen and
-  `--sync`) says whether the source changed since. Drift is an Igniter
-  issue — `--fail-on breaking` downgrades additive-only drift to a notice
-  — and `run/1` exits 1 on issues. `--sync` prints the same
-  `Drift.format/1` lines for what it applied. Writes nothing (`build:` aside).
+  `--sync`) says whether the source changed since. Stale overrides ride in
+  the report (`Diff.Messages.report/7`, with a remove-them remedy line), so
+  they print whether it's an issue or a notice. The report is an Igniter
+  issue on drift or stale overrides (`--fail-on any`, the default);
+  `--fail-on drift` fails on drift only, and `--fail-on breaking`
+  downgrades additive-only drift to a notice — and `run/1` exits 1 on
+  issues. `--sync` prints the same `Drift.format/1` lines for what it
+  applied. Writes nothing (`build:` aside).
 
 ---
 

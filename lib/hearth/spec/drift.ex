@@ -13,13 +13,18 @@ defmodule Hearth.Spec.Drift do
   #     detail names the call sites to rename)
   #   * inside an operation: parameters (local `$ref`s resolved), the
   #     request body and responses, with schemas compared by
-  #     `Hearth.Spec.Drift.Schema`
+  #     `Hearth.Spec.Drift.Schema` — parameters and the request body as
+  #     request schemas (breaking when they accept less), responses as
+  #     response schemas (breaking when they may return more)
   #   * `components/schemas`, by name: added, removed, changed. A
   #     `sources:` merge's per-source copies (`items_Pet`) pair with the
   #     plain name on the other side (`Drift.Copies`): a split or join is
   #     one non-breaking line plus each source's own changes, and `$ref`s
   #     to a copy count as refs to the plain name — the generated code
-  #     never names a schema
+  #     never names a schema. Each is judged by where the operations use
+  #     it, in either spec (`Drift.Usage`; a copy shares its plain
+  #     name's side): in requests, in responses, or both — or both when
+  #     nothing reaches it
   #   * the auth scheme Layer 1 wires (breaking when it changes)
   #
   # Documentation (`summary`, `description`, `example`, …) is ignored.
@@ -27,6 +32,7 @@ defmodule Hearth.Spec.Drift do
   alias Hearth.Spec.Auth
   alias Hearth.Spec.Drift.Copies
   alias Hearth.Spec.Drift.Schema
+  alias Hearth.Spec.Drift.Usage
   alias Hearth.Spec.Operation
 
   @methods ~w(get put post delete options head patch trace)
@@ -44,12 +50,19 @@ defmodule Hearth.Spec.Drift do
   @spec compare(map(), map(), keyword()) :: [change()]
   def compare(current, candidate, merge \\ []) do
     {splits, joins} = Copies.pairs(current, candidate, merge)
+
+    sides =
+      Usage.union(
+        current |> Usage.sides() |> Usage.rename(joins),
+        candidate |> Usage.sides() |> Usage.rename(splits)
+      )
+
     current = Copies.plain_refs(current, joins)
     candidate = Copies.plain_refs(candidate, splits)
 
     auth(current, candidate) ++
       operations(current, candidate) ++
-      schemas(current, candidate, splits, joins, Keyword.get(merge, :keys, []))
+      schemas(current, candidate, {splits, joins, sides}, Keyword.get(merge, :keys, []))
   end
 
   @spec breaking?([change()]) :: boolean()
@@ -232,7 +245,8 @@ defmodule Hearth.Spec.Drift do
         {true, false} -> [{"#{param_label(key)} is no longer required", false}]
       end
 
-    required ++ prefixed(param_label(key), Schema.changes(old["schema"], new["schema"]))
+    required ++
+      prefixed(param_label(key), Schema.changes(old["schema"], new["schema"], :request))
   end
 
   defp request_body(nil, nil, _current, _candidate), do: []
@@ -256,7 +270,7 @@ defmodule Hearth.Spec.Drift do
         {true, false} -> [{"request body is no longer required", false}]
       end
 
-    required ++ content("request body", old["content"], new["content"])
+    required ++ content("request body", old["content"], new["content"], :request)
   end
 
   defp responses(old, new, current, candidate) do
@@ -274,13 +288,14 @@ defmodule Hearth.Spec.Drift do
           content(
             "response #{code}",
             resolve(current, old_response)["content"],
-            resolve(candidate, new_response)["content"]
+            resolve(candidate, new_response)["content"],
+            :response
           )
       end
     end)
   end
 
-  defp content(label, old, new) do
+  defp content(label, old, new, side) do
     old = old || %{}
     new = new || %{}
     types = old |> Map.keys() |> Enum.concat(Map.keys(new)) |> Enum.uniq() |> Enum.sort()
@@ -289,7 +304,7 @@ defmodule Hearth.Spec.Drift do
       case {old[type], new[type]} do
         {nil, _new} -> [{"#{label} #{type} added", false}]
         {_old, nil} -> [{"#{label} #{type} removed", true}]
-        {o, n} -> prefixed("#{label} #{type}", Schema.changes(o["schema"], n["schema"]))
+        {o, n} -> prefixed("#{label} #{type}", Schema.changes(o["schema"], n["schema"], side))
       end
     end)
   end
@@ -312,7 +327,7 @@ defmodule Hearth.Spec.Drift do
 
   # --- components ---------------------------------------------------------
 
-  defp schemas(current, candidate, splits, joins, keys) do
+  defp schemas(current, candidate, {splits, joins, sides}, keys) do
     old = Copies.schemas(current)
     new = Copies.schemas(candidate)
     copies = Map.merge(splits, joins)
@@ -323,10 +338,18 @@ defmodule Hearth.Spec.Drift do
     |> Kernel.--(Map.keys(copies))
     |> Enum.sort()
     |> Enum.flat_map(fn name ->
+      side = Usage.side(sides, name)
+
       if MapSet.member?(paired, name),
         do:
-          paired_changes(name, old, new, {copies_of(splits, name), copies_of(joins, name)}, keys),
-        else: schema_changes(name, old[name], new[name])
+          paired_changes(
+            {name, side},
+            old,
+            new,
+            {copies_of(splits, name), copies_of(joins, name)},
+            keys
+          ),
+        else: schema_changes(name, old[name], new[name], side)
     end)
   end
 
@@ -336,16 +359,16 @@ defmodule Hearth.Spec.Drift do
   # join, then each source compared with what it had — its copy, else
   # the plain name. Sources with no copy on either side read the plain
   # name on both.
-  defp paired_changes(name, old, new, {split, joined} = copies, keys) do
+  defp paired_changes({name, side}, old, new, {split, joined} = copies, keys) do
     copied = Enum.filter(keys, &(Keyword.has_key?(split, &1) or Keyword.has_key?(joined, &1)))
 
     shared =
       if keys -- copied != [] and Map.has_key?(old, name) and Map.has_key?(new, name),
-        do: schema_changes(name, old[name], new[name]),
+        do: schema_changes(name, old[name], new[name], side),
         else: []
 
     [schema_change(:changed, name, pairing(name, old, new, copies), false)] ++
-      shared ++ Enum.flat_map(copied, &copy_changes(&1, name, old, new, copies))
+      shared ++ Enum.flat_map(copied, &copy_changes(&1, {name, side}, old, new, copies))
   end
 
   defp pairing(name, old, new, {split, joined}) do
@@ -368,20 +391,21 @@ defmodule Hearth.Spec.Drift do
     end
   end
 
-  defp copy_changes(key, name, old, new, {split, joined}) do
+  defp copy_changes(key, {name, side}, old, new, {split, joined}) do
     old_copy = joined[key]
     new_copy = split[key]
     prefix = if old_copy && !new_copy, do: "from #{old_copy}: ", else: ""
 
-    for {detail, breaking?} <- Schema.changes(old[old_copy || name], new[new_copy || name]),
+    for {detail, breaking?} <-
+          Schema.changes(old[old_copy || name], new[new_copy || name], side),
         do: schema_change(:changed, new_copy || name, prefix <> detail, breaking?)
   end
 
-  defp schema_changes(name, nil, _new), do: [schema_change(:added, name, nil, false)]
-  defp schema_changes(name, _old, nil), do: [schema_change(:removed, name, nil, true)]
+  defp schema_changes(name, nil, _new, _side), do: [schema_change(:added, name, nil, false)]
+  defp schema_changes(name, _old, nil, _side), do: [schema_change(:removed, name, nil, true)]
 
-  defp schema_changes(name, old, new) do
-    for {detail, breaking?} <- Schema.changes(old, new),
+  defp schema_changes(name, old, new, side) do
+    for {detail, breaking?} <- Schema.changes(old, new, side),
         do: schema_change(:changed, name, detail, breaking?)
   end
 

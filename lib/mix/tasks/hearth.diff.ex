@@ -15,16 +15,22 @@ defmodule Mix.Tasks.Hearth.Diff.Docs do
 
     ## Usage
 
-        mix hearth.diff <integration>[,<integration>...] [--fail-on any|breaking]
-        mix hearth.diff --all [--fail-on any|breaking]
-        mix hearth.diff <integration> --source <spec> [--fail-on any|breaking]
+        mix hearth.diff <integration>[,<integration>...] [--fail-on any|drift|breaking]
+        mix hearth.diff --all [--fail-on any|drift|breaking]
+        mix hearth.diff <integration> --source <spec> [--fail-on any|drift|breaking]
 
     Re-prunes each integration's source spec (its `.hearth.exs`
     `source:`) with the entry's `tags:`, and compares the result with
     the pruned spec in `priv/hearth/`. It lists every change:
     operations added, removed, moved or renamed; parameters, request
     bodies and responses; and component schemas — properties, required
-    fields, enum values, types. Each change is marked breaking or not.
+    fields, enum values, types, nullability, and constraints such as
+    `maxLength`, `pattern`, `format` or `additionalProperties`. Each
+    change is marked breaking or not: breaking when a request schema
+    accepts less (a new required field, a lower `maxLength`) or a
+    response schema may return more (a gained enum value, a field no
+    longer required). A `readOnly` property never breaks requests, a
+    `writeOnly` one never breaks responses.
     Documentation-only changes are ignored. An operationId rename at
     the same method and path is drift, not breaking: the report names
     the call sites to rename, and `--sync` keeps the operation selected.
@@ -32,13 +38,18 @@ defmodule Mix.Tasks.Hearth.Diff.Docs do
     It also lists new upstream operations that `tags:` doesn't select,
     so you can decide on them. Those never fail the run.
 
+    And it lists the entry's overrides that match nothing in the
+    source — a typo, a path or operationId renamed upstream, or a patch
+    the source now has itself. Remove them from `overrides:`; no regen
+    is needed.
+
     An entry's `build:` (a Mix task that writes the source) runs first;
     when it fails, diff halts without reading the source. `--source`
     skips it.
 
     `hearth.diff` writes nothing itself. It exits non-zero when it finds
-    drift, so it can run in CI. Apply the drift with
-    `mix hearth.regen <integration> --sync`.
+    drift or overrides that match nothing, so it can run in CI. Apply
+    the drift with `mix hearth.regen <integration> --sync`.
 
     The entry's `source_sha256`, recorded by `gen` and `--sync`, tells
     whether the source changed since then, or the drift comes from a
@@ -50,8 +61,10 @@ defmodule Mix.Tasks.Hearth.Diff.Docs do
       * `--source <spec>` — compare one integration against another
         local spec file, e.g. a newer version, without editing
         `.hearth.exs`.
-      * `--fail-on any|breaking` — `any` (the default) fails on any
-        drift; `breaking` only on breaking changes, reporting the rest.
+      * `--fail-on any|drift|breaking` — `any` (the default) fails on
+        any drift or on overrides that match nothing;
+        `drift` fails on any drift, reporting the overrides;
+        `breaking` only on breaking changes, reporting the rest.
     """
   end
 end
@@ -86,8 +99,9 @@ if Code.ensure_loaded?(Igniter) do
       }
     end
 
-    # Drift is reported as an Igniter issue; exit non-zero then, so CI
-    # fails. Igniter itself only prints issues.
+    # Drift (and, under `--fail-on any`, a stale override) is reported as
+    # an Igniter issue; exit non-zero then, so CI fails. Igniter itself
+    # only prints issues.
     @impl Mix.Task
     def run(argv) do
       case super(argv) do
@@ -114,6 +128,7 @@ if Code.ensure_loaded?(Igniter) do
       case igniter.args.options[:fail_on] do
         nil -> {:ok, :any}
         "any" -> {:ok, :any}
+        "drift" -> {:ok, :drift}
         "breaking" -> {:ok, :breaking}
         other -> {:error, Messages.bad_fail_on_message(other)}
       end
@@ -149,16 +164,14 @@ if Code.ensure_loaded?(Igniter) do
             changes,
             unlisted,
             source_state(entry, result.sha256),
-            result.source == Config.source_label(Config.source(entry) || "")
+            result.source == Config.source_label(Config.source(entry) || ""),
+            result.stale_overrides
           )
           |> Kernel.<>(split_advice(key, Reprune.splits(result, current)))
 
-        igniter =
-          if fails?(changes, fail_on),
-            do: Igniter.add_issue(igniter, report),
-            else: Igniter.add_notice(igniter, report)
-
-        note_stale_overrides(igniter, key, result)
+        if fails?(changes, result.stale_overrides, fail_on),
+          do: Igniter.add_issue(igniter, report),
+          else: Igniter.add_notice(igniter, report)
       else
         {:halt, message} -> Igniter.add_issue(igniter, message)
       end
@@ -205,15 +218,6 @@ if Code.ensure_loaded?(Igniter) do
     defp split_advice(_key, []), do: ""
     defp split_advice(key, splits), do: "\n" <> IntegrationMessages.split_warning(key, splits)
 
-    defp note_stale_overrides(igniter, _key, %{stale_overrides: []}), do: igniter
-
-    defp note_stale_overrides(igniter, key, result) do
-      notice =
-        IntegrationMessages.stale_overrides_notice(key, result.source, result.stale_overrides)
-
-      Igniter.add_notice(igniter, notice)
-    end
-
     defp source_state(entry, sha256) do
       case entry[:source_sha256] do
         nil -> nil
@@ -231,9 +235,11 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    defp fails?([], _fail_on), do: false
-    defp fails?(_changes, :any), do: true
-    defp fails?(changes, :breaking), do: Drift.breaking?(changes)
+    # `:any` fails on drift or stale overrides, `:drift` on drift only,
+    # `:breaking` on breaking drift only.
+    defp fails?(changes, stale, :any), do: changes != [] or stale != []
+    defp fails?(changes, _stale, :drift), do: changes != []
+    defp fails?(changes, _stale, :breaking), do: Drift.breaking?(changes)
   end
 else
   defmodule Mix.Tasks.Hearth.Diff do

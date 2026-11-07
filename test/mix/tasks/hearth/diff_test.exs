@@ -6,9 +6,22 @@ defmodule Mix.Tasks.Hearth.DiffTest do
   # A small spec, varied per test. pets: listPets, createPets, showPet.
   defp spec(changes \\ []) do
     list_params =
-      if changes[:limit_param],
-        do: [%{"name" => "limit", "in" => "query"}],
-        else: []
+      cond do
+        max = changes[:limit_max] ->
+          [
+            %{
+              "name" => "limit",
+              "in" => "query",
+              "schema" => %{"type" => "string", "maxLength" => max}
+            }
+          ]
+
+        changes[:limit_param] ->
+          [%{"name" => "limit", "in" => "query"}]
+
+        true ->
+          []
+      end
 
     pet_props =
       Map.merge(
@@ -115,6 +128,20 @@ defmodule Mix.Tasks.Hearth.DiffTest do
       assert issue_text(igniter) =~ "2 changes (2 breaking)"
     end
 
+    test "a request parameter that accepts less is breaking" do
+      igniter =
+        test_project(files: %{"priv/specs/pets.json" => spec(limit_max: 100)})
+        |> Igniter.compose_task("hearth.gen", ["priv/specs/pets.json", "--integration", "Pets"])
+        |> apply_igniter!()
+        |> put_source(spec(limit_max: 10))
+        |> diff()
+
+      assert issue_text(igniter) =~
+               "~ get /pets (listPets): query parameter limit: maxLength 100 → 10  [breaking]"
+
+      assert issue_text(igniter) =~ "1 change (1 breaking)"
+    end
+
     test "--fail-on breaking leaves additive drift as a notice" do
       igniter =
         gen()
@@ -132,10 +159,18 @@ defmodule Mix.Tasks.Hearth.DiffTest do
       assert issue_text(igniter) =~ "[breaking]"
     end
 
+    test "--fail-on drift still fails on additive drift" do
+      igniter =
+        gen() |> put_source(spec(limit_param: true)) |> diff(["pets", "--fail-on", "drift"])
+
+      assert issue_text(igniter) =~ "query parameter limit added"
+    end
+
     test "rejects an unknown --fail-on" do
       igniter = gen() |> diff(["pets", "--fail-on", "sometimes"])
 
       assert issue_text(igniter) =~ "--fail-on"
+      assert issue_text(igniter) =~ "`any`, `drift` or `breaking`"
     end
 
     test "an unsynced tags: edit shows up as drift" do
@@ -321,6 +356,16 @@ defmodule Mix.Tasks.Hearth.DiffTest do
         |> diff(["pets", "--source", "priv/specs/pets-v2.json"])
 
       assert issue_text(igniter) =~ "~ Pet: property age added"
+    end
+  end
+
+  describe "docs" do
+    test "long_doc covers stale overrides and --fail-on drift" do
+      doc = Mix.Tasks.Hearth.Diff.Docs.long_doc()
+
+      assert doc =~ "--fail-on any|drift|breaking"
+      assert doc =~ "`drift` fails on any drift"
+      assert doc =~ "overrides that match nothing"
     end
   end
 

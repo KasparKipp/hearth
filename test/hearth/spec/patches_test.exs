@@ -100,4 +100,66 @@ defmodule Hearth.Spec.PatchesTest do
       assert spec["security"] == [%{"bearerAuth" => []}]
     end
   end
+
+  describe "apply/2 appending with -" do
+    @enum_spec %{"components" => %{"schemas" => %{"Status" => %{"enum" => ["open", "closed"]}}}}
+    @enum "/components/schemas/Status/enum/-"
+
+    test "a value the list already holds is stale, and isn't appended again" do
+      assert {:ok, spec, stale} = apply_patches(%{@enum => "closed"}, @enum_spec)
+      assert spec == @enum_spec
+      assert stale == [{:patches, ~s|"#{@enum}" (already in the source)|}]
+    end
+
+    test "a value the list doesn't hold is appended" do
+      assert {:ok, spec, []} = apply_patches(%{@enum => "archived"}, @enum_spec)
+      assert spec["components"]["schemas"]["Status"]["enum"] == ["open", "closed", "archived"]
+    end
+
+    test "a security requirement equal to one there is stale; a different one is appended" do
+      spec = %{"security" => [%{"bearerAuth" => []}]}
+
+      assert {:ok, ^spec, [{:patches, ~s|"/security/-" (already in the source)|}]} =
+               apply_patches(%{"/security/-" => %{"bearerAuth" => []}}, spec)
+
+      assert {:ok, patched, []} = apply_patches(%{"/security/-" => %{"apiKey" => []}}, spec)
+      assert patched["security"] == [%{"bearerAuth" => []}, %{"apiKey" => []}]
+    end
+
+    test "a parameter equal to one there is stale" do
+      pointer = "/paths/~1items~1{id}/get/parameters/-"
+
+      assert {:ok, spec, [{:patches, why}]} =
+               apply_patches(%{pointer => %{"name" => "id", "in" => "path"}})
+
+      assert spec == @spec_map
+      assert why == ~s|"#{pointer}" (already in the source)|
+    end
+
+    test "matches exactly: 1.0 isn't the 1 already there" do
+      assert {:ok, %{"a" => [1, 1.0]}, []} = apply_patches(%{"/a/-" => 1.0}, %{"a" => [1]})
+    end
+
+    test "onto a missing key creates the list" do
+      assert {:ok, %{"a" => ["v"]}, []} = apply_patches(%{"/a/-" => "v"}, %{})
+    end
+
+    test "through missing maps creates them, then the list" do
+      assert {:ok, %{"x" => %{"y" => ["v"]}}, []} = apply_patches(%{"/x/y/-" => "v"}, %{})
+    end
+
+    test "a map with a literal - key keeps it as a key" do
+      assert {:ok, %{"a" => %{"-" => "v"}}, []} = apply_patches(%{"/a/-" => "v"}, %{"a" => %{}})
+    end
+
+    test "onto what an earlier patch set: stale when that list holds the value" do
+      assert {:ok, %{"a" => ["x", "y"]}, [{:patches, ~s|"/a/-" (already in the source)|}]} =
+               apply_patches(%{"/a" => ["x", "y"], "/a/-" => "y"}, %{})
+    end
+
+    test "can't go through - to a key below it" do
+      assert {:error, message} = apply_patches(%{"/a/-/b" => "v"}, %{"a" => []})
+      assert message =~ "no item -"
+    end
+  end
 end

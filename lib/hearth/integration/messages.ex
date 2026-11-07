@@ -123,7 +123,9 @@ defmodule Hearth.Integration.Messages do
   end
 
   # Override entries that matched nothing in the source — usually a typo,
-  # or an upstream rename. Reported, never fatal.
+  # an upstream rename, or a patch upstream has adopted. A notice in gen
+  # and `--sync`; `hearth.diff` folds them into its report, and fails on
+  # them unless `--fail-on drift` or `breaking`.
   def stale_overrides_notice(key, source, stale) do
     lines =
       Enum.map_join(stale, "\n", fn {kind, description} -> "  * #{kind} #{description}" end)
@@ -133,7 +135,7 @@ defmodule Hearth.Integration.Messages do
 
     #{lines}
 
-    Check them for typos, or for paths, operationIds and schemes renamed upstream.
+    Check them for typos, or for paths and operationIds renamed upstream.
     """
   end
 

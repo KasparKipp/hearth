@@ -50,7 +50,8 @@ defmodule Hearth.UsageRulesTest do
   test "documents tag overrides" do
     assert @content =~ "## Overrides"
     assert @content =~ ~s|Subscriptions: ["/v1/subscriptions*"]|
-    assert @content =~ "matches nothing"
+    assert @content =~ "fails `diff` until you remove it"
+    refute @content =~ "An override that\nmatches nothing is reported."
     assert @content =~ ~s|operation_ids: %{"GetCustomersCustomer" => "GetCustomer"}|
     assert @content =~ ~s|"/security" => [%{"bearerAuth" => []}]|
     assert @content =~ "## Auth"
@@ -96,6 +97,7 @@ defmodule Hearth.UsageRulesTest do
   test "documents hearth.diff for CI" do
     assert @content =~ "mix hearth.diff stripe"
     assert @content =~ "--fail-on breaking"
+    assert @content =~ "--fail-on drift"
     assert @content =~ "source_sha256"
   end
 

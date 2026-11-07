@@ -250,11 +250,15 @@ own paths and operationIds:
 * `operation_ids` — rename an operation, found by its operationId or by
   `"method /path"`. The function follows: `GetCustomer` → `get_customer`.
 * `patches` — set a JSON pointer to a value; `nil` removes it, `-`
-  appends to a list. Applied first, to the OpenAPI 3 form.
+  appends to a list unless the list already holds the value. Applied
+  first, to the OpenAPI 3 form.
 
 Before the first `gen`, write the entry with just `overrides:`. Later,
 edit them and run `mix hearth.regen <int> --sync`. An override that
-matches nothing is reported.
+matches nothing in the source — a typo, a path or operationId renamed
+upstream, a patch the source now has itself — is reported by `gen` and
+`--sync`, and fails `diff` until you remove it (`--fail-on drift`
+reports it without failing). Removing it needs no regen.
 
 ## Prefixed ids
 
@@ -346,7 +350,16 @@ credential with `auth: [credential: …]` instead.
 compares the result with `priv/hearth/<int>.yaml`. It lists every
 change — operations added, removed, moved or renamed; parameters,
 request bodies and responses; component schemas (properties, required
-fields, enum values, types) — and marks the breaking ones.
+fields, enum values, types, nullability, and constraints such as
+`maxLength`, `pattern`, `format`, `minimum` or `additionalProperties`)
+— and marks the breaking ones: a request schema that accepts less (a
+new required field, a lost enum value, a lower `maxLength`) or a
+response schema that may return more (a gained enum value, a field no
+longer required, now nullable, a dropped `pattern`). A component schema counts as
+both when the operations use it on both sides. A `readOnly` property
+never breaks requests and a `writeOnly` one never breaks responses; a
+`default` added or removed breaks nothing, a changed one breaks
+requests.
 Documentation-only changes are ignored. It also lists new upstream
 operations `tags:` doesn't select yet, without failing.
 
@@ -356,7 +369,8 @@ operation selected — `tags:` follows the new id — and the report names
 the call sites to rename (`list_pets → list_all_pets`).
 
 `diff` writes nothing (apart from what `build:` writes) and exits
-non-zero on drift — run it in CI.
+non-zero on drift, or on an override that matches nothing — run it in
+CI. `--fail-on drift` fails on drift only, reporting such overrides;
 `--fail-on breaking` fails only on breaking changes. `--source`
 previews another spec (e.g. a newer version) without touching
 `.hearth.exs`. To apply drift, point `source:` at the spec you want
