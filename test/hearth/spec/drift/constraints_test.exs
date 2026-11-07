@@ -125,9 +125,67 @@ defmodule Hearth.Spec.Drift.ConstraintsTest do
 
   test "a changed default breaks requests only" do
     tightens(kw("default", 1), kw("default", 2), "default 1 → 2")
-    tightens(%{}, kw("default", "a"), "default (none) → a")
-    tightens(kw("default", "a"), %{}, "default a → (none)")
     tightens(kw("default", "a"), kw("default", nil), "default a → null")
+  end
+
+  test "a default added or removed is drift that breaks nothing" do
+    for side <- [:request, :response, :both] do
+      assert Schema.changes(%{}, kw("default", "a"), side) == [{"default (none) → a", false}]
+      assert Schema.changes(kw("default", "a"), %{}, side) == [{"default a → (none)", false}]
+    end
+  end
+
+  test "integer and float forms of the same number are no change" do
+    unchanged(kw("default", 1), kw("default", 1.0))
+    unchanged(kw("const", %{"n" => [2]}), kw("const", %{"n" => [2.0]}))
+    unchanged(kw("enum", [1, 2]), kw("enum", [1.0, 2]))
+  end
+
+  test "multipleOf values too far apart to divide break both rather than crash" do
+    breaks_both(
+      kw("multipleOf", 1.0e-300),
+      kw("multipleOf", 1.0e300),
+      "multipleOf 1.0e-300 → 1.0e300"
+    )
+  end
+
+  describe "exclusive and inclusive bounds together" do
+    test "an exclusive bound turned inclusive at the same value loosens" do
+      old = kw("exclusiveMaximum", 10)
+      new = kw("maximum", 10)
+
+      assert Schema.changes(old, new, :request) == [
+               {"maximum (none) → 10", false},
+               {"exclusiveMaximum 10 → (none)", false}
+             ]
+
+      assert Schema.changes(new, old, :request) == [
+               {"maximum 10 → (none)", true},
+               {"exclusiveMaximum (none) → 10", true}
+             ]
+    end
+
+    test "a 3.0 exclusive pair rewritten with both 3.1 keywords is no change" do
+      unchanged(
+        %{"maximum" => 10, "exclusiveMaximum" => true},
+        %{"maximum" => 10, "exclusiveMaximum" => 10}
+      )
+
+      unchanged(%{"minimum" => 1}, %{"minimum" => 1, "exclusiveMinimum" => 0})
+    end
+
+    test "the stricter of maximum and exclusiveMaximum decides" do
+      old = %{"maximum" => 5, "exclusiveMaximum" => 100}
+      new = %{"maximum" => 5, "exclusiveMaximum" => 50}
+
+      unchanged(old, new)
+
+      tightens(
+        kw("maximum", 10),
+        %{"maximum" => 10, "exclusiveMaximum" => 8},
+        "exclusiveMaximum (none) → 8"
+      )
+    end
   end
 
   describe "additionalProperties" do
@@ -205,7 +263,8 @@ defmodule Hearth.Spec.Drift.ConstraintsTest do
     test "a readOnly property's constraints don't count in requests" do
       read_only = %{"readOnly" => true}
 
-      assert Schema.changes(prop(read_only, 10), prop(read_only, 5), :request) == []
+      assert Schema.changes(prop(read_only, 10), prop(read_only, 5), :request) ==
+               [{"id: maxLength 10 → 5", false}]
 
       assert Schema.changes(prop(read_only, 10), prop(read_only, 5), :response) ==
                [{"id: maxLength 10 → 5", false}]
@@ -220,7 +279,8 @@ defmodule Hearth.Spec.Drift.ConstraintsTest do
     test "a writeOnly property's constraints don't count in responses" do
       write_only = %{"writeOnly" => true}
 
-      assert Schema.changes(prop(write_only, 10), prop(write_only, 5), :response) == []
+      assert Schema.changes(prop(write_only, 10), prop(write_only, 5), :response) ==
+               [{"id: maxLength 10 → 5", false}]
 
       assert Schema.changes(prop(write_only, 10), prop(write_only, 5), :request) ==
                [{"id: maxLength 10 → 5", true}]
@@ -230,6 +290,45 @@ defmodule Hearth.Spec.Drift.ConstraintsTest do
 
       assert Schema.changes(prop(write_only, 10), prop(write_only, 5), :both) ==
                [{"id: maxLength 10 → 5", true}]
+    end
+
+    defp object(props, required),
+      do: %{"type" => "object", "properties" => props, "required" => required}
+
+    test "a readOnly property becoming required, or added required, breaks no request" do
+      id = %{"type" => "string", "readOnly" => true}
+
+      for side <- [:request, :both] do
+        assert Schema.changes(object(%{"id" => id}, []), object(%{"id" => id}, ["id"]), side) ==
+                 [{"id is now required", false}]
+
+        assert Schema.changes(object(%{}, []), object(%{"id" => id}, ["id"]), side) ==
+                 [{"property id added, required", false}]
+      end
+
+      assert Schema.changes(object(%{"id" => id}, ["id"]), object(%{"id" => id}, []), :both) ==
+               [{"id is no longer required", true}]
+    end
+
+    test "a writeOnly property no longer required breaks no response" do
+      pw = %{"type" => "string", "writeOnly" => true}
+
+      for side <- [:response, :both] do
+        assert Schema.changes(object(%{"pw" => pw}, ["pw"]), object(%{"pw" => pw}, []), side) ==
+                 [{"pw is no longer required", false}]
+      end
+
+      assert Schema.changes(object(%{"pw" => pw}, []), object(%{"pw" => pw}, ["pw"]), :both) ==
+               [{"pw is now required", true}]
+    end
+
+    test "a readOnly property's enum and type changes don't count in requests either" do
+      status = fn enum -> %{"readOnly" => true, "type" => "string", "enum" => enum} end
+      old = object(%{"status" => status.(["a", "b"])}, [])
+      new = object(%{"status" => status.(["a"])}, [])
+
+      assert Schema.changes(old, new, :both) == [{"status: enum loses b", false}]
+      assert Schema.changes(new, old, :both) == [{"status: enum gains b", true}]
     end
 
     test "a property that only now becomes readOnly is compared as usual" do

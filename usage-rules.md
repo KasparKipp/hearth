@@ -356,7 +356,10 @@ fields, enum values, types, nullability, and constraints such as
 new required field, a lost enum value, a lower `maxLength`) or a
 response schema that may return more (a gained enum value, a field no
 longer required, now nullable, a dropped `pattern`). A component schema counts as
-both when the operations use it on both sides.
+both when the operations use it on both sides. A `readOnly` property
+never breaks requests and a `writeOnly` one never breaks responses; a
+`default` added or removed breaks nothing, a changed one breaks
+requests.
 Documentation-only changes are ignored. It also lists new upstream
 operations `tags:` doesn't select yet, without failing.
 

@@ -29,7 +29,8 @@ defmodule Mix.Tasks.Hearth.Diff.Docs do
     change is marked breaking or not: breaking when a request schema
     accepts less (a new required field, a lower `maxLength`) or a
     response schema may return more (a gained enum value, a field no
-    longer required).
+    longer required). A `readOnly` property never breaks requests, a
+    `writeOnly` one never breaks responses.
     Documentation-only changes are ignored. An operationId rename at
     the same method and path is drift, not breaking: the report names
     the call sites to rename, and `--sync` keeps the operation selected.

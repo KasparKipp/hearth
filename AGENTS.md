@@ -678,12 +678,17 @@ What exists, condensed. The blow-by-blow is in git history.
   `nullable` ≡ 3.1 `"null"` — `$ref` (keywords beside an unchanged one
   still compared), `items`, `additionalProperties` (absent ≡ `true` ≡
   `{}`; schema vs schema recursed at `x{}`), compositions, and the
-  constraint keywords in `Drift.Constraints` — bounds, 3.0 / 3.1
-  exclusive bounds, `multipleOf`, `pattern`, `format`, `const`,
-  `uniqueItems`, `readOnly` / `writeOnly`, `not`, `default`; a
-  `readOnly` property's constraints don't count in requests, a
-  `writeOnly` one's in responses; an explicit list, so annotations and
-  rare 3.1 keywords are ignored). Verdicts are side-aware: each change has an effect
+  constraint keywords in `Drift.Constraints` — bounds, `maximum` /
+  `exclusiveMaximum` (and the `minimum` pair) as one effective bound,
+  3.0 boolean or 3.1 number alike, `multipleOf`, `pattern`, `format`,
+  `const`, `uniqueItems`, `readOnly` / `writeOnly`, `not`, `default`
+  (changed breaks requests, added or removed breaks nothing); numbers
+  by value (`1` ≡ `1.0`), `integer` ⊂ `number`, `items` added
+  tightens / removed loosens; an explicit list, so annotations and
+  rare 3.1 keywords are ignored). Changes inside a `readOnly` property
+  (required, enum, type, constraints) don't break requests, a
+  `writeOnly` one's don't break responses — still listed, as
+  non-breaking. Verdicts are side-aware: each change has an effect
   (`:request` tighter, `:response` looser, `:both`, `:none`), breaking
   when it matches the schema's side — parameters and request bodies are
   `:request`, responses `:response`, a component the side `Drift.Usage`

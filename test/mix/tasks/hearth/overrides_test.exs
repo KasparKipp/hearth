@@ -152,6 +152,16 @@ defmodule Mix.Tasks.Hearth.OverridesTest do
       refute notice_text(diffed) =~ @stale
     end
 
+    test "diff --source fails on a stale override too" do
+      diffed =
+        generated()
+        |> add_override("NoSuchOp")
+        |> Igniter.compose_task("hearth.diff", ["shop", "--source", "priv/specs/shop.json"])
+
+      assert issue_text(diffed) =~ @stale
+      assert issue_text(diffed) =~ @remedy
+    end
+
     test "--sync reports a stale override as a notice" do
       synced =
         generated()

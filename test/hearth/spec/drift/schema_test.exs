@@ -213,6 +213,46 @@ defmodule Hearth.Spec.Drift.SchemaTest do
                [{"type string → integer", true}]
     end
 
+    test "integer is a subset of number" do
+      integer = %{"type" => "integer"}
+      number = %{"type" => "number"}
+
+      assert Schema.changes(integer, number, :request) == [{"type integer → number", false}]
+      assert Schema.changes(integer, number, :response) == [{"type integer → number", true}]
+      assert Schema.changes(number, integer, :request) == [{"type number → integer", true}]
+      assert Schema.changes(number, integer, :response) == [{"type number → integer", false}]
+
+      assert Schema.changes(%{"type" => ["number", "integer"]}, number, :both) ==
+               [{"type number | integer → number", false}]
+    end
+
+    test "items added tightens, items removed loosens" do
+      array = %{"type" => "array"}
+      typed = Map.put(array, "items", @string)
+
+      assert Schema.changes(array, typed, :request) == [{"items (none) → schema", true}]
+      assert Schema.changes(array, typed, :response) == [{"items (none) → schema", false}]
+      assert Schema.changes(typed, array, :request) == [{"items schema → (none)", false}]
+      assert Schema.changes(typed, array, :response) == [{"items schema → (none)", true}]
+    end
+
+    test "a nullable enum rewritten from 3.0 to 3.1 form is no change" do
+      v30 = %{"type" => "string", "nullable" => true, "enum" => ["a", "b"]}
+      v31 = %{"type" => ["string", "null"], "enum" => ["a", "b", nil]}
+
+      for side <- [:request, :response, :both] do
+        assert Schema.changes(v30, v31, side) == []
+        assert Schema.changes(v31, v30, side) == []
+      end
+
+      assert Schema.changes(
+               %{"type" => "string", "enum" => ["a"]},
+               %{"type" => "string", "enum" => ["a", nil]},
+               :response
+             ) ==
+               [{"enum gains null", true}]
+    end
+
     test "the side reaches nested properties, items and compositions" do
       old = object(%{"tags" => %{"type" => "array", "items" => %{"enum" => ["a"]}}})
       new = object(%{"tags" => %{"type" => "array", "items" => %{"enum" => ["a", "b"]}}})

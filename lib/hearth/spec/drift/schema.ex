@@ -16,21 +16,26 @@ defmodule Hearth.Spec.Drift.Schema do
   #     (both)
   #   * `enum`: values gained or the enum dropped (looser), values lost
   #     or an enum added (tighter); compared as sets
-  #   * `type`, as a set without `"null"`: narrower or added (tighter),
-  #     wider or dropped (looser), else both. Nullability — 3.0
-  #     `nullable` or 3.1 `"null"` in `type`, alike — lost (tighter) or
-  #     gained (looser)
+  #     (a nullable schema's `null` value is nullability, not enum)
+  #   * `type`, as a set without `"null"`, `number` including
+  #     `integer`: narrower or added (tighter), wider or dropped
+  #     (looser), else both. Nullability — 3.0 `nullable` or 3.1
+  #     `"null"` in `type`, alike — lost (tighter) or gained (looser)
   #   * `$ref` changes (both) — a `$ref` target's own changes are
   #     reported under that component; keywords beside an unchanged
   #     `$ref` (`nullable`, constraints) are compared
   #   * constraint keywords (`maxLength`, `pattern`, `format`, …), by
-  #     `Hearth.Spec.Drift.Constraints`. A `readOnly` property's don't
-  #     count in requests, a `writeOnly` one's in responses
+  #     `Hearth.Spec.Drift.Constraints`
   #   * `additionalProperties` (absent ≡ `true` ≡ `{}`): `true` → a
   #     schema → `false` tightens, the reverse loosens; a schema against
   #     a schema is compared recursively
-  #   * `items` and `allOf` / `oneOf` / `anyOf` members (by position) are
-  #     compared recursively; a member count change is both
+  #   * `items` added (tighter) or removed (looser); `items` and
+  #     `allOf` / `oneOf` / `anyOf` members (by position) are compared
+  #     recursively; a member count change is both
+  #
+  # A `readOnly` property is never sent, so its changes — required,
+  # enum, type, constraints — don't count in requests; a `writeOnly`
+  # one's don't count in responses. They're still listed.
   #
   # Nested changes carry their path: `owner.name`, `tags[]`, `meta{}`,
   # `allOf[1]`.
@@ -54,16 +59,22 @@ defmodule Hearth.Spec.Drift.Schema do
   def breaking?(_effect, :both), do: true
   def breaking?(effect, side), do: effect == side
 
-  # `ctx.ignore` — the side whose constraint changes don't count here
-  # (inside a `readOnly` or `writeOnly` property), else nil.
-  defp walk(_path, same, same, _ctx), do: []
+  # `ctx.ignore` — the side whose changes don't count here (inside a
+  # `readOnly` or `writeOnly` property), else nil. Such changes are still
+  # listed, as drift that breaks nothing.
+  defp walk(path, old, new, ctx) do
+    for {detail, effect} <- compare(path, old, new, ctx),
+        do: {detail, ignoring(effect, ctx.ignore)}
+  end
 
-  defp walk(path, %{} = old, %{} = new, ctx) do
+  defp compare(_path, same, same, _ctx), do: []
+
+  defp compare(path, %{} = old, %{} = new, ctx) do
     if old["$ref"] == new["$ref"] do
       type(path, old, new) ++
         nullable(path, old, new) ++
         enum(path, old, new) ++
-        constraints(path, old, new, ctx) ++
+        constraints(path, old, new) ++
         properties(path, old, new, ctx) ++
         required(path, old, new) ++
         additional(path, old["additionalProperties"], new["additionalProperties"], ctx) ++
@@ -74,7 +85,7 @@ defmodule Hearth.Spec.Drift.Schema do
     end
   end
 
-  defp walk(path, _old, _new, _ctx), do: [at(path, "schema changed", :both)]
+  defp compare(path, _old, _new, _ctx), do: [at(path, "schema changed", :both)]
 
   defp ref_name(nil), do: "(inline)"
   defp ref_name(ref), do: ref |> String.split("/") |> List.last()
@@ -98,7 +109,10 @@ defmodule Hearth.Spec.Drift.Schema do
   defp types(schema), do: schema["type"] |> List.wrap() |> Enum.reject(&(&1 == "null"))
 
   defp widening(old, new) do
+    {old, new} = {with_integer(old), with_integer(new)}
+
     cond do
+      old == new -> :none
       MapSet.size(old) == 0 -> :request
       MapSet.size(new) == 0 -> :response
       MapSet.subset?(new, old) -> :request
@@ -106,6 +120,10 @@ defmodule Hearth.Spec.Drift.Schema do
       true -> :both
     end
   end
+
+  # Every integer is a number.
+  defp with_integer(types),
+    do: if("number" in types, do: MapSet.put(types, "integer"), else: types)
 
   defp type_name([]), do: "(none)"
   defp type_name(types), do: Enum.map_join(types, " | ", &to_string/1)
@@ -120,14 +138,26 @@ defmodule Hearth.Spec.Drift.Schema do
 
   defp nullable?(schema), do: schema["nullable"] == true or "null" in List.wrap(schema["type"])
 
+  # `null` among the values says nothing new when the schema is nullable
+  # on both sides — 3.1 lists it, 3.0 `nullable` doesn't — and
+  # nullability is compared on its own.
   defp enum(path, old, new) do
-    case {old["enum"], new["enum"]} do
+    null? = nullable?(old) and nullable?(new)
+
+    case {enum_list(old, null?), enum_list(new, null?)} do
       {same, same} -> []
       {nil, values} -> [at(path, "enum (none) → #{values(values)}", :request)]
       {values, nil} -> [at(path, "enum #{values(values)} → (none)", :response)]
       {old_values, new_values} -> enum_values(path, old_values, new_values)
     end
   end
+
+  defp enum_list(%{"enum" => values}, null?) when is_list(values) do
+    values = Enum.map(values, &Constraints.normalize/1)
+    if null?, do: Enum.reject(values, &is_nil/1), else: values
+  end
+
+  defp enum_list(schema, _null?), do: schema["enum"]
 
   defp enum_values(path, old, new) do
     gained = new |> Enum.uniq() |> Enum.reject(&(&1 in old))
@@ -139,11 +169,8 @@ defmodule Hearth.Spec.Drift.Schema do
 
   defp values(values), do: values |> List.wrap() |> Enum.map_join(", ", &Constraints.text/1)
 
-  defp constraints(_path, _old, _new, %{ignore: side, side: side}), do: []
-
-  defp constraints(path, old, new, %{ignore: ignore}) do
-    for {detail, effect} <- Constraints.changes(old, new),
-        do: at(path, detail, ignoring(effect, ignore))
+  defp constraints(path, old, new) do
+    for {detail, effect} <- Constraints.changes(old, new), do: at(path, detail, effect)
   end
 
   # Inside a `readOnly` property of a schema used on both sides only the
@@ -161,8 +188,10 @@ defmodule Hearth.Spec.Drift.Schema do
 
     added =
       for name <- sorted_keys(new_props), not Map.has_key?(old_props, name) do
+        new_prop = new_props[name]
+
         if name in new_required,
-          do: at(path, "property #{name} added, required", :request),
+          do: at(path, "property #{name} added, required", only(:request, new_prop, new_prop)),
           else: at(path, "property #{name} added", :none)
       end
 
@@ -182,39 +211,50 @@ defmodule Hearth.Spec.Drift.Schema do
   end
 
   defp property(ctx, old, new) do
-    cond do
-      flag?(old, new, "readOnly") -> %{ctx | ignore: :request}
-      flag?(old, new, "writeOnly") -> %{ctx | ignore: :response}
-      true -> ctx
+    case ignored_side(old, new) do
+      nil -> ctx
+      side -> %{ctx | ignore: side}
     end
   end
+
+  # A `readOnly` property is never sent, a `writeOnly` one never read.
+  defp ignored_side(old, new) do
+    cond do
+      flag?(old, new, "readOnly") -> :request
+      flag?(old, new, "writeOnly") -> :response
+      true -> nil
+    end
+  end
+
+  # `effect` for a change to a property, short of the side it's ignored on.
+  defp only(effect, old_prop, new_prop), do: ignoring(effect, ignored_side(old_prop, new_prop))
 
   defp flag?(old, new, key),
     do: is_map(old) and is_map(new) and old[key] == true and new[key] == true
 
   # Only properties present in both versions — added and removed ones
-  # are reported by `properties/3`.
+  # are reported by `properties/4`.
   defp required(path, old, new) do
-    both =
-      MapSet.intersection(
-        MapSet.new(Map.keys(old["properties"] || %{})),
-        MapSet.new(Map.keys(new["properties"] || %{}))
-      )
-
+    {old_props, new_props} = {old["properties"] || %{}, new["properties"] || %{}}
+    both = MapSet.intersection(MapSet.new(Map.keys(old_props)), MapSet.new(Map.keys(new_props)))
     old_required = MapSet.new(List.wrap(old["required"]))
     new_required = MapSet.new(List.wrap(new["required"]))
 
     for name <- Enum.sort(both),
         MapSet.member?(old_required, name) != MapSet.member?(new_required, name) do
+      {old_prop, new_prop} = {old_props[name], new_props[name]}
+
       if MapSet.member?(new_required, name),
-        do: at(path, "#{name} is now required", :request),
-        else: at(path, "#{name} is no longer required", :response)
+        do: at(path, "#{name} is now required", only(:request, old_prop, new_prop)),
+        else: at(path, "#{name} is no longer required", only(:response, old_prop, new_prop))
     end
   end
 
   defp items(path, old, new, ctx) do
     case {old["items"], new["items"]} do
       {nil, nil} -> []
+      {nil, _items} -> [at(path, "items (none) → schema", :request)]
+      {_items, nil} -> [at(path, "items schema → (none)", :response)]
       {old_items, new_items} -> walk(path <> "[]", old_items, new_items, ctx)
     end
   end
