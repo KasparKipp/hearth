@@ -312,7 +312,8 @@ lib/
       headers.ex               # required-header suggestions for headers:
       values.ex                # credential: / headers: / base_url: — config, option or resolver
       drift.ex                 # pruned spec vs re-pruned source → changes
-      drift/schema.ex          # JSON schema shape changes (additive / breaking)
+      drift/schema.ex          # JSON schema shape changes, judged by side (request / response)
+      drift/usage.ex           # which side each component schema is used on
       drift/copies.ex          # sources: copies (items_x) paired with x across a split / join
     render/                    # pure: data → source strings
       module_names.ex          # every layer's module from Layer 1
@@ -669,8 +670,14 @@ What exists, condensed. The blow-by-blow is in git history.
   notices external tests still calling the old function),
   parameters / request body / responses with local `$ref`s resolved, and
   `components/schemas` by name, all through `Drift.Schema` (properties,
-  `required`, `enum`, `type`, `$ref`, `items`, compositions; annotations
-  ignored). With `sources:`, a merge's copies (`items_x`) pair with the
+  `required`, `enum` as a set, `type` as a set plus nullability — 3.0
+  `nullable` ≡ 3.1 `"null"` — `$ref`, `items`, compositions; annotations
+  ignored). Verdicts are side-aware: each change has an effect
+  (`:request` tighter, `:response` looser, `:both`, `:none`), breaking
+  when it matches the schema's side — parameters and request bodies are
+  `:request`, responses `:response`, a component the side `Drift.Usage`
+  finds by walking operations through local `$ref`s in both specs (a
+  copy folded into its plain name; unreferenced → `:both`). With `sources:`, a merge's copies (`items_x`) pair with the
   plain `x` on the other side (`Drift.Copies`; splits from the merge's
   own list, joins by name): a split or join is one non-breaking line,
   then each source compared with what it had (its copy, else `x`), so a

@@ -380,6 +380,132 @@ defmodule Hearth.Spec.DriftTest do
     end
   end
 
+  # `base/0` reads `Pet` only in a response. A schema's changes are
+  # judged by where the operations use it: a tighter request or a looser
+  # response is breaking.
+  describe "compare/2 by where a component is used" do
+    @status %{"type" => "string", "enum" => ["A"]}
+
+    defp with_status(spec, values) do
+      put_in(spec, ["components", "schemas", "Pet", "properties", "status"], %{
+        @status
+        | "enum" => values
+      })
+    end
+
+    defp pet_body(spec) do
+      put_in(spec, ["paths", "/pets", "post"], %{
+        "operationId" => "createPet",
+        "requestBody" => %{
+          "content" => %{
+            "application/json" => %{"schema" => %{"$ref" => "#/components/schemas/Pet"}}
+          }
+        }
+      })
+    end
+
+    defp request_only(spec) do
+      spec
+      |> pet_body()
+      |> put_in(["paths", "/pets/{id}", "get", "responses"], %{"204" => %{}})
+    end
+
+    defp gains(old, new) do
+      Enum.map(Drift.compare(old, new), &{&1.detail, &1.breaking?})
+    end
+
+    test "a component read only in responses breaks when it gets looser" do
+      assert gains(with_status(base(), ["A"]), with_status(base(), ["A", "B"])) ==
+               [{"status: enum gains B", true}]
+
+      assert gains(with_status(base(), ["A", "B"]), with_status(base(), ["A"])) ==
+               [{"status: enum loses B", false}]
+    end
+
+    test "a component sent only in requests breaks when it gets tighter" do
+      old = request_only(base())
+
+      assert gains(with_status(old, ["A"]), with_status(old, ["A", "B"])) ==
+               [{"status: enum gains B", false}]
+
+      assert gains(with_status(old, ["A", "B"]), with_status(old, ["A"])) ==
+               [{"status: enum loses B", true}]
+    end
+
+    test "a component on both sides breaks either way" do
+      old = pet_body(base())
+
+      assert gains(with_status(old, ["A"]), with_status(old, ["A", "B"])) ==
+               [{"status: enum gains B", true}]
+
+      assert gains(with_status(old, ["A", "B"]), with_status(old, ["A"])) ==
+               [{"status: enum loses B", true}]
+    end
+
+    test "a component reached through another one takes its side" do
+      owner = %{
+        "type" => "object",
+        "properties" => %{"pet" => %{"$ref" => "#/components/schemas/Pet"}}
+      }
+
+      wrap = fn spec ->
+        spec
+        |> request_only()
+        |> put_in(["components", "schemas", "Owner"], owner)
+        |> put_in(
+          ["paths", "/pets", "post", "requestBody", "content", "application/json", "schema"],
+          %{"$ref" => "#/components/schemas/Owner"}
+        )
+      end
+
+      assert gains(wrap.(with_status(base(), ["A"])), wrap.(with_status(base(), ["A", "B"]))) ==
+               [{"status: enum gains B", false}]
+    end
+
+    test "parameters are judged as requests, responses as responses" do
+      limit = fn schema ->
+        put_in(base(), ["components", "parameters", "Limit", "schema"], schema)
+      end
+
+      assert [%{breaking?: false}] =
+               Drift.compare(limit.(%{"enum" => [1]}), limit.(%{"enum" => [1, 2]}))
+
+      assert [%{breaking?: true}] =
+               Drift.compare(limit.(%{"enum" => [1, 2]}), limit.(%{"enum" => [1]}))
+
+      inline = fn values ->
+        put_in(
+          base(),
+          ["paths", "/pets/{id}", "get", "responses", "200", "content", "application/json"],
+          %{"schema" => %{"enum" => values}}
+        )
+      end
+
+      assert [%{detail: "response 200 application/json: enum gains b", breaking?: true}] =
+               Drift.compare(inline.(["a"]), inline.(["a", "b"]))
+    end
+
+    test "a merged copy takes its plain name's side" do
+      merge = [keys: [:items, :orders], splits: [{"schemas", "Pet"}]]
+      old = request_only(with_status(base(), ["A"]))
+      pet = get_in(old, ["components", "schemas", "Pet"])
+      wider = put_in(pet, ["properties", "status", "enum"], ["A", "B"])
+
+      new =
+        old
+        |> put_in(["components", "schemas"], %{"items_Pet" => pet, "orders_Pet" => wider})
+        |> put_in(
+          ["paths", "/pets", "post", "requestBody", "content", "application/json", "schema"],
+          %{"$ref" => "#/components/schemas/items_Pet"}
+        )
+
+      assert summary(Drift.compare(old, new, merge)) == [
+               {:schema, :changed, "Pet", "split per source into items_Pet, orders_Pet", false},
+               {:schema, :changed, "orders_Pet", "status: enum gains B", false}
+             ]
+    end
+  end
+
   describe "breaking?/1" do
     test "is true when any change is breaking" do
       refute Drift.breaking?([%{breaking?: false}])

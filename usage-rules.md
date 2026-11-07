@@ -347,7 +347,11 @@ credential with `auth: [credential: …]` instead.
 compares the result with `priv/hearth/<int>.yaml`. It lists every
 change — operations added, removed, moved or renamed; parameters,
 request bodies and responses; component schemas (properties, required
-fields, enum values, types) — and marks the breaking ones.
+fields, enum values, types, nullability) — and marks the breaking ones:
+a request schema that accepts less (a new required field, a lost enum
+value) or a response schema that may return more (a gained enum value,
+a field no longer required, now nullable). A component schema counts as
+both when the operations use it on both sides.
 Documentation-only changes are ignored. It also lists new upstream
 operations `tags:` doesn't select yet, without failing.
 

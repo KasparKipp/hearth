@@ -24,7 +24,10 @@ defmodule Mix.Tasks.Hearth.Diff.Docs do
     the pruned spec in `priv/hearth/`. It lists every change:
     operations added, removed, moved or renamed; parameters, request
     bodies and responses; and component schemas — properties, required
-    fields, enum values, types. Each change is marked breaking or not.
+    fields, enum values, types, nullability. Each change is marked
+    breaking or not: breaking when a request schema accepts less (a new
+    required field, a lost enum value) or a response schema may return
+    more (a gained enum value, a field no longer required).
     Documentation-only changes are ignored. An operationId rename at
     the same method and path is drift, not breaking: the report names
     the call sites to rename, and `--sync` keeps the operation selected.

@@ -5,28 +5,52 @@ defmodule Hearth.Spec.Drift.Schema do
   # and lists what changed as `{detail, breaking?}`. Only shape counts —
   # `description`, `example`, `title` and other annotations are ignored.
   #
-  #   * properties: added (breaking only when also required), removed
-  #     (breaking), newly required (breaking), no longer required
-  #   * `enum`: values gained, values lost (breaking)
-  #   * `type` and `$ref` changes (breaking) — a `$ref` target's own
-  #     changes are reported under that component
+  # Whether a change breaks depends on the schema's side: a schema sent
+  # in requests breaks callers when it accepts less (tighter), one read
+  # in responses breaks them when it may return more (looser), one used
+  # on both sides breaks either way. Each change has an effect —
+  # `:request` (tighter), `:response` (looser), `:both` or `:none`:
+  #
+  #   * properties: optional one added (none), required one added or
+  #     now required (tighter), no longer required (looser), removed
+  #     (both)
+  #   * `enum`: values gained or the enum dropped (looser), values lost
+  #     or an enum added (tighter); compared as sets
+  #   * `type`, as a set without `"null"`: narrower or added (tighter),
+  #     wider or dropped (looser), else both. Nullability — 3.0
+  #     `nullable` or 3.1 `"null"` in `type`, alike — lost (tighter) or
+  #     gained (looser)
+  #   * `$ref` changes (both) — a `$ref` target's own changes are
+  #     reported under that component
   #   * `items` and `allOf` / `oneOf` / `anyOf` members (by position) are
-  #     compared recursively; a member count change is breaking
+  #     compared recursively; a member count change is both
   #
   # Nested changes carry their path: `owner.name`, `tags[]`, `allOf[1]`.
 
   @compositions ~w(allOf oneOf anyOf)
 
-  @spec changes(term(), term()) :: [{String.t(), boolean()}]
-  def changes(old, new), do: changes("", old, new)
+  @type side :: :request | :response | :both
+  @type effect :: :request | :response | :both | :none
 
-  defp changes(_path, same, same), do: []
+  @spec changes(term(), term(), side()) :: [{String.t(), boolean()}]
+  def changes(old, new, side \\ :request) do
+    for {detail, effect} <- walk("", old, new), do: {detail, breaking?(effect, side)}
+  end
 
-  defp changes(path, %{} = old, %{} = new) do
+  @spec breaking?(effect(), side()) :: boolean()
+  def breaking?(:none, _side), do: false
+  def breaking?(:both, _side), do: true
+  def breaking?(_effect, :both), do: true
+  def breaking?(effect, side), do: effect == side
+
+  defp walk(_path, same, same), do: []
+
+  defp walk(path, %{} = old, %{} = new) do
     if Map.has_key?(old, "$ref") or Map.has_key?(new, "$ref") do
       ref(path, old["$ref"], new["$ref"])
     else
       type(path, old, new) ++
+        nullable(path, old, new) ++
         enum(path, old, new) ++
         properties(path, old, new) ++
         required(path, old, new) ++
@@ -35,37 +59,82 @@ defmodule Hearth.Spec.Drift.Schema do
     end
   end
 
-  defp changes(path, _old, _new), do: [at(path, "schema changed", true)]
+  defp walk(path, _old, _new), do: [at(path, "schema changed", :both)]
 
   defp ref(_path, same, same), do: []
 
   defp ref(path, old, new),
-    do: [at(path, "$ref #{ref_name(old)} → #{ref_name(new)}", true)]
+    do: [at(path, "$ref #{ref_name(old)} → #{ref_name(new)}", :both)]
 
   defp ref_name(nil), do: "(inline)"
   defp ref_name(ref), do: ref |> String.split("/") |> List.last()
 
+  # `type` without `"null"`, as a set; an empty set is no type at all.
   defp type(path, old, new) do
-    if old["type"] == new["type"],
+    {old_types, new_types} = {types(old), types(new)}
+    {old_set, new_set} = {MapSet.new(old_types), MapSet.new(new_types)}
+
+    if old_set == new_set,
       do: [],
-      else: [at(path, "type #{type_name(old["type"])} → #{type_name(new["type"])}", true)]
+      else: [
+        at(
+          path,
+          "type #{type_name(old_types)} → #{type_name(new_types)}",
+          widening(old_set, new_set)
+        )
+      ]
   end
 
-  defp type_name(nil), do: "(none)"
-  defp type_name(type) when is_list(type), do: Enum.join(type, " | ")
-  defp type_name(type), do: to_string(type)
+  defp types(schema), do: schema["type"] |> List.wrap() |> Enum.reject(&(&1 == "null"))
+
+  defp widening(old, new) do
+    cond do
+      MapSet.size(old) == 0 -> :request
+      MapSet.size(new) == 0 -> :response
+      MapSet.subset?(new, old) -> :request
+      MapSet.subset?(old, new) -> :response
+      true -> :both
+    end
+  end
+
+  defp type_name([]), do: "(none)"
+  defp type_name(types), do: Enum.map_join(types, " | ", &to_string/1)
+
+  defp nullable(path, old, new) do
+    case {nullable?(old), nullable?(new)} do
+      {same, same} -> []
+      {true, false} -> [at(path, "no longer nullable", :request)]
+      {false, true} -> [at(path, "now nullable", :response)]
+    end
+  end
+
+  defp nullable?(schema), do: schema["nullable"] == true or "null" in List.wrap(schema["type"])
 
   defp enum(path, old, new) do
-    old_values = List.wrap(old["enum"])
-    new_values = List.wrap(new["enum"])
-    gained = new_values -- old_values
-    lost = old_values -- new_values
-
-    if(gained == [], do: [], else: [at(path, "enum gains #{values(gained)}", false)]) ++
-      if lost == [], do: [], else: [at(path, "enum loses #{values(lost)}", true)]
+    case {old["enum"], new["enum"]} do
+      {same, same} -> []
+      {nil, values} -> [at(path, "enum (none) → #{values(values)}", :request)]
+      {values, nil} -> [at(path, "enum #{values(values)} → (none)", :response)]
+      {old_values, new_values} -> enum_values(path, old_values, new_values)
+    end
   end
 
-  defp values(values), do: Enum.map_join(values, ", ", &to_string/1)
+  defp enum_values(path, old, new) do
+    gained = new |> Enum.uniq() |> Enum.reject(&(&1 in old))
+    lost = old |> Enum.uniq() |> Enum.reject(&(&1 in new))
+
+    if(gained == [], do: [], else: [at(path, "enum gains #{values(gained)}", :response)]) ++
+      if lost == [], do: [], else: [at(path, "enum loses #{values(lost)}", :request)]
+  end
+
+  defp values(values), do: values |> List.wrap() |> Enum.map_join(", ", &text/1)
+
+  # A keyword's value as it reads in a detail line.
+  @spec text(term()) :: String.t()
+  def text(nil), do: "(none)"
+  def text(value) when is_binary(value), do: value
+  def text(value) when is_number(value) or is_boolean(value), do: to_string(value)
+  def text(value), do: JSON.encode!(value)
 
   defp properties(path, old, new) do
     old_props = old["properties"] || %{}
@@ -75,19 +144,19 @@ defmodule Hearth.Spec.Drift.Schema do
     added =
       for name <- sorted_keys(new_props), not Map.has_key?(old_props, name) do
         if name in new_required,
-          do: at(path, "property #{name} added, required", true),
-          else: at(path, "property #{name} added", false)
+          do: at(path, "property #{name} added, required", :request),
+          else: at(path, "property #{name} added", :none)
       end
 
     removed =
       for name <- sorted_keys(old_props), not Map.has_key?(new_props, name) do
-        at(path, "property #{name} removed", true)
+        at(path, "property #{name} removed", :both)
       end
 
     nested =
       for name <- sorted_keys(old_props),
           Map.has_key?(new_props, name),
-          change <- changes(join(path, name), old_props[name], new_props[name]),
+          change <- walk(join(path, name), old_props[name], new_props[name]),
           do: change
 
     added ++ removed ++ nested
@@ -108,15 +177,15 @@ defmodule Hearth.Spec.Drift.Schema do
     for name <- Enum.sort(both),
         MapSet.member?(old_required, name) != MapSet.member?(new_required, name) do
       if MapSet.member?(new_required, name),
-        do: at(path, "#{name} is now required", true),
-        else: at(path, "#{name} is no longer required", false)
+        do: at(path, "#{name} is now required", :request),
+        else: at(path, "#{name} is no longer required", :response)
     end
   end
 
   defp items(path, old, new) do
     case {old["items"], new["items"]} do
       {nil, nil} -> []
-      {old_items, new_items} -> changes(path <> "[]", old_items, new_items)
+      {old_items, new_items} -> walk(path <> "[]", old_items, new_items)
     end
   end
 
@@ -130,9 +199,9 @@ defmodule Hearth.Spec.Drift.Schema do
       old
       |> Enum.zip(new)
       |> Enum.with_index()
-      |> Enum.flat_map(fn {{o, n}, i} -> changes(join(path, "#{key}[#{i}]"), o, n) end)
+      |> Enum.flat_map(fn {{o, n}, i} -> walk(join(path, "#{key}[#{i}]"), o, n) end)
     else
-      [at(path, "#{key}: #{length(old)} → #{length(new)} schemas", true)]
+      [at(path, "#{key}: #{length(old)} → #{length(new)} schemas", :both)]
     end
   end
 
@@ -141,6 +210,6 @@ defmodule Hearth.Spec.Drift.Schema do
   defp join("", name), do: name
   defp join(path, name), do: path <> "." <> name
 
-  defp at("", detail, breaking?), do: {detail, breaking?}
-  defp at(path, detail, breaking?), do: {"#{path}: #{detail}", breaking?}
+  defp at("", detail, effect), do: {detail, effect}
+  defp at(path, detail, effect), do: {"#{path}: #{detail}", effect}
 end

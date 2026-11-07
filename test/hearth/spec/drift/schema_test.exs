@@ -87,7 +87,7 @@ defmodule Hearth.Spec.Drift.SchemaTest do
 
       assert Schema.changes(old, new) == [
                {"owner.name: type string → integer", true},
-               {"tags[]: enum gains x", false}
+               {"tags[]: enum (none) → x", true}
              ]
     end
 
@@ -105,6 +105,116 @@ defmodule Hearth.Spec.Drift.SchemaTest do
 
       assert Schema.changes(old, %{"allOf" => [%{"$ref" => "#/components/schemas/A"}]}) ==
                [{"allOf: 2 → 1 schemas", true}]
+    end
+  end
+
+  describe "changes/3 by side" do
+    test "a response schema breaks where it gets looser, a request schema where it gets tighter" do
+      props = %{"a" => @string}
+      enum = fn values -> %{"type" => "string", "enum" => values} end
+
+      cases = [
+        {object(props), object(%{"a" => @string, "b" => @string}, ["b"]), true, false},
+        {object(props), object(props, ["a"]), true, false},
+        {object(props, ["a"]), object(props), false, true},
+        {object(%{"a" => @string, "b" => @string}), object(props), true, true},
+        {enum.(["A"]), enum.(["A", "B"]), false, true},
+        {enum.(["A", "B"]), enum.(["A"]), true, false},
+        {@string, enum.(["A"]), true, false},
+        {enum.(["A"]), @string, false, true},
+        {%{"$ref" => "#/components/schemas/A"}, %{"$ref" => "#/components/schemas/B"}, true,
+         true},
+        {%{"allOf" => [@string]}, %{"allOf" => [@string, @string]}, true, true}
+      ]
+
+      for {old, new, request?, response?} <- cases do
+        assert [{_, ^request?}] = Schema.changes(old, new, :request)
+        assert [{_, ^response?}] = Schema.changes(old, new, :response)
+        assert [{_, true}] = Schema.changes(old, new, :both), inspect({old, new})
+      end
+    end
+
+    test "an optional property added breaks neither side" do
+      assert Schema.changes(object(%{}), object(%{"b" => @string}), :both) ==
+               [{"property b added", false}]
+    end
+
+    test "a schema with no enum gaining one is a tightening" do
+      assert Schema.changes(@string, %{"type" => "string", "enum" => ["A", "B"]}) ==
+               [{"enum (none) → A, B", true}]
+
+      assert Schema.changes(%{"type" => "string", "enum" => ["A"]}, @string, :response) ==
+               [{"enum A → (none)", true}]
+    end
+
+    test "enum values compare as sets" do
+      old = %{"type" => "string", "enum" => ["A", "B"]}
+
+      assert Schema.changes(old, %{"type" => "string", "enum" => ["B", "A", "A"]}) == []
+
+      assert Schema.changes(%{"enum" => ["A", "A", "B"]}, %{"enum" => ["A", "B", "C", "C"]}) ==
+               [{"enum gains C", false}]
+    end
+
+    test "a type list compares as a set, and null is nullability" do
+      assert Schema.changes(%{"type" => ["string", "null"]}, %{"type" => ["null", "string"]}) ==
+               []
+
+      assert Schema.changes(%{"type" => "string", "nullable" => true}, %{
+               "type" => ["string", "null"]
+             }) == []
+
+      assert Schema.changes(%{"type" => ["null", "string"]}, %{
+               "type" => "string",
+               "nullable" => true
+             }) == []
+    end
+
+    test "nullability changes by side" do
+      nullable = %{"type" => ["string", "null"]}
+
+      assert Schema.changes(nullable, @string, :request) == [{"no longer nullable", true}]
+      assert Schema.changes(nullable, @string, :response) == [{"no longer nullable", false}]
+      assert Schema.changes(@string, nullable, :request) == [{"now nullable", false}]
+      assert Schema.changes(@string, nullable, :response) == [{"now nullable", true}]
+
+      assert Schema.changes(object(%{"owner" => @string}), object(%{"owner" => nullable})) ==
+               [{"owner: now nullable", false}]
+    end
+
+    test "a type set narrowing tightens, widening loosens, anything else breaks both" do
+      wide = %{"type" => ["string", "integer"]}
+
+      assert Schema.changes(wide, @string, :request) == [{"type string | integer → string", true}]
+
+      assert Schema.changes(wide, @string, :response) == [
+               {"type string | integer → string", false}
+             ]
+
+      assert Schema.changes(@string, wide, :request) == [
+               {"type string → string | integer", false}
+             ]
+
+      assert Schema.changes(@string, wide, :response) == [
+               {"type string → string | integer", true}
+             ]
+
+      assert Schema.changes(%{}, @string, :response) == [{"type (none) → string", false}]
+      assert Schema.changes(@string, %{}, :request) == [{"type string → (none)", false}]
+
+      assert Schema.changes(@string, %{"type" => "integer"}, :response) ==
+               [{"type string → integer", true}]
+    end
+
+    test "the side reaches nested properties, items and compositions" do
+      old = object(%{"tags" => %{"type" => "array", "items" => %{"enum" => ["a"]}}})
+      new = object(%{"tags" => %{"type" => "array", "items" => %{"enum" => ["a", "b"]}}})
+
+      assert Schema.changes(old, new, :response) == [{"tags[]: enum gains b", true}]
+      assert Schema.changes(old, new, :request) == [{"tags[]: enum gains b", false}]
+
+      assert Schema.changes(%{"oneOf" => [old]}, %{"oneOf" => [new]}, :response) ==
+               [{"oneOf[0].tags[]: enum gains b", true}]
     end
   end
 end
